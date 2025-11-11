@@ -1,11 +1,14 @@
 """A linking methodology based on a deterministic set of conditions."""
 
+import json
+
 import duckdb
 import polars as pl
 from pydantic import Field, field_validator
 
 from matchbox.client.models import comparison
 from matchbox.client.models.linkers.base import Linker, LinkerSettings
+from matchbox.common.logging import logger
 
 
 class DeterministicSettings(LinkerSettings):
@@ -52,37 +55,21 @@ class DeterministicSettings(LinkerSettings):
         cls, value: str | list[str] | list[list[str]]
     ) -> list[list[str]]:
         """Normalise to list of lists format."""
-        # Single string -> [[string]]
         if isinstance(value, str):
             return [[comparison(value, dialect="duckdb")]]
-
-        # Empty list
         if not value:
             raise ValueError("comparisons cannot be empty")
-
-        # Check if flat list of strings
         if all(isinstance(v, str) for v in value):
-            # Flat list -> wrap in outer list for single round (parallel mode)
             return [[comparison(v, dialect="duckdb") for v in value]]
-
-        # List of lists
         if all(isinstance(v, list) for v in value):
-            # Validate all inner elements are strings
             for round_idx, round_comparisons in enumerate(value):
                 if not round_comparisons:
                     raise ValueError(f"Round {round_idx} cannot be empty")
                 if not all(isinstance(c, str) for c in round_comparisons):
-                    raise ValueError(
-                        f"Round {round_idx} must contain only strings, "
-                        f"got: {[type(c).__name__ for c in round_comparisons]}"
-                    )
-            return [
-                [comparison(c, dialect="duckdb") for c in round_comps]
-                for round_comps in value
-            ]
-
+                    raise ValueError(f"Round {round_idx} must contain only strings")
+            return [[comparison(c, dialect="duckdb") for c in r] for r in value]
         raise ValueError(
-            "comparisons must be a string, list of strings, or list of lists of strings"
+            "comparisons must be a string, list of strings, or list of lists"
         )
 
 
@@ -102,69 +89,50 @@ class DeterministicLinker(Linker):
         pass
 
     def link(self, left: pl.DataFrame, right: pl.DataFrame) -> pl.DataFrame:
-        """Link the left and right dataframes.
-
-        If comparisons is a flat list, applies all comparisons in parallel.
-        If comparisons is a nested list, applies each round sequentially,
-        removing matched records from the pool after each round.
-        """
+        """Link the left and right dataframes."""
         con: duckdb.DuckDBPyConnection = duckdb.connect(":memory:")
         try:
-            all_matches: list[pl.DataFrame] = self._execute_rounds(con, left, right)
+            all_matches: list[pl.DataFrame] = []
+            remaining_left, remaining_right = left, right
+
+            for round_num, round_comparisons in enumerate(
+                self.settings.comparisons, start=1
+            ):
+                if remaining_left.is_empty() or remaining_right.is_empty():
+                    logger.info(f"Round {round_num}: Skipping - no records remaining")
+                    break
+
+                logger.info(
+                    f"Round {round_num}: {len(remaining_left):,} left × "
+                    f"{len(remaining_right):,} right"
+                )
+
+                matches = self._link_round(
+                    con, remaining_left, remaining_right, round_comparisons, round_num
+                )
+
+                logger.info(f"Round {round_num}: Found {len(matches):,} matches")
+
+                if not matches.is_empty():
+                    all_matches.append(matches)
+                    matched_left = matches.select("left_id").unique()
+                    matched_right = matches.select("right_id").unique()
+                    remaining_left = remaining_left.join(
+                        matched_left,
+                        left_on=self.settings.left_id,
+                        right_on="left_id",
+                        how="anti",
+                    )
+                    remaining_right = remaining_right.join(
+                        matched_right,
+                        left_on=self.settings.right_id,
+                        right_on="right_id",
+                        how="anti",
+                    )
+
             return self._finalise_results(all_matches)
         finally:
             con.close()
-
-    def _execute_rounds(
-        self, con: duckdb.DuckDBPyConnection, left: pl.DataFrame, right: pl.DataFrame
-    ) -> list[pl.DataFrame]:
-        """Execute all matching rounds sequentially.
-
-        Args:
-            con: DuckDB connection to use
-            left: Left dataframe to match
-            right: Right dataframe to match
-
-        Returns:
-            List of match results from each round
-        """
-        all_matches: list[pl.DataFrame] = []
-        remaining_left: pl.DataFrame = left
-        remaining_right: pl.DataFrame = right
-
-        for round_comparisons in self.settings.comparisons:
-            if remaining_left.is_empty() or remaining_right.is_empty():
-                break
-
-            round_matches: pl.DataFrame = self._link_round(
-                con, remaining_left, remaining_right, round_comparisons
-            )
-
-            if not round_matches.is_empty():
-                all_matches.append(round_matches)
-
-                # Remove matched records from pools for next round
-                matched_left_ids: pl.DataFrame = round_matches.select(
-                    "left_id"
-                ).unique()
-                matched_right_ids: pl.DataFrame = round_matches.select(
-                    "right_id"
-                ).unique()
-
-                remaining_left = remaining_left.join(
-                    matched_left_ids,
-                    left_on=self.settings.left_id,
-                    right_on="left_id",
-                    how="anti",
-                )
-                remaining_right = remaining_right.join(
-                    matched_right_ids,
-                    left_on=self.settings.right_id,
-                    right_on="right_id",
-                    how="anti",
-                )
-
-        return all_matches
 
     def _link_round(
         self,
@@ -172,26 +140,12 @@ class DeterministicLinker(Linker):
         left: pl.DataFrame,
         right: pl.DataFrame,
         comparisons: list[str],
+        round_num: int,
     ) -> pl.DataFrame:
-        """Apply all comparisons in a round using OR logic via DuckDB.
-
-        All comparisons within a round are applied to the same datasets
-        and results are unioned together using DuckDB for maximum SQL flexibility.
-
-        Args:
-            con: DuckDB connection to use for this round
-            left: Left dataframe to match
-            right: Right dataframe to match
-            comparisons: List of SQL comparison conditions
-
-        Returns:
-            DataFrame of matched pairs with probability
-        """
-        # Register dataframes with DuckDB (updates registration if already exists)
+        """Apply all comparisons in a round using OR logic via DuckDB."""
         con.register("left_df", left)
         con.register("right_df", right)
 
-        # Build subqueries for each comparison
         subqueries: list[str] = []
         for condition in comparisons:
             subquery: str = f"""
@@ -205,20 +159,63 @@ class DeterministicLinker(Linker):
             """
             subqueries.append(subquery)
 
-        # Union all comparisons and get distinct results
-        union_query: str = " UNION ALL ".join(subqueries)
-        final_query: str = f"""
-            SELECT DISTINCT 
-                left_id, 
-                right_id, 
-                probability
-            FROM ({union_query})
+        query: str = f"""
+            SELECT DISTINCT *
+            FROM ({" UNION ALL ".join(subqueries)})
         """
 
-        # Execute query and convert to Polars DataFrame
-        result: pl.DataFrame = con.execute(final_query).pl()
+        max_est: int = self._get_max_cardinality(con, query)
+        logger.info(f"Round {round_num}: Estimated max cardinality: {max_est:,}")
 
-        return result
+        return con.execute(query).pl()
+
+    def _get_max_cardinality(self, con: duckdb.DuckDBPyConnection, query: str) -> int:
+        """Get max cardinality estimate from DuckDB plan, or -1 if unavailable."""
+        explain = con.execute(
+            f"PRAGMA explain_output = 'all'; EXPLAIN (FORMAT json) {query}"
+        ).fetchall()
+        plans = {k: json.loads(v) for k, v in dict(explain).items()}
+
+        estimates: list[dict] = []
+        for plan_name, plan_type in [
+            ("physical_plan", "physical"),
+            ("logical_opt", "optimised"),
+        ]:
+            if plan := plans.get(plan_name):
+                estimates.extend(self._traverse_plan(plan[0], plan_type))
+
+        # Debug: log full tree breakdown
+        logger.debug("Plan breakdown:")
+        for plan_type in ["physical", "optimised"]:
+            plan_ests = [e for e in estimates if e["plan_type"] == plan_type]
+            if plan_ests:
+                logger.debug(f"  {plan_type.capitalize()} plan:")
+                for est in plan_ests:
+                    indent = "    " + "  " * est["depth"]
+                    logger.debug(f"{indent}{est['node_name']}: {est['cardinality']:,}")
+
+        # Return max for info logging
+        return max(
+            (e["cardinality"] for e in estimates if e["cardinality"] > 0),
+            default=-1,
+        )
+
+    def _traverse_plan(self, node: dict, plan_type: str, depth: int = 0) -> list[dict]:
+        """Recursively collect cardinality estimates with metadata from plan tree."""
+        estimates: list[dict] = []
+        cardinality = node.get("extra_info", {}).get("Estimated Cardinality")
+        if cardinality is not None:
+            estimates.append(
+                {
+                    "cardinality": int(cardinality),
+                    "node_name": node.get("name", "UNKNOWN"),
+                    "depth": depth,
+                    "plan_type": plan_type,
+                }
+            )
+        for child in node.get("children", []):
+            estimates.extend(self._traverse_plan(child, plan_type, depth + 1))
+        return estimates
 
     def _finalise_results(self, all_matches: list[pl.DataFrame]) -> pl.DataFrame:
         """Combine matches from all rounds and ensure correct schema."""
@@ -226,8 +223,6 @@ class DeterministicLinker(Linker):
             return pl.concat(all_matches).with_columns(
                 pl.col("probability").cast(pl.Float32)
             )
-        else:
-            # Return empty dataframe with correct schema
-            return pl.DataFrame(
-                {"left_id": [], "right_id": [], "probability": []}
-            ).with_columns(pl.col("probability").cast(pl.Float32))
+        return pl.DataFrame(
+            {"left_id": [], "right_id": [], "probability": []}
+        ).with_columns(pl.col("probability").cast(pl.Float32))
