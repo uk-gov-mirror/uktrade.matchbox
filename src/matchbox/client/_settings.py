@@ -11,7 +11,7 @@ from matchbox.common.exceptions import MatchboxClientSettingsException
 
 
 class ClientSettings(BaseSettings):
-    api_root: str
+    api_root: str | None = None
     timeout: float | None = None
     retry_delay: float = 15.0
     default_warehouse: str | None = None

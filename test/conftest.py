@@ -1,3 +1,4 @@
+import importlib.util
 import logging
 from collections.abc import Iterator
 from pathlib import Path
@@ -7,10 +8,32 @@ import pytest
 from rich.console import Console
 from rich.progress import Progress
 
-pytest_plugins = [
-    "test.fixtures.db",
-    "test.fixtures.client",
-]
+
+# The server-backed fixtures (Postgres/redis/S3/FastAPI) are only usable when the
+# `server` extra is installed AND a server environment is configured. Locally — where
+# matchlab runs without a server — importing `matchbox.server` fails (it initialises
+# from required env vars), so we skip loading those fixtures rather than crash at
+# collection. This lets the local suites (adapters, resolution, integration) run with a
+# plain `pytest`. In CI, where the server is configured, the fixtures load as before.
+# TODO(phase-4): delete these fixtures with matchbox.server and simplify this back.
+def _server_fixtures_available() -> bool:
+    if importlib.util.find_spec("redis") is None:
+        return False
+    try:
+        import matchbox.server  # noqa: F401, PLC0415 - lazy: triggers server init
+    except Exception:  # noqa: BLE001 - any init failure means "no server here"
+        return False
+    return True
+
+
+pytest_plugins = (
+    [
+        "test.fixtures.db",
+        "test.fixtures.client",
+    ]
+    if _server_fixtures_available()
+    else []
+)
 
 TEST_ROOT = Path(__file__).resolve().parent
 

@@ -27,10 +27,12 @@ from matchbox.common.hash import hash_arrow_table
 from matchbox.common.logging import logger, profile_time
 
 if TYPE_CHECKING:
+    from matchbox.adapters import Adapter
     from matchbox.client.dags import DAG
     from matchbox.client.resolvers import Resolver
     from matchbox.client.resolvers.base import ResolverMethod, ResolverSettings
 else:
+    Adapter = Any
     DAG = Any
 
 P = ParamSpec("P")
@@ -56,6 +58,7 @@ class Model(StepABC):
     """Unified model class for both linking and deduping operations."""
 
     _local_data_schema: ClassVar[pa.Schema] = SCHEMA_MODEL_EDGES
+    _kind_tag: ClassVar[str] = "model"
 
     @overload
     def __init__(
@@ -172,6 +175,10 @@ class Model(StepABC):
             config=self.config,
             fingerprint=self._fingerprint(),
         )
+
+    def _store(self, adapter: "Adapter") -> None:
+        """Persist the model's edge list to the adapter."""
+        adapter.store_model(self._fp, self._local_data)
 
     @classmethod
     def from_dto(

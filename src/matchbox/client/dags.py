@@ -10,7 +10,7 @@ import polars as pl
 from platformdirs import user_cache_path
 from pydantic import validate_call
 
-from matchbox.client import _handler
+from matchbox.adapters import Adapter, DuckDBAdapter
 from matchbox.client._settings import settings
 from matchbox.client.locations import Location
 from matchbox.client.models import Model
@@ -19,22 +19,18 @@ from matchbox.client.resolvers import Resolver
 from matchbox.client.results import ResolverMatches
 from matchbox.client.sources import Source
 from matchbox.common.dtos import (
-    Collection,
     CollectionName,
     DefaultGroup,
     GroupName,
     ModelStepName,
     ResolverStepName,
-    Run,
     RunID,
     SourceStepName,
     Step,
     StepName,
-    StepPath,
     StepType,
 )
 from matchbox.common.exceptions import (
-    MatchboxCollectionNotFoundError,
     MatchboxStepNotFoundError,
 )
 from matchbox.common.logging import log_mem_usage, logger, profile_time
@@ -56,16 +52,20 @@ CACHE_DIR = user_cache_path("matchbox")
 class DAG:
     """Self-sufficient pipeline of indexing, deduping and linking steps."""
 
-    @validate_call
+    @validate_call(config={"arbitrary_types_allowed": True})
     def __init__(
-        self, name: CollectionName, admin_group: GroupName = DefaultGroup.PUBLIC
+        self,
+        name: CollectionName,
+        admin_group: GroupName = DefaultGroup.PUBLIC,
+        adapter: Adapter | None = None,
     ) -> None:
         """Initialises empty DAG.
 
         Args:
-            name: The name of the DAG, and therefore the collection it will connect to
-            admin_group: The name of the group that will be given admin permission over
-                the DAG. Defaults to public, where anyone can modify, delete or run it
+            name: The name of the DAG.
+            admin_group: Retained for API compatibility; unused in local mode.
+            adapter: The storage adapter that holds computed step artifacts. Defaults
+                to a DuckDB store in the DAG's temporary cache directory.
         """
         self.name: CollectionName = CollectionName(name)
         self.admin_group: GroupName = GroupName(admin_group)
@@ -76,6 +76,10 @@ class DAG:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         self._cache_dir = tempfile.TemporaryDirectory(dir=str(CACHE_DIR))
         self.cache_path = Path(self._cache_dir.name)
+
+        self.adapter: Adapter = adapter or DuckDBAdapter(
+            self.cache_path / "store.duckdb"
+        )
 
     def _check_dag(self, dag: Self) -> None:
         """Check that the given DAG is the same as this one."""
@@ -186,21 +190,13 @@ class DAG:
 
         return ordered
 
-    @classmethod
-    def list_all(cls) -> list[CollectionName]:
-        """List available DAG names on the server."""
-        return _handler.list_collections()
-
     @property
     def run(self) -> RunID:
-        """Return run ID if available, else error."""
-        if self._run:
-            return self._run
+        """Return the local run ID.
 
-        raise RuntimeError(
-            "The DAG has not been connected to the server."
-            "Start a new run or load a default one."
-        )
+        Retained for compatibility with step paths. Local DAGs use a single run.
+        """
+        return self._run or RunID(1)
 
     @run.setter
     def run(self, run_id: RunID) -> None:
@@ -524,21 +520,12 @@ class DAG:
         return self.draw()
 
     def new_run(self) -> Self:
-        """Start a new run."""
-        try:
-            collection = _handler.get_collection(self.name)
-        except MatchboxCollectionNotFoundError:
-            _ = _handler.create_collection(self.name, admin_group=self.admin_group)
-            collection = _handler.get_collection(self.name)
+        """Start a new local run.
 
-        # Delete non-default runs
-        for run in collection.runs:
-            if run != collection.default_run:
-                _handler.delete_run(collection=self.name, run_id=run, certain=True)
-
-        # Start a new run
-        self.run = _handler.create_run(collection=self.name).run_id
-
+        Retained for API compatibility. In local mode this simply resets the run
+        pointer; artifacts are content-addressed in the adapter.
+        """
+        self.run = RunID(1)
         return self
 
     def set_client(self, client: Any) -> Self:  # noqa: ANN401
@@ -549,59 +536,17 @@ class DAG:
 
         return self
 
-    def _load_run(self, run_id: RunID) -> Self:
-        """Attach the specified run ID to the current DAG.
-
-        Topologically sorts using Kahn's algorithm.
-
-        Args:
-            run_id: The ID of the run to attach
-        """
-        run: Run = _handler.get_run(collection=self.name, run_id=run_id)
-        self.run: RunID = run_id
-
-        steps: dict[StepName, Step] = run.steps
-
-        # Build parent graph and add in topological order
-        deps_graph: dict[StepName, set[StepName]] = {
-            name: set(dto.config.parents) for name, dto in steps.items()
-        }
-        sorted_names = self._topological_sort(deps=deps_graph)
-
-        for name in sorted_names:
-            self.add_step(name=name, step=steps[name])
-
-        for name in steps:
-            self._check_step(
-                self.nodes[name], check_parents=True, check_dependencies=True
-            )
-
-        return self
-
     def load_default(self) -> Self:
-        """Attach to default run in this collection, loading all DAG nodes."""
-        collection: Collection = _handler.get_collection(self.name)
-
-        if not collection.default_run:
-            raise RuntimeError("No default run set.")
-
-        return self._load_run(collection.default_run)
+        """Load a previously-collected DAG from storage (not yet supported locally)."""
+        raise NotImplementedError(
+            "Loading a DAG from storage is not yet supported in local mode."
+        )
 
     def load_pending(self) -> Self:
-        """Attach to the pending run in this collection, loading all DAG nodes.
-
-        Pending is defined as the last non-default run.
-        """
-        collection: Collection = _handler.get_collection(self.name)
-
-        pending_runs: list[RunID] = [
-            run_id for run_id in collection.runs if run_id != collection.default_run
-        ]
-
-        if not pending_runs:
-            raise RuntimeError("No pending runs available.")
-
-        return self._load_run(pending_runs[0])
+        """Load a pending run from storage (not yet supported locally)."""
+        raise NotImplementedError(
+            "Loading a DAG from storage is not yet supported in local mode."
+        )
 
     def run_and_sync(
         self,
@@ -680,9 +625,10 @@ class DAG:
         logger.info("\n" + self.draw(status=status))
 
     def set_default(self) -> None:
-        """Set the current run as the default for the collection.
+        """Validate that the DAG resolves to a single apex resolver.
 
-        Makes it immutable, then moves the default pointer to it.
+        Retained for API compatibility. In local mode there is no server-side default
+        pointer; this only performs the structural checks.
         """
         # Trigger error if there isn't a single root
         _ = self.default_resolver
@@ -693,9 +639,6 @@ class DAG:
                 "Found unreachable steps: all steps must be reachable from a "
                 "single final resolver before setting the default run."
             )
-
-        _handler.set_run_mutable(collection=self.name, run_id=self.run, mutable=False)
-        _handler.set_run_default(collection=self.name, run_id=self.run, default=True)
 
     def lookup_key(
         self,
@@ -725,19 +668,26 @@ class DAG:
             )
             ```
         """
-        matches = _handler.match(
-            targets=[
-                StepPath(name=target, collection=self.name, run=self.run)
-                for target in to_sources
-            ],
-            source=StepPath(name=from_source, collection=self.name, run=self.run),
-            key=key,
-            resolver=self.default_resolver.path,
-        )
+        resolution = self._read_resolution(self.default_resolver)
 
-        to_sources_results = {m.target.name: list(m.target_id) for m in matches}
-        # If no matches, _handler will raise
-        return {from_source: list(matches[0].source_id), **to_sources_results}
+        origin = resolution.filter(
+            (pl.col("source") == from_source) & (pl.col("key") == key)
+        )
+        if origin.height == 0:
+            raise MatchboxStepNotFoundError(
+                f"Key '{key}' not found in source '{from_source}'"
+            )
+
+        root = origin["root"][0]
+        cluster = resolution.filter(pl.col("root") == root)
+
+        def keys_in(source_name: str) -> list[str]:
+            return cluster.filter(pl.col("source") == source_name)["key"].to_list()
+
+        result: dict[str, list[str]] = {from_source: keys_in(from_source)}
+        for target in to_sources:
+            result[target] = keys_in(target)
+        return result
 
     @validate_call
     @profile_time(kwarg="node")
@@ -780,18 +730,26 @@ class DAG:
         if not filtered_source_names:
             raise MatchboxStepNotFoundError("No compatible source was found")
 
+        resolution = self._read_resolution(resolver)
+
         resolved_sources: list[Source] = []
         query_results: list[pl.DataFrame] = []
         for source_name in filtered_source_names:
             resolved_sources.append(available_sources[source_name])
             query_results.append(
-                pl.from_arrow(
-                    _handler.query(
-                        source=available_sources[source_name].path,
-                        resolver=resolver.path,
-                        return_leaf_id=True,
-                    )
+                resolution.filter(pl.col("source") == source_name).select(
+                    pl.col("root").alias("id"),
+                    pl.col("key"),
+                    pl.col("leaf").alias("leaf_id"),
                 )
             )
 
         return ResolverMatches(sources=resolved_sources, query_results=query_results)
+
+    def _read_resolution(self, resolver: Resolver) -> pl.DataFrame:
+        """Read a resolver's stored resolution `(root, leaf, key, source)`."""
+        if resolver._fp is None:
+            raise MatchboxStepNotFoundError(
+                f"Resolver '{resolver.name}' has not been run. Call run_and_sync first."
+            )
+        return self.adapter.read_resolver(resolver._fp)

@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypeVar
 import polars as pl
 import pyarrow as pa
 
-from matchbox.client import _handler
 from matchbox.common.arrow import check_schema_subset
 from matchbox.common.dtos import (
     SourceStepName,
@@ -17,14 +16,16 @@ from matchbox.common.dtos import (
     StepName,
     StepPath,
 )
-from matchbox.common.exceptions import MatchboxStepNotFoundError
-from matchbox.common.hash import hash_arrow_table
-from matchbox.common.logging import logger, profile_time
+from matchbox.common.hash import HASH_FUNC, hash_arrow_table
+from matchbox.common.logging import profile_time
 
 if TYPE_CHECKING:
+    from matchbox.adapters import Adapter, Fingerprint
     from matchbox.client.dags import DAG
 else:
     DAG = Any
+    Adapter = Any
+    Fingerprint = bytes
 
 T = TypeVar("T")
 
@@ -67,6 +68,9 @@ class StepABC(ABC):
     """Base class for client-side DAG nodes that compute and sync data."""
 
     _local_data_schema: ClassVar[pa.Schema]
+    # Domain-separation tag so empty artifacts of different step types (which all hash
+    # to b"empty_table_hash") never share a storage key.
+    _kind_tag: ClassVar[str]
 
     def __init__(
         self,
@@ -79,6 +83,10 @@ class StepABC(ABC):
         self.name = name
         self.description = description
         self._local_data: pl.DataFrame | None = None
+        # Content fingerprint under which this step's artifact is stored in the
+        # adapter. Set on sync() and preserved across clear_data() so downstream
+        # steps can read this step's data after its local copy is dropped.
+        self._fp: Fingerprint | None = None
 
     # Local data access
 
@@ -113,7 +121,12 @@ class StepABC(ABC):
 
     @abstractmethod
     def to_dto(self) -> Step:
-        """Convert to Step DTO for API calls."""
+        """Convert to Step DTO (serialisable DAG representation)."""
+        ...
+
+    @abstractmethod
+    def _store(self, adapter: Adapter) -> None:
+        """Persist this step's computed artifact to the adapter under `self._fp`."""
         ...
 
     @classmethod
@@ -157,55 +170,19 @@ class StepABC(ABC):
         )
         return hash_arrow_table(self._local_data.to_arrow())
 
-    def delete(self, certain: bool = False) -> bool:
-        """Delete this step and its associated data from the backend."""
-        return _handler.delete_step(
-            path=self.path,
-            certain=certain,
-        ).success
-
-    def download(self) -> pl.DataFrame:
-        """Fetch remote data for this step and store it locally."""
-        table = _handler.get_data(path=self.path)
-        check_schema_subset(expected=self._local_data_schema, actual=table.schema)
-        self._local_data = pl.from_arrow(table)
-        return self._local_data
+    def _store_key(self) -> Fingerprint:
+        """Content fingerprint namespaced by step type, used as the adapter key."""
+        return HASH_FUNC(self._kind_tag.encode() + self._fingerprint()).digest()
 
     @post_run
     @profile_time(attr="name")
     def sync(self) -> None:
-        """Send step config and local data to the server.
+        """Persist this step's computed artifact to the DAG's adapter.
 
-        Not resistant to race conditions: only one client should call sync at a time.
+        The step is content-addressed by its fingerprint: if an identical artifact is
+        already stored, storage is skipped (a cache hit). The fingerprint is retained
+        on `self._fp` so downstream steps can read this data even after `clear_data`.
         """
-        log_prefix = f"Sync {self.name}"
-        step = self.to_dto()
-
-        try:
-            existing_step = _handler.get_step(path=self.path)
-            logger.info("Found existing step", prefix=log_prefix)
-        except MatchboxStepNotFoundError:
-            existing_step = None
-
-        if existing_step:
-            if (existing_step.fingerprint == step.fingerprint) and (
-                existing_step.config.parents == step.config.parents
-            ):
-                logger.info("Updating existing step", prefix=log_prefix)
-                _handler.update_step(
-                    step=step,
-                    path=self.path,
-                )
-            else:
-                logger.info(
-                    "Update not possible. Deleting existing step",
-                    prefix=log_prefix,
-                )
-                _handler.delete_step(path=self.path, certain=True)
-                existing_step = None
-
-        if not existing_step:
-            logger.info("Creating new step", prefix=log_prefix)
-            _handler.create_step(step=step, path=self.path)
-            logger.info("Setting data for new step", prefix=log_prefix)
-            _handler.set_data(path=self.path, data=self._local_data)
+        self._fp = self._store_key()
+        if not self.dag.adapter.has(self._fp):
+            self._store(self.dag.adapter)

@@ -1,20 +1,25 @@
 """Client-side helpers for retrieving and preparing evaluation samples."""
 
+from typing import TYPE_CHECKING, Any
+
 import polars as pl
 from pydantic import BaseModel, ConfigDict, validate_call
 from sqlalchemy.exc import OperationalError
 
-from matchbox.client import _handler
 from matchbox.client.dags import DAG
 from matchbox.common.dtos import (
     ResolverStepName,
-    ResolverStepPath,
     SourceConfig,
 )
 from matchbox.common.eval import Judgement, precision_recall
 from matchbox.common.exceptions import (
     MatchboxSourceTableError,
 )
+
+if TYPE_CHECKING:
+    from matchbox.adapters import Adapter
+else:
+    Adapter = Any
 
 
 class EvaluationFieldMetadata(BaseModel):
@@ -146,14 +151,15 @@ def _read_sample_file(sample_file: str, n: int) -> pl.DataFrame:
     return select_rows.rename({"id": "root", "leaf_id": "leaf"})
 
 
-def _get_samples_from_server(
+def _get_samples_from_adapter(
     dag: DAG, n: int, resolver: ResolverStepName | None = None
 ) -> pl.DataFrame:
-    if resolver:
-        resolver_path: ResolverStepPath = dag.get_resolver(resolver).path
-    else:
-        resolver_path = dag.default_resolver.path
-    return pl.from_arrow(_handler.sample_for_eval(n=n, resolver=resolver_path))
+    resolver_step = dag.get_resolver(resolver) if resolver else dag.default_resolver
+    if resolver_step._fp is None:
+        raise RuntimeError(
+            f"Resolver '{resolver_step.name}' has not been run yet; run_and_sync first."
+        )
+    return dag.adapter.sample(resolver_step._fp, n)
 
 
 @validate_call(config=ConfigDict(arbitrary_types_allowed=True))
@@ -183,7 +189,7 @@ def get_samples(
     if sample_file:
         samples = _read_sample_file(sample_file=sample_file, n=n)
     else:
-        samples = _get_samples_from_server(dag=dag, n=n, resolver=resolver)
+        samples = _get_samples_from_adapter(dag=dag, n=n, resolver=resolver)
 
     if not len(samples):
         return {}
@@ -239,10 +245,15 @@ def get_samples(
 class EvalData:
     """Object which caches evaluation data to measure model performance."""
 
-    def __init__(self, tag: str | None = None) -> None:
-        """Download judgement and expansion data used to compute evaluation metrics."""
+    def __init__(self, adapter: Adapter, tag: str | None = None) -> None:
+        """Load judgement and expansion data used to compute evaluation metrics.
+
+        Args:
+            adapter: The storage adapter holding judgements (e.g. `dag.adapter`).
+            tag: Optional tag to filter judgements by.
+        """
         self.tag = tag
-        self.judgements, self.expansion = _handler.download_eval_data(tag)
+        self.judgements, self.expansion = adapter.read_eval_data(tag)
 
     def precision_recall(self, results_eval: pl.DataFrame) -> tuple[float, float]:
         """Compute precision and recall for cluster data.

@@ -1,20 +1,15 @@
 """Definition of model inputs."""
 
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Literal, Self, overload
 
 import duckdb
 import polars as pl
-import pyarrow as pa
-import pyarrow.parquet as pq
 from pandas import DataFrame as PandasDataFrame
 from polars import DataFrame as PolarsDataFrame
 from pyarrow import Table as ArrowTable
 from sqlglot import expressions, parse_one
 from sqlglot import select as sqlglot_select
 
-from matchbox.client import _handler
 from matchbox.client.models.dedupers.base import Deduper, DeduperSettings
 from matchbox.client.models.linkers.base import Linker, LinkerSettings
 from matchbox.common.db import QueryReturnClass, QueryReturnType
@@ -68,6 +63,9 @@ class Query:
         """
         self.raw_data: PolarsDataFrame | None = None
         self.leaf_id: PolarsDataFrame | None = None
+        # (id, source, key, leaf) for every reachable record; consumed by a downstream
+        # resolver to build its complete resolution. Populated when cache_leaf_ids=True.
+        self._upstream: PolarsDataFrame | None = None
         self.dag = dag
         self.sources = sources
         self.resolver = resolver
@@ -146,66 +144,61 @@ class Query:
                 be saved as a byproduct in the `leaf_ids` attribute.
 
         Returns: Data in the requested return type
-
-        Raises:
-            MatchboxEmptyServerResponse: If no data was returned by the server.
         """
-        with TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            mb_ids_path = tmpdir / "mb_ids.parquet"
-            # Download data from Matchbox server
-            writer = None
-            for source in self.sources:
-                res = _handler.query(
-                    source=source.path,
-                    resolver=self.resolver.path if self.resolver else None,
-                    return_leaf_id=cache_leaf_ids,
+        adapter = self.dag.adapter
+
+        # (id, key, source, leaf) for each queried record, read from the adapter.
+        # With a resolver, `id` is that resolver's root cluster; without one, `id` is
+        # the source leaf itself.
+        mb_frames: list[pl.DataFrame] = []
+        source_frames: list[pl.DataFrame] = []
+        for source in self.sources:
+            if self.resolver is not None:
+                resolution = adapter.read_resolver(self.resolver._fp)
+                ids = resolution.filter(pl.col("source") == source.name).select(
+                    pl.col("root").alias("id"),
+                    pl.col("key"),
+                    pl.lit(source.name).alias("source"),
+                    pl.col("leaf"),
                 )
-
-                res = res.append_column(
-                    "source", pa.array([source.name] * res.num_rows)
+            else:
+                ids = adapter.read_source_leaves(source._fp).select(
+                    pl.col("leaf").alias("id"),
+                    pl.col("key"),
+                    pl.lit(source.name).alias("source"),
+                    pl.col("leaf"),
                 )
-                if writer is None:
-                    writer = pq.ParquetWriter(
-                        mb_ids_path,
-                        res.schema,
-                        compression="snappy",
-                        use_dictionary=True,
-                    )
-                writer.write_table(res)
+            mb_frames.append(ids)
 
-            writer.close()
-
-            # Download sources from warehouse
-            lazy_sources = [
-                pl.scan_parquet(source.cache_path)
+            extract = (
+                adapter.read_source_extract(source._fp)
                 .select(pl.all().name.prefix(f"{source.name}_"))
                 .with_columns(pl.lit(source.name).alias("source"))
                 .rename({source.qualified_key: "key"})
-                for source in self.sources
-            ]
-
-            mb_ids = pl.scan_parquet(mb_ids_path)
-
-            if cache_leaf_ids:
-                self.leaf_id = mb_ids.select("id", "leaf_id").collect()
-                mb_ids = mb_ids.drop("leaf_id")
-
-            raw_data = (
-                pl.concat(lazy_sources, how="diagonal")
-                .join(mb_ids, how="inner", on=("source", "key"))
-                .drop("source", "key")
             )
+            source_frames.append(extract)
 
-            if self.config.combine_type == QueryCombineType.SET_AGG:
-                raw_data = raw_data.group_by("id").agg(pl.all().exclude("id").unique())
-            if self.config.combine_type == QueryCombineType.EXPLODE:
-                raw_data = raw_data.group_by("id").agg(pl.all().exclude("id"))
-                raw_data = raw_data.explode(
-                    pl.all().exclude("id"), empty_as_null=True
-                ).unique()
+        mb_ids = pl.concat(mb_frames, how="diagonal")
 
-            return _convert_df(raw_data.collect(), return_type=return_type)
+        if cache_leaf_ids:
+            self.leaf_id = mb_ids.select("id", pl.col("leaf").alias("leaf_id"))
+            self._upstream = mb_ids.select("id", "source", "key", "leaf")
+
+        raw_data = (
+            pl.concat(source_frames, how="diagonal")
+            .join(mb_ids.drop("leaf"), how="inner", on=("source", "key"))
+            .drop("source", "key")
+        )
+
+        if self.config.combine_type == QueryCombineType.SET_AGG:
+            raw_data = raw_data.group_by("id").agg(pl.all().exclude("id").unique())
+        if self.config.combine_type == QueryCombineType.EXPLODE:
+            raw_data = raw_data.group_by("id").agg(pl.all().exclude("id"))
+            raw_data = raw_data.explode(
+                pl.all().exclude("id"), empty_as_null=True
+            ).unique()
+
+        return _convert_df(raw_data, return_type=return_type)
 
     @profile_time()
     def data(

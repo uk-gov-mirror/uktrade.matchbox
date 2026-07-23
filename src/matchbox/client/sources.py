@@ -25,11 +25,14 @@ from matchbox.common.dtos import (
 )
 from matchbox.common.hash import HashMethod, hash_rows
 from matchbox.common.logging import logger, profile_time
+from matchbox.common.resolution import leaf_id
 
 if TYPE_CHECKING:
+    from matchbox.adapters import Adapter
     from matchbox.client.dags import DAG
     from matchbox.client.locations import Location
 else:
+    Adapter = Any
     DAG = Any
     Location = Any
 
@@ -41,6 +44,7 @@ class Source(StepABC):
     """Client-side wrapper for source configs."""
 
     _local_data_schema: ClassVar[pa.Schema] = SCHEMA_INDEX
+    _kind_tag: ClassVar[str] = "source"
 
     @overload
     def __init__(
@@ -175,6 +179,25 @@ class Source(StepABC):
             step_type=StepType.SOURCE,
             config=self.config,
             fingerprint=self._fingerprint(),
+        )
+
+    @post_run
+    def leaves(self) -> pl.DataFrame:
+        """Map each source key to its content-addressed leaf cluster ID.
+
+        Returns `(key, leaf)`, exploding the hash→keys index so there is one row per
+        source key. Identical rows share a leaf (content-addressed dedup).
+        """
+        return self._local_data.explode("keys", empty_as_null=True).select(
+            pl.col("keys").alias("key"),
+            pl.col("hash").map_elements(leaf_id, return_dtype=pl.UInt64).alias("leaf"),
+        )
+
+    def _store(self, adapter: Adapter) -> None:
+        """Persist the warehouse extract and the leaf assignment to the adapter."""
+        extract = pl.read_parquet(self.cache_path)
+        adapter.store_source(
+            fp=self._fp, name=self.name, extract=extract, leaves=self.leaves()
         )
 
     @classmethod
