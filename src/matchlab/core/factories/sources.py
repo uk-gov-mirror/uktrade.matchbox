@@ -596,7 +596,6 @@ def source_factory(
     source = Source(
         location=RelationalDBLocation(name=location_name).set_client(engine),
         name=name,
-        description=f"Generated source for {name}",
         extract_transform=select(
             cast(column(key_field.name), "string").as_(key_field.name),
             *[column(field.name) for field in index_fields],
@@ -663,7 +662,6 @@ def source_from_tuple(
     source = Source(
         location=RelationalDBLocation(name=location_name).set_client(engine),
         name=name,
-        description=f"Generated source for {name}",
         extract_transform=select(
             cast(column(key_field.name), "string").as_(key_field.name),
             *[column(field.name) for field in index_fields],
@@ -878,7 +876,6 @@ def linked_sources_factory(
                 parameters.engine
             ),
             name=parameters.name,
-            description=f"Generated source for {parameters.name}",
             extract_transform=select(
                 cast(column(key_field.name), "string").as_(key_field.name),
                 *[column(field.name) for field in index_fields],

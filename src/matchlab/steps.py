@@ -20,7 +20,7 @@ refresh), while an existing `Source` object memoises its read.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 from weakref import WeakSet
 
 from platformdirs import user_cache_path
@@ -229,7 +229,3 @@ class Step(ABC):
         raise NotImplementedError(
             f"{type(self).__name__} does not produce a queryable frame."
         )
-
-    def _describe(self) -> dict[str, Any]:
-        """Serialisable description of this step, for config hashing and plan dumps."""
-        return {"kind": self.kind, "name": self.name}

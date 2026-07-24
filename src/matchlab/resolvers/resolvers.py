@@ -46,7 +46,6 @@ class Resolve(Step):
         resolver_class: type[ResolverMethod] | str = "Components",
         resolver_settings: ResolverSettings | dict[str, Any] | None = None,
         name: str | None = None,
-        description: str | None = None,
     ) -> None:
         """Define a resolver.
 
@@ -56,7 +55,6 @@ class Resolve(Step):
                 Defaults to connected components.
             resolver_settings: Settings for that methodology.
             name: Optional plan name; derived from the first input when omitted.
-            description: Optional human description.
         """
         deduped: list[Model] = []
         for model in models:
@@ -68,7 +66,6 @@ class Resolve(Step):
             raise ValueError("A resolver needs at least one model")
 
         self.inputs = tuple(deduped)
-        self.description = description
 
         self.resolver_class = (
             _RESOLVER_CLASSES[resolver_class]

@@ -114,7 +114,6 @@ def resolver_factory(
     inputs: Iterable[ModelTestkit] | None = None,
     true_entities: Iterable[SourceEntity] | None = None,
     name: ResolverStepName | None = None,
-    description: str | None = None,
     thresholds: Mapping[ModelStepName, float] | None = None,
     seed: int = 42,
 ) -> ResolverTestkit:
@@ -133,7 +132,6 @@ def resolver_factory(
             no expected entities.
         name: Name of the resolver. Defaults to a randomly generated word suffixed
             with '_resolver'.
-        description: Description of the resolver.
         thresholds: Per-model score thresholds in [0.0, 1.0]. If omitted,
             defaults to 0.0 for all resolver inputs.
         seed: Random seed for reproducibility.
@@ -194,7 +192,6 @@ def resolver_factory(
         name=name or f"{generator.unique.word()}_resolver",
         resolver_class=MockResolver,
         resolver_settings=resolver_settings,
-        description=description,
     )
     assignments = _connected_components_from_edges(
         model_edges=model_edges,

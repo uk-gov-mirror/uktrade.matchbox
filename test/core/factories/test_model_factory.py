@@ -241,7 +241,6 @@ def test_model_factory_validation(
 @pytest.mark.parametrize(
     (
         "name",
-        "description",
         "model_type",
         "n_true_entities",
         "score_range",
@@ -251,7 +250,6 @@ def test_model_factory_validation(
     [
         pytest.param(
             "basic_deduper",
-            "Basic deduplication model",
             "deduper",
             5,
             (0.8, 0.9),
@@ -267,7 +265,6 @@ def test_model_factory_validation(
         ),
         pytest.param(
             "basic_linker",
-            "Basic linking model",
             "linker",
             10,
             (0.7, 0.8),
@@ -283,7 +280,6 @@ def test_model_factory_validation(
         ),
         pytest.param(
             "large_deduper",
-            "Deduper with many entities",
             "deduper",
             100,
             (0.9, 1.0),
@@ -299,7 +295,6 @@ def test_model_factory_validation(
         ),
         pytest.param(
             "strict_linker",
-            "Linker with high score threshold",
             "linker",
             20,
             (0.95, 1.0),
@@ -317,7 +312,6 @@ def test_model_factory_validation(
 )
 def test_model_factory_basic_creation(
     name: ModelStepName,
-    description: str,
     model_type: str,
     n_true_entities: int,
     score_range: tuple[float, float],
@@ -327,7 +321,6 @@ def test_model_factory_basic_creation(
     """Test basic model factory creation without sources."""
     model = model_factory(
         name=name,
-        description=description,
         model_type=model_type,
         n_true_entities=n_true_entities,
         score_range=score_range,
@@ -336,7 +329,6 @@ def test_model_factory_basic_creation(
 
     # Basic metadata checks
     assert model.model.name == name
-    assert model.model.description == description
     assert str(model.model.model_type) == expected_checks["type"]
 
     # Structure checks
@@ -473,14 +465,12 @@ def test_model_factory_seed_behavior(
 
     if should_be_equal:
         assert dummy1.model.name == dummy2.model.name
-        assert dummy1.model.description == dummy2.model.description
         assert dummy1.left_data.equals(dummy2.left_data)
         assert set(dummy1.left_clusters) == set(dummy2.left_clusters)
         assert set(dummy1.entities) == set(dummy2.entities)
         assert dummy1.scores.equals(dummy2.scores)
     else:
         assert dummy1.model.name != dummy2.model.name
-        assert dummy1.model.description != dummy2.model.description
         assert not dummy1.left_data.equals(dummy2.left_data)
         assert set(dummy1.left_clusters) != set(dummy2.left_clusters)
         assert set(dummy1.entities) != set(dummy2.entities)

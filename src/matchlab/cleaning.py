@@ -168,7 +168,6 @@ class Clean(Step):
         model_class: Any,  # noqa: ANN401 - a Deduper subclass
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
         name: str | None = None,
-        description: str | None = None,
     ) -> Model:
         """Deduplicate this view."""
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle
@@ -178,7 +177,6 @@ class Clean(Step):
             model_class=model_class,
             model_settings=model_settings,
             name=name,
-            description=description,
         )
 
     def link(
@@ -187,7 +185,6 @@ class Clean(Step):
         model_class: Any,  # noqa: ANN401 - a Linker subclass
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
         name: str | None = None,
-        description: str | None = None,
     ) -> Model:
         """Link this view to another source or cleaned view."""
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle
@@ -199,7 +196,6 @@ class Clean(Step):
             model_class=model_class,
             model_settings=model_settings,
             name=name,
-            description=description,
         )
 
 

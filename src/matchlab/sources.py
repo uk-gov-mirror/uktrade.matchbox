@@ -45,7 +45,6 @@ class Source(Step):
         extract_transform: str,
         key_field: str | SourceField,
         index_fields: list[str] | list[SourceField],
-        description: str | None = None,
         infer_types: bool | None = None,
         validate_etl: bool = True,
     ) -> None:
@@ -57,14 +56,12 @@ class Source(Step):
             extract_transform: SQL producing the rows to index.
             key_field: The unique identifier field, or a `SourceField` for it.
             index_fields: The fields to match on, or `SourceField`s for them.
-            description: Optional human description.
             infer_types: Infer field types from the warehouse. Defaults to inferring
                 when fields are given as names, and not when they are already
                 `SourceField` instances.
             validate_etl: Validate the extract/transform SQL up front.
         """
         super().__init__(name=name)
-        self.description = description
 
         if infer_types is None:
             infer_types = isinstance(key_field, str)

@@ -327,7 +327,6 @@ def test_exact_match_linking(
     # Configure and run the linker
     linker = Model(
         name="exact_match_linker",
-        description="Linking with exact matches",
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
         left=left_source.source.clean(),
@@ -394,7 +393,6 @@ def test_exact_match_with_duplicates_linking(
     # Configure and run the linker
     linker = Model(
         name="exact_match_linker",
-        description="Linking with exact matches",
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
         left=left_source.clean(),
@@ -466,7 +464,6 @@ def test_partial_entity_linking(
     # Configure and run the linker
     linker = Model(
         name="partial_match_linker",
-        description="Linking with partial entity coverage",
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
         left=left_source.clean(),
@@ -531,7 +528,6 @@ def test_no_matching_entities_linking(
     # Configure and run the linker
     linker = Model(
         name="no_match_linker",
-        description="Linking with no matching entities",
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
         left=left_source.clean(),

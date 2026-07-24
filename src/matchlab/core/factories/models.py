@@ -795,7 +795,6 @@ class ModelTestkit(BaseModel):
 
 def model_factory(
     name: ModelStepName | None = None,
-    description: str | None = None,
     left_testkit: SourceTestkit | ResolverTestkit | None = None,
     right_testkit: SourceTestkit | ResolverTestkit | None = None,
     true_entities: tuple[SourceEntity, ...] | None = None,
@@ -814,7 +813,6 @@ def model_factory(
     Args:
         name: Name of the model. Defaults to a randomly generated word suffixed
             with '_model'.
-        description: Description of the model
         left_testkit: A SourceTestkit or ResolverTestkit for the left source
         right_testkit: If creating a linker, a SourceTestkit or ResolverTestkit for the
             right source
@@ -1009,7 +1007,6 @@ def model_factory(
 
     model = Model(
         name=name or f"{generator.unique.word()}_model",
-        description=description or generator.sentence(),
         model_class=model_class,
         model_settings=model_settings,
         left=left,

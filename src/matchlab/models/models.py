@@ -47,7 +47,6 @@ class Model(Step):
         model_settings: DeduperSettings | LinkerSettings | dict,
         right: Clean | None = None,
         name: str | None = None,
-        description: str | None = None,
     ) -> None:
         """Define a model.
 
@@ -57,11 +56,9 @@ class Model(Step):
             model_settings: The settings object for that class, or a dict.
             right: The right side of a link. Omit for a deduper.
             name: Optional plan name; derived from the inputs when omitted.
-            description: Optional human description.
         """
         self.left = left
         self.right = right
-        self.description = description
 
         self.model_class = (
             _MODEL_CLASSES[model_class] if isinstance(model_class, str) else model_class
@@ -142,7 +139,6 @@ class Model(Step):
         resolver_class: type[ResolverMethod] | str = "Components",
         resolver_settings: ResolverSettings | dict[str, Any] | None = None,
         name: str | None = None,
-        description: str | None = None,
     ) -> Resolve:
         """Resolve this model (and any others) into clusters."""
         from matchlab.resolvers import Resolve  # noqa: PLC0415 - avoids a cycle
@@ -153,5 +149,4 @@ class Model(Step):
             resolver_class=resolver_class,
             resolver_settings=resolver_settings,
             name=name,
-            description=description,
         )
