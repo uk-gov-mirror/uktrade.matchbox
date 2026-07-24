@@ -257,6 +257,41 @@ def test_identity_is_every_selected_column(warehouse: Engine) -> None:
     assert leaves["a1"] == leaves["a2"]
 
 
+@pytest.mark.parametrize("name", ["crn-x", "crn.x", "1crn", "crn x", ""])
+def test_a_source_name_must_be_able_to_prefix_a_column(
+    warehouse: Engine, name: str
+) -> None:
+    """Caught at construction, not as a SQL error three steps later.
+
+    A source's name qualifies every column it contributes, and those land in cleaning
+    SQL. `crn-x_company` parses as subtraction, `crn.x_company` as table.column.
+    """
+    location = RelationalDBLocation(name="warehouse")
+    location.set_client(warehouse)
+    with pytest.raises(ValueError, match="can't prefix a column name"):
+        Source(
+            location=location,
+            name=name,
+            extract_transform="select pk, company from crn",
+            key_field="pk",
+        )
+
+
+def test_a_reserved_word_is_a_fine_source_name(warehouse: Engine) -> None:
+    """The name is only ever a prefix, so `select_company` is unambiguous."""
+    location = RelationalDBLocation(name="warehouse")
+    location.set_client(warehouse)
+    source = Source(
+        location=location,
+        name="select",
+        extract_transform="select pk, company from crn",
+        key_field="pk",
+    )
+    view = source.clean({"name": f"lower({source.f('company')})"})
+    view.collect()
+    assert sorted(view.data()["name"].to_list()) == ["acme", "acme", "beta"]
+
+
 def test_a_key_only_extract_is_rejected(warehouse: Engine) -> None:
     source = _crn_source(warehouse, "select pk from crn")
     with pytest.raises(ValueError, match="only its key field"):

@@ -24,6 +24,13 @@ crn = Source(
 `key_field` is the identifier you'll get back in results. It's read as a string
 whatever the warehouse stores it as, so an integer primary key needs no ceremony.
 
+`name` qualifies every column this source contributes — `company` becomes
+`crn_company` — and those names end up in cleaning SQL, so it has to work as the start
+of a column name: a letter or underscore, then letters, digits and underscores. A
+hyphen or a dot would parse as arithmetic or as a table reference, so matchlab rejects
+them when you build the source rather than letting it fail three steps later. SQL
+keywords are fine, since the name is only ever a prefix.
+
 **The `select` is the whole declaration.** Every other column it returns is part of the
 record, and so part of that record's identity: two rows are the same record exactly
 when the extract returns identical values for both. Above, a company appearing twice

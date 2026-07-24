@@ -16,6 +16,7 @@ pinned is a `cast` in the SELECT.
 
 from __future__ import annotations
 
+import re
 import tempfile
 from collections.abc import Callable, Generator, Iterable
 from pathlib import Path
@@ -38,6 +39,14 @@ if TYPE_CHECKING:
     from matchlab.models import Model
 
 
+# A source's name prefixes every column it contributes (`crn` gives `crn_company`),
+# and those land in cleaning SQL that sqlglot parses. `crn-x_company` would parse as
+# subtraction and `crn.x_company` as table.column, so the name has to be usable at the
+# start of an unquoted identifier. Reserved words are fine — the name is only ever a
+# prefix, never a bare identifier.
+_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
 class Source(Step):
     """A warehouse table, extracted and content-addressed."""
 
@@ -55,13 +64,26 @@ class Source(Step):
 
         Args:
             location: Where the data lives.
-            name: The source's name within the plan.
+            name: The source's name within the plan. Prefixes every column this
+                source contributes, so it must be usable in a SQL identifier.
             extract_transform: SQL producing the rows to index. Every column it
                 returns other than the key contributes to record identity.
             key_field: The name of the unique identifier field. Read as a string
                 whatever the warehouse returns it as.
             validate_etl: Validate the extract/transform SQL up front.
+
+        Raises:
+            ValueError: If the name could not prefix a SQL identifier, or if
+                `key_field` is not a column name.
         """
+        if not _IDENTIFIER.match(name):
+            raise ValueError(
+                f"Source name '{name}' can't prefix a column name. A source's name "
+                f"qualifies every column it contributes — '{name}_company' here — and "
+                "those appear in cleaning SQL, so it must start with a letter or "
+                "underscore and contain only letters, digits and underscores."
+            )
+
         super().__init__(name=name)
 
         if not isinstance(key_field, str):
