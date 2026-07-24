@@ -54,7 +54,15 @@ class SplinkLinkerFunction(BaseModel):
 
 
 class SplinkSettings(LinkerSettings):
-    """A data class to enforce the Splink linker's settings dictionary shape."""
+    """A data class to enforce the Splink linker's settings dictionary shape.
+
+    !!! warning "Pass a seed to any sampling training function"
+        Step fingerprints are derived from configuration, so two collections that
+        share these settings share a cache entry. Training functions that sample —
+        `estimate_u_using_random_sampling`, for one — are non-deterministic unless
+        given a `seed` in their `arguments`, and without one the first result is
+        cached and silently reused. See `Step._fingerprint`.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

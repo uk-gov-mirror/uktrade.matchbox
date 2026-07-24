@@ -425,6 +425,65 @@ CodeQL comment, PR template, `.vscode/launch.json` (dropped the uvicorn server p
 
 ---
 
+## Known limitations
+
+### Fingerprints are input-addressed, not output-addressed
+
+`Step._fingerprint()` is `H(kind, config, parents' fingerprints)` — derived from the
+**plan**, not from what the step produces. This is deliberate and load-bearing: the key
+has to exist *before* the step runs, because that is the only way `_ensure` can call
+`adapter.has(fp)` and skip the work. An output digest is only knowable once the work is
+already done, which is too late to avoid it.
+
+Sources are the deliberate exception. `Source._config_key()` folds
+`hash_arrow_table(hashes)` — a hash of the data it read — into the key, because no
+amount of configuration reveals that the warehouse moved underneath you. Data enters the
+plan at sources, so that is the one place content-addressing belongs. (Not to be
+confused with `core/resolution.py`'s `leaf_id`/`root_id`, which *are* content-addressed:
+those are record and cluster identity inside the data, a different hash for a different
+job.)
+
+The cost is that the key can disagree with the bytes, in both directions:
+
+* **Stale hit** — config omits something that changes the output, so the step is never
+  re-run and the old artifact is read instead. Live instance: `SplinkLinker` training
+  functions that sample (`estimate_u_using_random_sampling`) are non-deterministic
+  unless given a `seed` in `arguments`. Same settings, same fingerprint, different
+  edges — first write wins, silently. Documented on `SplinkSettings`.
+* **Spurious miss** — config includes something that *doesn't* change the output, so
+  work is redone for nothing. `Model._config_key` records `left.name`/`right.name`, but
+  input identity already arrives via the parent fingerprints; renaming an upstream step
+  therefore invalidates the subtree beneath it without changing a byte.
+* **No early cutoff** — a `Clean` whose SQL is reformatted but semantically unchanged
+  invalidates everything below it, because the cascade is keyed on config all the way
+  down rather than stopping where the data stops changing.
+
+None of this is a correctness bug in the stored artifacts. `_purge` makes stores
+idempotent (necessary, not cosmetic: `source_leaves`, `model_edges` and `resolution` are
+shared tables written with plain `INSERT`, so without it a second store would duplicate
+rows rather than replace them). The scheme is sound, just more eager to invalidate than
+it needs to be, and it trusts `_config_key` to be honest.
+
+**TODO(fingerprints)** — split the single key in two, as Bazel does with its action
+cache over the CAS, or Nix with content-addressed derivations:
+
+```
+action key (plan-derived, as now)  →  output digest (content-derived)  →  artifact
+```
+
+Steps still *look up* by action key, but a child's key is built from its parents'
+**output digests** instead of their action keys. Change a config that doesn't change the
+output and the parent gets a new action key, runs, produces the same digest, and every
+child hits cache — early cutoff, and the stale-hit class disappears because the key
+cannot contradict the bytes.
+
+Cost: an indirection table plus a `digest` column in the adapter contract, hashing every
+artifact on write (cheap next to computing a resolution), and `_fingerprint` reading
+parents' digests rather than `_fp`. It is a change to the adapter contract, not a tweak
+— hence deferred rather than folded into Phase A.
+
+---
+
 ## Risks
 
 * **Phase A is a rewrite of the step layer.** The validated core (adapter, resolution

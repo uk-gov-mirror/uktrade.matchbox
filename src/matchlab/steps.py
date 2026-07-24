@@ -112,7 +112,34 @@ class Step(ABC):
         ...
 
     def _fingerprint(self) -> Fingerprint:
-        """Content-address this step by kind, configuration and inputs."""
+        """Address this step by kind, configuration and inputs.
+
+        The key is derived from the *plan*, not from the step's output. That is what
+        makes it computable before the step runs, which is what lets `_ensure` skip
+        work: an output digest would only be knowable once the work was already done.
+        Sources are the exception — they fold a hash of the data they read into
+        `_config_key`, because no configuration reveals that the warehouse moved.
+
+        The trade-off is that the key can disagree with the bytes in both directions:
+
+        * config omits something that changes the output — a **stale hit**, because
+          `_ensure` never runs the step and reads the old artifact. `SplinkLinker`
+          without an explicit seed is a live example.
+        * config includes something that doesn't change the output — a **spurious
+          miss**, re-running the step and everything below it. Renaming an upstream
+          step does this: identity already arrives via the parent fingerprint, but
+          `Model._config_key` also records the input's name.
+
+        There is also no early cutoff. A `Clean` whose SQL is reformatted but
+        semantically unchanged invalidates the whole subtree beneath it.
+
+        TODO(fingerprints): split this into an action key (plan-derived, as now)
+        mapping to an output digest (content-derived, recorded by the adapter on
+        write), and build a child's key from its parents' output digests rather than
+        their action keys. That gives early cutoff and removes the stale-hit class
+        entirely, at the cost of an indirection table in the adapter contract and
+        hashing every artifact as it is stored. See PLAN.md, "Known limitations".
+        """
         parts: list[bytes] = [self.kind.encode(), self._config_key()]
         for parent in self.upstream:
             if parent._fp is None:  # pragma: no cover - collect orders upstream first

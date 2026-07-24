@@ -135,6 +135,15 @@ Sources are the exception — they hash the data they read, which is how a plan 
 the warehouse moved. Constructing a *fresh* `Source` re-reads it; an existing `Source`
 object remembers.
 
+!!! warning "Seed anything non-deterministic"
+    A step's cache key comes from its configuration, not from its output. If a model
+    can produce different results from the same settings, the first result is cached
+    and reused. In practice this means passing a `seed` to Splink training functions
+    that sample — otherwise re-running gives you the cache, not a second opinion.
+
+Because the key is configuration-derived, it is also conservative: editing a cleaning
+expression in a way that doesn't change the data still re-runs everything below it.
+
 To collect somewhere other than the default store:
 
 ```python
