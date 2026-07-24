@@ -23,9 +23,41 @@ item.records  # the rows, by leaf
 item.get_unique_record_groups()  # identical rows collapsed
 ```
 
+## Review clusters interactively
+
+Sampling and judging by hand is fiddly. `review()` opens a terminal app that walks the
+queue for you — one cluster on screen at a time, records laid out so you can see what
+was grouped:
+
+```python
+from matchlab.eval import review
+
+review(entities, tag="review-2026-07")
+```
+
+Paint the records into groups and each decision is stored as a judgement, tagged so a
+later `EvalData(adapter, tag=...)` scores against just this session. The app collects
+the resolver first if it isn't already.
+
+To review the *same* clusters someone else was shown, hand it a dump:
+
+```python
+entities.get_matches().as_dump().write_parquet("sample.parquet")
+review(entities, sample_file="sample.parquet")
+```
+
+A dump records which records appeared together, not their values, so the resolver is
+still needed — the sources are re-read to display them.
+
+!!! note
+    The reviewer needs Textual: `pip install matchlab[tui]`. Everything below works
+    without it.
+
 ## Record a judgement
 
-A judgement says: *of the records you were shown, these belong together.*
+A judgement says: *of the records you were shown, these belong together.* `review()`
+builds these for you; this is the same thing by hand, for scripting or a UI of your
+own.
 
 ```python
 from matchlab.eval import create_judgement

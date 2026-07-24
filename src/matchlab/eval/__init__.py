@@ -9,6 +9,7 @@ from matchlab.eval.samples import (
     get_samples,
     precision_recall,
 )
+from matchlab.eval.tui import review
 
 __all__ = [
     "EvalData",
@@ -18,4 +19,5 @@ __all__ = [
     "create_judgement",
     "get_samples",
     "precision_recall",
+    "review",
 ]

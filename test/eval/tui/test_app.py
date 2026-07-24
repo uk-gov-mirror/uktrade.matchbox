@@ -1,0 +1,140 @@
+"""The review app, driven end to end over a real plan.
+
+No server and no mocked handler: samples come from a collected resolver (or from a
+file it dumped), and judgements land in the same DuckDB store the rest of the library
+uses. That round trip — sample, paint, store, score — is the thing worth testing.
+"""
+
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from sqlalchemy import Engine, create_engine, text
+
+from matchlab import Resolver, Source, set_default_adapter
+from matchlab.adapters import DuckDBAdapter
+from matchlab.eval import EvalData
+from matchlab.eval.tui.app import EntityResolutionApp
+from matchlab.locations import RelationalDBLocation
+from matchlab.models.dedupers import NaiveDeduper
+
+
+@pytest.fixture
+def warehouse(tmp_path: Path) -> Engine:
+    engine = create_engine(f"sqlite:///{tmp_path / 'wh.sqlite'}")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE crn (pk TEXT, company TEXT, town TEXT)"))
+        conn.execute(
+            text(
+                "INSERT INTO crn VALUES "
+                "('a1','acme','london'),('a2','acme','leeds'),('a3','beta','hull')"
+            )
+        )
+    return engine
+
+
+@pytest.fixture(autouse=True)
+def adapter() -> Iterator[DuckDBAdapter]:
+    store = DuckDBAdapter(":memory:")
+    set_default_adapter(store)
+    yield store
+    set_default_adapter(None)
+    store.close()
+
+
+@pytest.fixture
+def resolver(warehouse: Engine) -> Resolver:
+    location = RelationalDBLocation(name="warehouse")
+    location.set_client(warehouse)
+    source = Source(
+        location=location,
+        name="crn",
+        extract_transform="select pk, company, town from crn",
+        key_field="pk",
+    )
+    return source.dedupe(
+        model_class=NaiveDeduper,
+        model_settings={"unique_fields": [source.f("company")]},
+    ).resolve()
+
+
+def _app(resolver: Resolver, **kwargs: object) -> EntityResolutionApp:
+    # Debouncing is a UI nicety that only makes tests wait.
+    return EntityResolutionApp(resolver=resolver, scroll_debounce_delay=None, **kwargs)
+
+
+def test_a_resolver_is_required() -> None:
+    with pytest.raises(ValueError, match="resolver is required"):
+        EntityResolutionApp(resolver=None)
+
+
+async def test_the_app_loads_clusters_from_a_collected_resolver(
+    resolver: Resolver,
+) -> None:
+    resolver.collect()
+
+    app = _app(resolver, num_samples=5)
+    async with app.run_test():
+        assert app.queue.total_count > 0
+        assert app.current_item is not None
+        # The records on screen are the ones that were grouped.
+        assert set(app.current_item.records.columns) >= {"leaf"}
+
+
+async def test_a_judgement_reaches_the_adapter(
+    resolver: Resolver, adapter: DuckDBAdapter
+) -> None:
+    """Paint every group, submit, and the judgement is stored and scoreable."""
+    resolver.collect()
+
+    app = _app(resolver, num_samples=5, session_tag="review-test")
+    async with app.run_test() as pilot:
+        item = app.current_item
+        assert item is not None
+
+        # Endorse every shown record as one entity.
+        groups = item.get_unique_record_groups()
+        app.queue.current.assignments = dict.fromkeys(range(len(groups)), "a")
+        await app.action_submit()
+        await pilot.pause()
+
+    judgements, expansion = adapter.read_eval_data(tag="review-test")
+    assert judgements.height > 0
+    assert expansion.height > 0
+
+    # And it scores: judged pairs are compared against the resolution.
+    precision, recall = EvalData(adapter, tag="review-test").precision_recall(
+        resolver.results_eval()
+    )
+    assert 0.0 <= precision <= 1.0
+    assert 0.0 <= recall <= 1.0
+
+
+async def test_samples_can_come_from_a_dumped_file(
+    resolver: Resolver, tmp_path: Path
+) -> None:
+    """The sample-file path: review the clusters someone else was shown.
+
+    The file records which records appeared together, not their values, so the
+    resolver is still needed to read the sources for display.
+    """
+    resolver.collect()
+    dump = tmp_path / "samples.parquet"
+    resolver.get_matches().as_dump().write_parquet(dump)
+
+    app = _app(resolver, num_samples=5, sample_file=str(dump))
+    async with app.run_test():
+        assert app.queue.total_count > 0
+        assert app.current_item is not None
+
+
+async def test_no_samples_is_handled_rather_than_crashing(
+    resolver: Resolver, tmp_path: Path
+) -> None:
+    resolver.collect()
+    empty = tmp_path / "empty.parquet"
+    resolver.get_matches().as_dump().head(0).write_parquet(empty)
+
+    app = _app(resolver, sample_file=str(empty))
+    async with app.run_test():
+        assert app.queue.total_count == 0

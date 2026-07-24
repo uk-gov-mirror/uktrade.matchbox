@@ -531,6 +531,26 @@ write-only `description` field on every step.
   recipe went with them.
 * **Suite: 324 passing, 0 skipped**, with no container required for any of it.
 
+### The eval TUI is back, as a library call
+
+`matchlab.eval.review(resolver, tag=..., sample_file=...)`. It turned out the app was
+barely server-coupled: `EvaluationItem` is unchanged, so `widgets/` and `modals.py`
+(~21 KB, the bulk of the UI) ported verbatim, and `app.py` needed three edits —
+`_handler.send_eval_judgement` → `adapter.store_judgement`, a `Resolver` object in
+place of a `DAG` + resolver path, and one dead import.
+
+Everything server-shaped lived in the CLI wrapper (`--collection`,
+`DAG(...).load_default()`, `--warehouse` to reattach clients, `--resolver` by name),
+which is exactly the part that needs plan serialisation. Replaced by a function that
+takes the live object you already built, so nothing is blocked.
+
+A sample file is *not* plan-free, contrary to first appearances: it records which
+records were shown together, not their values, so `resolver.sources` is read either
+way to display them. `sample_file` only bypasses `adapter.sample()`.
+
+Textual is an optional extra (`matchlab[tui]`); `pytest-asyncio` in `auto` mode runs
+Textual's `run_test()` pilot. 11 tests, over a real plan and a real DuckDB store.
+
 ### Still open
 
 * **TODO(fingerprints)** — see Known limitations below. Unchanged by Phase D, except
@@ -538,7 +558,7 @@ write-only `description` field on every step.
 * **The CLI** — still waiting on plan serialisation. The typed configs from Phase D are
   most of what a serialiser needs; what's missing is edges (steps refer to each other by
   name, and a name is not a node) and a decision about how location clients are
-  reattached on load.
+  reattached on load. **The eval TUI no longer waits on it** — see below.
 * **`Source.dedupe`/`link` and the testkit `view()` wrappers** now have honest
   signatures, but `SourceTestkit`/`ResolverTestkit` still forward `*args, **kwargs`.
 
