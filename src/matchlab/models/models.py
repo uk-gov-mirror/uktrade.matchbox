@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.cleaning import Cleaner
+from matchlab.cleaners import Cleaner
 from matchlab.core.config import ModelType
 from matchlab.core.logging import logger, profile_time
 from matchlab.models import dedupers, linkers

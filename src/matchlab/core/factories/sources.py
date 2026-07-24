@@ -17,7 +17,7 @@ from sqlalchemy import Engine, create_engine
 from sqlglot import cast, select
 from sqlglot.expressions import column
 
-from matchlab.cleaning import Cleaner
+from matchlab.cleaners import Cleaner
 from matchlab.core.arrow import SCHEMA_INDEX, SCHEMA_QUERY
 from matchlab.core.config import (
     ModelStepName,

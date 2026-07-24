@@ -7,7 +7,7 @@ import polars as pl
 from faker import Faker
 from pydantic import BaseModel, ConfigDict, Field
 
-from matchlab.cleaning import Cleaner
+from matchlab.cleaners import Cleaner
 from matchlab.core.arrow import SCHEMA_CLUSTERS
 from matchlab.core.config import (
     ModelStepName,

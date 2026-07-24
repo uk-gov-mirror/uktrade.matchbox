@@ -23,7 +23,6 @@ crn = Source(
     name="crn",
     extract_transform="select pk, company, town from crn",
     key_field="pk",
-    index_fields=["company", "town"],
 )
 
 companies = crn.dedupe(

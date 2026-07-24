@@ -15,7 +15,6 @@ companies = Source(
     name="crn",
     extract_transform="select pk, company, town from companies",
     key_field="pk",
-    index_fields=["company", "town"],
 )
 
 entities = (

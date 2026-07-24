@@ -60,6 +60,54 @@ its own inputs, so the step you're holding is the pipeline.
 
 Names are now optional — they're derived from the operation unless you pass one.
 
+## Sources declare less
+
+A source is now its query plus a key. There is no `index_fields` and no `SourceField`.
+
+=== "Matchbox"
+
+    ```python
+    Source(
+        location=warehouse,
+        name="crn",
+        extract_transform="select pk, company, town from companies",
+        key_field="pk",
+        index_fields=["company", "town"],
+    )
+    ```
+
+=== "matchlab"
+
+    ```python
+    Source(
+        location=warehouse,
+        name="crn",
+        extract_transform="select pk, company, town from companies",
+        key_field="pk",
+    )
+    ```
+
+**This changes behaviour, not just signatures.** Identity used to be the indexed fields;
+it's now every column the extract returns except the key. If your `index_fields` listed
+everything you selected, nothing changes. If it listed *fewer* columns than you selected,
+records that used to collapse into one will now stay separate — remove those columns from
+the `select` to get the old grouping back.
+
+The upside is that the two can no longer disagree. A column outside the old index could
+change in the warehouse without moving the source's fingerprint, so the source cache-hit,
+never re-stored, and downstream views kept reading the stale value.
+
+Field types went the same way. They fed one thing — the dtype each column was read as —
+and hashing casts every value to text anyway, so the pin only mattered when a driver
+changed a column's *kind*. Say it in the SQL instead:
+
+```python
+extract_transform = "select pk, cast(crn as text) as crn from companies"
+```
+
+Keys are now cast to string on read rather than validated, so an integer primary key
+works without a `cast`.
+
 ## Renamed operations
 
 Nouns became verbs, and each one is a step in the plan:
@@ -88,6 +136,11 @@ the adapter, so there is nothing held in memory to drop.
 
 **Authentication and client settings.** No `api_root`, no JWT, no `MB__CLIENT__*`
 environment variables. Delete them.
+
+**`SourceField`, `Location.infer_types`, and step `description`s.** The first two went
+with `index_fields` above. `description` annotated steps for other people to read on the
+server; with nothing to serialise it to and nothing to display it in, it was a field you
+could set and never observe.
 
 ## Exceptions
 

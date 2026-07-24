@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.cleaning import Cleaner
+from matchlab.cleaners import Cleaner
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.logging import logger, profile_time
 from matchlab.core.resolution import materialise_resolution

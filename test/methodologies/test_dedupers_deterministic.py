@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 import polars as pl
 import pytest
 
-from matchlab.cleaning import Cleaner
+from matchlab.cleaners import Cleaner
 from matchlab.core.factories.entities import FeatureConfig
 from matchlab.core.factories.sources import (
     SourceTestkit,

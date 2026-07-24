@@ -16,7 +16,7 @@ from pyarrow import compute as pc
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import create_engine
 
-from matchlab.cleaning import Cleaner
+from matchlab.cleaners import Cleaner
 from matchlab.core.arrow import SCHEMA_MODEL_EDGES
 from matchlab.core.config import (
     ModelStepName,

@@ -8,7 +8,7 @@ Nothing runs until you call `collect()`.
 
 ## Sources
 
-A source is a leaf: a warehouse table plus the fields you intend to match on.
+A source is a leaf: a warehouse query, plus the column that keys it.
 
 ```python
 from matchlab import Source
@@ -18,16 +18,29 @@ crn = Source(
     name="crn",
     extract_transform="select pk, company, town from companies",
     key_field="pk",
-    index_fields=["company", "town"],
 )
 ```
 
-`key_field` is the identifier you'll get back in results. `index_fields` are what
-matchlab hashes and matches on — rows identical across all of them are treated as the
-same record.
+`key_field` is the identifier you'll get back in results. It's read as a string
+whatever the warehouse stores it as, so an integer primary key needs no ceremony.
 
-Field types are inferred from the warehouse. Pass
-[`SourceField`](../api/core/config.md) instances instead of names to set them yourself.
+**The `select` is the whole declaration.** Every other column it returns is part of the
+record, and so part of that record's identity: two rows are the same record exactly
+when the extract returns identical values for both. Above, a company appearing twice
+with the same name and town is one record; change the town and it's two.
+
+There's no separate list of fields to index. That means:
+
+* **A column you don't want to affect identity is a column you shouldn't select.** Pull
+  a `last_updated` timestamp through and every row becomes distinct.
+* **A type you want pinned is a `cast` in the SQL.** `select cast(crn as text)` reads
+  more directly than a parallel type system, and it can't drift from the query.
+* **Changing the warehouse data behind any selected column invalidates the source**, and
+  everything downstream of it.
+
+You can still fetch a column purely to look at — `view_cluster` and the evaluation
+samplers re-read the warehouse through the same `extract_transform` — but be aware that
+selecting it makes it count.
 
 ## Verbs
 
@@ -35,10 +48,10 @@ Steps chain. Each verb returns a new lazy step:
 
 | Verb | Produces | Meaning |
 |---|---|---|
-| `.clean(...)` | `Clean` | A queryable view, optionally with cleaning SQL |
+| `.clean(...)` | `Cleaner` | A queryable view, optionally with cleaning SQL |
 | `.dedupe(...)` | `Model` | Candidate matches *within* one view |
 | `.link(other, ...)` | `Model` | Candidate matches *between* two views |
-| `.resolve(...)` | `Resolve` | Collapse candidate edges into clusters |
+| `.resolve(...)` | `Resolver` | Collapse candidate edges into clusters |
 | `.collect()` | (same step) | Run everything the step depends on |
 
 ### Cleaning

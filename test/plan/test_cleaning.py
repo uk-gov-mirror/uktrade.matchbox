@@ -10,7 +10,7 @@ import pytest
 from polars.testing import assert_frame_equal
 from sqlglot.errors import ParseError
 
-from matchlab.cleaning import _apply_cleaning
+from matchlab.cleaners import _apply_cleaning
 
 
 @pytest.mark.parametrize(

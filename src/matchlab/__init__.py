@@ -13,7 +13,7 @@ Nothing runs until `collect()`, and collecting again only does the work whose pl
 or inputs changed.
 """
 
-from matchlab.cleaning import Cleaner
+from matchlab.cleaners import Cleaner
 from matchlab.locations import RelationalDBLocation
 from matchlab.models import Model
 from matchlab.resolvers import Resolver

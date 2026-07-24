@@ -19,7 +19,7 @@ nav:
     - Steps: api/steps.md
     - Lineage: api/lineage.md
     - Sources: api/sources.md
-    - Cleaning: api/cleaning.md
+    - Cleaners: api/cleaners.md
     - Models: api/models.md
     - Resolvers: api/resolvers.md
     - Results: api/results.md

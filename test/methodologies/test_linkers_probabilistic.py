@@ -9,7 +9,7 @@ import pytest
 from splink import SettingsCreator
 from splink import comparison_library as cl
 
-from matchlab.cleaning import Cleaner
+from matchlab.cleaners import Cleaner
 from matchlab.core.datatypes import DataTypes
 from matchlab.core.factories.entities import (
     FeatureConfig,
