@@ -3,31 +3,79 @@ hide:
   - toc
 ---
 
-<figure markdown="span">
-  ![The Matchbox logo in light mode](./assets/matchbox-logo-light.svg#only-light){ width="500" }
-  ![The Matchbox logo in dark mode](./assets/matchbox-logo-dark.svg#only-dark){ width="500" }
-</figure>
+# matchlab
+
+**A local-first library for building, running and evaluating entity resolution
+pipelines.**
+
+Record matching is a chore. You match with Splink and pandas, measure with
+`er-evaluation`, and hand-roll the operational pipeline — and every library in the
+chain fights the others. There is no common data format, no common way to compare
+methodologies, and no common way to run the result.
+
+matchlab is one library for all of it, and it runs on your machine.
+
+```python
+from matchlab import Source
+
+crn = Source(
+    location=warehouse,
+    name="crn",
+    extract_transform="select pk, company, town from crn",
+    key_field="pk",
+    index_fields=["company", "town"],
+)
+
+companies = crn.dedupe(
+    model_class=NaiveDeduper,
+    model_settings={"unique_fields": [crn.f("company")]},
+).resolve()
+
+lookup = companies.collect().get_matches().as_lookup()
+```
 
 <div class="grid cards" markdown>
 
-- :material-run-fast:{ .lg .middle } **Getting started**
+- :material-run-fast:{ .lg .middle } **Get started**
 
     ---
 
-    Learn how to quickly install and use Matchbox:
-    
-    * The **client** lets you query and link/dedupe data
-    * The **server** is for setting up a new Matchbox instance for your organisation.
+    Install matchlab and build your first pipeline.
 
-    [:octicons-zap-16: Get started with the client](./client/install.md){ .md-button .md-button--primary } [:octicons-download-16: Deploy server in your org](./server/install.md){ .md-button .md-button--primary }
+    [:octicons-zap-16: Install](./guide/install.md){ .md-button .md-button--primary }
+    [:octicons-book-16: Build a plan](./guide/build-a-plan.md){ .md-button }
+
+- :material-swap-horizontal:{ .lg .middle } **Coming from Matchbox?**
+
+    ---
+
+    matchlab is Matchbox without the server. The API changed substantially.
+
+    [:octicons-arrow-right-16: Migration guide](./migration/matchbox-to-matchlab.md){ .md-button }
 
 </div>
 
-Record matching is a chore. Matchbox is a match pipeline orchestration tool that aims to:
+## What it does
 
-* Make matching an iterative, collaborative, measurable problem
-* Allow organisations to know they have matching records without having to share the data
-* Allow matching pipelines to run iteratively
-* Support batch and real-time matching 
+**A language for pipelines.** Bring cleaning, deduplication and linking steps together
+into a plan that is serialisable and cheap to iterate on. Splink can't express this;
+matchlab is built around it.
 
-Matchbox doesn't store raw data, instead indexing the data in your warehouse and leaving permissioning at the level of the user, service or pipeline. 
+**Lazy, like Polars.** Nothing runs until you `collect()`. Each step knows the whole
+plan behind it, results are content-addressed, and re-collecting only redoes the work
+whose inputs actually changed.
+
+**Evaluation as a first-class concern.** Entity resolution has no single right answer —
+many methodologies, many configurations. matchlab ships the tools to compare them:
+cluster sampling, judgements, and precision/recall against ground truth.
+
+**A path from analysis to production.** The plan you iterate on in a notebook is the
+plan you run operationally, and the output has a stable interface for the analysts and
+services that consume it.
+
+## What it doesn't do
+
+matchlab does not store your raw data. It reads from your warehouse, indexes what it
+needs to match on, and keeps its own artifacts in a local store (DuckDB by default).
+
+There is no server, no accounts, and nothing to deploy.

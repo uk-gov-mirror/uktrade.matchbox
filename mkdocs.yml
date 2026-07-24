@@ -1,72 +1,46 @@
-site_name: "Matchbox"
-site_description: "Documentation for Matchbox"
-repo_url: "https://github.com/uktrade/matchbox"
-repo_name: "uktrade/matchbox"
+site_name: "matchlab"
+site_description: "Documentation for matchlab"
+repo_url: "https://github.com/uktrade/matchlab"
+repo_name: "uktrade/matchlab"
 
 nav:
 - Home:
   - Welcome: index.md
   - Use cases: use-cases.md
-- Client:
-  - Installation: client/install.md
-  - Explore DAGs: client/explore-dags.md
-  - Look up matches: client/look-up.md
-  - Link and deduplicate: client/link-data.md
-  - Run DAGs interactively: client/dag-interactive.md
-  - Evaluate resolver output: client/evaluation.md
-  - API: 
-    - Overview: api/client/index.md
-- Server:
-  - Matchbox concepts: server/concepts.md
-  - Installation: server/install.md
-  - Access control and permissions: server/permissions.md
-  - CLI: server/cli.md
-  - Data and security risks: server/risks.md
-  - API: 
-    - Overview: api/server/index.md
+- Guide:
+  - Install: guide/install.md
+  - Build a plan: guide/build-a-plan.md
+  - Query the result: guide/query.md
+  - Evaluate: guide/evaluate.md
 - Migration:
-  - Pre-0.10 to 0.10: migration/pre-0.10-to-0.10.md
+  - Matchbox to matchlab: migration/matchbox-to-matchlab.md
 - API reference:
-  - Client:
-    - Overview: api/client/index.md
-    - DAGs: api/client/dags.md
-    - Locations: api/client/locations.md
-    - Sources: api/client/sources.md
-    - Queries: api/client/queries.md
-    - Models: api/client/models.md
-    - Resolvers: api/client/resolvers.md
-    - Evaluation: api/client/eval.md
-    - Results: api/client/results.md
-  - Server: 
-    - Overview: api/server/index.md
-    - API: api/server/api.md
-    - Uploads: api/server/uploads.md
-    - Backends:
-      - PostgreSQL: api/server/backends/postgresql.md
-  - Common: 
-    - Overview: api/common/index.md
-    - Database: api/common/db.md
-    - Evaluation: api/common/eval.md
-    - Exceptions: api/common/exceptions.md
-    - Factories: 
-      - Overview: api/common/factories/index.md
-      - Entities: api/common/factories/entities.md
-      - Sources: api/common/factories/sources.md
-      - Models: api/common/factories/models.md
-      - Resolvers: api/common/factories/resolvers.md
-      - Scenarios: api/common/factories/scenarios.md
-    - Hashing: api/common/hash.md
-    - Logging: api/common/logging.md
-    - Transform: api/common/transform.md
-    - DTOs: api/common/dtos.md
-    - Arrow: api/common/arrow.md
+  - Plan:
+    - Steps: api/steps.md
+    - Lineage: api/lineage.md
+    - Sources: api/sources.md
+    - Cleaning: api/cleaning.md
+    - Models: api/models.md
+    - Resolvers: api/resolvers.md
+    - Results: api/results.md
+  - Storage:
+    - Adapters: api/adapters.md
+    - Locations: api/locations.md
+  - Evaluation: api/eval.md
+  - Core:
+    - Config: api/core/config.md
+    - Resolution: api/core/resolution.md
+    - Exceptions: api/core/exceptions.md
+    - Evaluation metrics: api/core/eval.md
+    - Hashing: api/core/hash.md
+    - Arrow schemas: api/core/arrow.md
+    - Transform: api/core/transform.md
+    - Test factories: api/core/factories.md
 - Contributing:
   - Guidelines: contributing.md
 
 theme:
   name: material
-  logo: assets/matchbox-icon.svg
-  favicon: assets/matchbox-icon-dark.png
   features:
     - content.code.copy
     - navigation.sections
@@ -139,7 +113,7 @@ plugins:
               - griffe_inherited_docstrings
             docstring_options:
               ignore_init_summary: true
-            preload_modules: [matchbox]
+            preload_modules: [matchlab]
             docstring_style: google
             docstring_section_style: list
             heading_level: 2
@@ -163,7 +137,7 @@ plugins:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/uktrade/matchbox
+      link: https://github.com/uktrade/matchlab
   generator: false
 
 extra_css:

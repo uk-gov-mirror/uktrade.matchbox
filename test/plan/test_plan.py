@@ -284,7 +284,7 @@ def test_gc_reclaims_a_dropped_plan(warehouse: Engine, adapter: DuckDBAdapter) -
     This is what the old DAG registry made impossible: it strong-referenced every
     step forever, so nothing was ever unreachable.
     """
-    import gc as pygc  # noqa: PLC0415 - local, to avoid clashing with matchbox.gc
+    import gc as pygc  # noqa: PLC0415 - local, to avoid clashing with matchlab.gc
 
     crn = _source(warehouse, "crn")
     deduped = _dedupe_crn(crn)

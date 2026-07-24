@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Matchbox: Debug",
+            "name": "matchlab: Debug",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
@@ -10,28 +10,20 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "env": {
-                "PYTEST_ADDOPTS": "--no-cov",
+                "PYTEST_ADDOPTS": "--no-cov -p no:xdist",
                 "PYTHONPATH": "${workspaceFolder}",
             },
             "python": "${workspaceFolder}/.venv/bin/python",
             "cwd": "${workspaceFolder}",
         },
         {
-            "name": "Matchbox: Profile",
+            "name": "matchlab: Profile",
             "type": "debugpy",
             "request": "launch",
             "module": "cProfile",
             "args": [
                 "-o", "/tmp/tmp.prof", "${file}"
             ]
-        },
-        {
-            "name": "API debug",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "uvicorn",
-            "args": ["matchbox.server.api:app","--reload","--port","8080"]
         }
-        
     ]
 }

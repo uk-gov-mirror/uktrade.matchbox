@@ -1,25 +1,29 @@
+# Use cases
+
 ## For data analysts and scientists
 
-* Use your team's best matching methods when retrieving entities, always
-* Measurably improve methodologies when they don't work for you
-* When you link new data, allow others to use your work easily and securely
+* Express cleaning, deduplication and linking as one plan you can iterate on, instead of
+  a pile of notebook cells
+* Measure whether a change actually improved the match, against judgements or known
+  truth
+* Re-run cheaply — collecting again only redoes the work whose inputs changed
 
-[:octicons-download-16: Install client](./client/install.md){ .md-button }
+[:octicons-download-16: Install](./guide/install.md){ .md-button }
 
 ## For data architects and engineers
 
-* Reconcile entities across disparate data
-* Rationalise about the quality of different entity matching pipelines and serve up the best
-* Run matching pipelines without recomputing them every time
+* Reconcile entities across disparate sources without moving the data anywhere
+* Compare methodologies on equal terms rather than by argument
+* Take the plan an analyst built and run it operationally — it's the same object
 * Lay the foundation for the nouns of a semantic layer
 
-[:octicons-download-16: Install server](./server/install.md){ .md-button }
+[:octicons-book-16: Build a plan](./guide/build-a-plan.md){ .md-button }
 
 ## For service owners
 
-* Understand the broader business entities in your service, not just what you have
-* Enrich other services with data generated in yours without giving away any permissioning powers
-* Empower your users to label matched entities and let other services use that information
+* Understand the broader business entities in your service, not just the records you
+  hold
+* Resolve a single key against every other source you match against, offline and fast
+* Keep the output stable enough for other services to depend on
 
-[:octicons-download-16: Install client](./client/install.md){ .md-button }
-[:octicons-download-16: Install server](./server/install.md){ .md-button }
+[:octicons-search-16: Query the result](./guide/query.md){ .md-button }

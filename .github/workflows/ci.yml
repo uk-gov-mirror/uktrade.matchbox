@@ -25,30 +25,8 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Copy environment variables
-      run: cp environments/development.env .env
-
-    - name: Generate test keys
-      run: |
-        uv run test/scripts/authorisation.py keygen > /tmp/keys.json
-
-        echo "MB__DEV__PRIVATE_KEY=\"$(jq -r '.private_key' /tmp/keys.json)\"" >> .env
-
-        echo "MB__SERVER__PUBLIC_KEY=\"$(jq -r '.public_key' /tmp/keys.json)\"" >> .env
-
-        echo "MB__CLIENT__JWT=$(jq -r .private_key /tmp/keys.json | \
-          uv run test/scripts/authorisation.py jwt \
-            --sub e9ba93b3-e4d5-4dee-868c-d011116142bd \
-            --api-root https://localhost:8000/ \
-            --expiry 999999 | \
-          tr -d '\n')" >> .env
-
     - name: Run tests
       run: just test
-
-    - name: Dump docker logs
-      if: failure()
-      uses: jwalton/gh-docker-logs@2741064ab9d7af54b0b1ffb6076cf64c16f0220e # v2.2.2
 
   format-and-lint:
     runs-on: ubuntu-latest
@@ -81,7 +59,7 @@ jobs:
         run: uv build
 
       - name: Build docs
-        run: uv run mkdocs build
+        run: uv run mkdocs build --strict
 
   ci-success:
     needs: [format-and-lint, test, build]

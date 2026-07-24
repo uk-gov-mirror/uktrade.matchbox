@@ -1,60 +1,65 @@
-<p align="center">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/uktrade/matchbox/refs/heads/main/docs/assets/matchbox-logo-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/uktrade/matchbox/refs/heads/main/docs/assets/matchbox-logo-light.svg">
-      <img alt="Shows the Matchbox logo in light or dark color mode." src="https://raw.githubusercontent.com/uktrade/matchbox/refs/heads/main/docs/assets/matchbox-logo-light.svg">
-    </picture>
-</p>
+# matchlab
 
-Record matching is a chore. 🔥Matchbox is a match pipeline orchestration tool that aims to:
+**A local-first library for building, running and evaluating entity resolution
+pipelines.**
 
-* Make matching an iterative, collaborative, measurable problem
-* Compose sources, dedupers and linkers and make the results very easy to query
-* Allow organisations to know they have matching records without having to share the data
-* Allow matching pipelines to run iteratively
-* Support batch and real-time matching 
+Record matching is a chore. matchlab makes it a pipeline you can build, run, query and
+measure — on your machine, against your warehouse, with nothing to deploy.
 
-Matchbox doesn't store raw data, instead indexing the data in your warehouse and leaving permissioning at the level of the user, service or pipeline.
+```python
+from matchlab import Source
+from matchlab.models.dedupers import NaiveDeduper
 
-To get started, read our [full documentation](https://uktrade.github.io/matchbox/).
+companies = Source(
+    location=warehouse,
+    name="crn",
+    extract_transform="select pk, company, town from companies",
+    key_field="pk",
+    index_fields=["company", "town"],
+)
+
+entities = (
+    companies.clean({"name": "lower(crn_company)"})
+    .dedupe(model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]})
+    .resolve()
+    .collect()
+)
+
+entities.lookup_key(from_source="crn", to_sources=["dh"], key="a1")
+```
+
+Read the [full documentation](https://uktrade.github.io/matchlab/).
+
+## What it does
+
+* **A lazy plan.** `Source(...).clean(...).dedupe(...).resolve()` builds a tree of steps.
+  Nothing runs until you `collect()`.
+* **Content-addressed caching.** Re-collecting an unchanged plan does no work. Adding a
+  step runs only that step.
+* **Materialised resolution.** A collected resolver writes a complete
+  `(root, leaf, key, source)` table, so lookups are reads, not re-derivations.
+* **Measurement as a first-class job.** Sample clusters, record judgements, score
+  precision and recall, and compare methodologies on equal terms.
+* **Your data stays put.** matchlab indexes what's in your warehouse; it doesn't copy it.
+
+## What it doesn't do
+
+No server, no accounts, no permissions, nothing to deploy. If you need a shared,
+governed matching service, matchlab is not that.
 
 ## Installation
 
-To install the matchbox client:
-
 ```shell
-pip install "matchbox-db"
+pip install matchlab
 ```
 
-To install the full package, including the server features:
+## Coming from Matchbox?
 
-```shell
-pip install "matchbox-db[server]"
-```
-
-To run the server, see the [server installation documentation](https://uktrade.github.io/matchbox/server/install/).
-
-## Use cases
-
-### Data architects and engineers
-
-* Reconcile entities across disparate data
-* Rationalise about the quality of different entity matching pipelines and serve up the best
-* Run matching pipelines without recomputing them every time
-* Lay the foundation for the nouns of a semantic layer
-
-### Data analysts and scientists
-
-* Use your team's best matching methods when retrieving entities, always
-* Measurably improve methodologies when they don't work for you
-* When you link new data, allow others to use your work easily and securely
-
-### Service owners
-
-* Understand the broader business entities in your service, not just what you have
-* Enrich other services with data generated in yours without giving away any permissioning powers
-* Empower your users to label matched entities and let other services use that information
+matchlab is the successor to `matchbox-db`, with the server removed and the client API
+rebuilt. It's a hard break — see the
+[migration guide](https://uktrade.github.io/matchlab/migration/matchbox-to-matchlab/).
 
 ## Development
 
-See our full development guide and coding standards on our [contribution guide](https://uktrade.github.io/matchbox/contributing/).
+See our full development guide and coding standards on our
+[contribution guide](https://uktrade.github.io/matchlab/contributing/).
