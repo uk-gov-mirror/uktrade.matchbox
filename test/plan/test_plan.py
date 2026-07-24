@@ -484,6 +484,51 @@ def test_a_grouped_view_still_merges_forward(warehouse: Engine) -> None:
     assert crn_ids["a3"] != crn_ids["a1"]
 
 
+def test_group_collapses_a_multi_source_view_onto_one_row(warehouse: Engine) -> None:
+    """The case `group` exists for: several sources under one entity.
+
+    Reading two sources through a resolver concatenates diagonally — crn rows carry
+    null dh columns and vice versa — so a comparison on `l.dh_company` is null on
+    every crn row. Grouping puts the entity on a single populated row.
+    """
+    crn = _source(warehouse, "crn")
+    dh = _source(warehouse, "dh")
+    linked = (
+        crn.view()
+        .link(
+            dh,
+            model_class=DeterministicLinker,
+            model_settings={
+                "comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"
+            },
+        )
+        .resolve()
+    )
+    linked.collect()
+
+    ungrouped = linked.view(crn, dh, cleaning={"c": "crn_company", "d": "dh_company"})
+    ungrouped.collect()
+    acme = ungrouped.data().filter(pl.col("c") == "acme")
+    # Every crn row for the acme entity has a null dh column.
+    assert acme["d"].null_count() == acme.height
+
+    grouped = linked.view(
+        crn,
+        dh,
+        cleaning={
+            "company": "any_value(crn_company)",
+            "towns": "list(distinct coalesce(crn_town, dh_town))",
+        },
+        group=True,
+    )
+    grouped.collect()
+    frame = grouped.data().filter(pl.col("company") == "acme")
+
+    # One row, both sources' values present — any_value skips the nulls.
+    assert frame.height == 1
+    assert set(frame["towns"][0]) == {"london", "leeds", "bristol"}
+
+
 def test_group_without_cleaning_is_rejected(warehouse: Engine) -> None:
     crn = _source(warehouse, "crn")
     with pytest.raises(ValueError, match="needs cleaning expressions"):

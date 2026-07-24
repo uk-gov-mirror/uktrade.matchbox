@@ -121,6 +121,37 @@ Any DuckDB aggregate works, `list` and `string_agg` included. A non-aggregate ge
 DuckDB's own error naming the column. `group=True` needs cleaning expressions — there's
 no sensible default for how a column collapses.
 
+Grouping matters most when a view reads **several** sources through a resolver. Those
+are concatenated diagonally, so each row carries one source's columns and nulls for the
+rest:
+
+```python
+resolver.view(crn, dh, cleaning={"c": "crn_company", "d": "dh_company"}).data()
+
+# c    | d
+# acme | null      <- from crn
+# acme | null      <- from crn
+# null | acme      <- from dh
+```
+
+A comparison on `l.d` is null on every crn row, so the entity can't be matched on its
+combined evidence. Grouping puts it on one populated row — `any_value` skips nulls:
+
+```python
+resolver.view(
+    crn,
+    dh,
+    cleaning={
+        "company": "any_value(crn_company)",
+        "towns": "list(distinct coalesce(crn_town, dh_town))",
+    },
+    group=True,
+).data()
+
+# company | towns
+# acme    | ["london", "leeds", "bristol"]
+```
+
 Grouping changes what the *model* sees, never the resolution: record identity travels
 separately, so a resolver below a grouped view still carries every record forward.
 
