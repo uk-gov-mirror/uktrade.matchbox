@@ -17,15 +17,13 @@ from sqlalchemy import Engine, create_engine
 from sqlglot import cast, select
 from sqlglot.expressions import column
 
-from matchlab.cleaning import Clean
+from matchlab.cleaning import Cleaner
 from matchlab.core.arrow import SCHEMA_INDEX, SCHEMA_QUERY
 from matchlab.core.config import (
     ModelStepName,
     SourceConfig,
-    SourceField,
     SourceStepName,
 )
-from matchlab.core.datatypes import DataTypes
 from matchlab.core.factories.entities import (
     ClusterEntity,
     EntityReference,
@@ -129,7 +127,22 @@ class SourceTestkit(BaseModel):
         """Return the SourceConfig from the source."""
         return self.source.config
 
-    def clean(self, *args: Any, **kwargs: Any) -> Clean:
+    @property
+    def field_names(self) -> list[str]:
+        """The non-key columns of this testkit's data, in generation order.
+
+        Taken from the testkit rather than from `Source.index_fields`, which would
+        have to read the warehouse — these are needed while building a plan. Falls
+        back to the data's own columns when the source was set manually rather than
+        generated from features.
+        """
+        if self.features is not None:
+            return [feature.name for feature in self.features]
+        return [
+            column for column in self.data.column_names if column not in ("key", "id")
+        ]
+
+    def clean(self, *args: Any, **kwargs: Any) -> Cleaner:
         """Thin wrapper to build a cleaned view over this testkit's Source."""
         return self.source.clean(*args, **kwargs)
 
@@ -586,24 +599,17 @@ def source_factory(
         for row_id, keys in row_keys.items()
     ]
 
-    # Create fields
-    key_field = SourceField(name="key", type=DataTypes.STRING)
-    index_fields = tuple(
-        SourceField(name=feature.name, type=feature.datatype) for feature in features
-    )
-
     # Create source config
     source = Source(
         location=RelationalDBLocation(name=location_name).set_client(engine),
         name=name,
         extract_transform=select(
-            cast(column(key_field.name), "string").as_(key_field.name),
-            *[column(field.name) for field in index_fields],
+            cast(column("key"), "string").as_("key"),
+            *[column(feature.name) for feature in features],
         )
         .from_(name)
         .sql(),
-        key_field=key_field,
-        index_fields=index_fields,
+        key_field="key",
     )
 
     return SourceTestkit(
@@ -651,25 +657,17 @@ def source_from_tuple(
         for key, entity_id in zip(data_keys, entity_ids, strict=True)
     ]
 
-    # Create fields
-    key_field = SourceField(name="key", type=DataTypes.STRING)
-    index_fields = tuple(
-        SourceField(name=k, type=DataTypes.from_pytype(type(v)))
-        for k, v in data_tuple[0].items()
-    )
-
     # Create source config
     source = Source(
         location=RelationalDBLocation(name=location_name).set_client(engine),
         name=name,
         extract_transform=select(
-            cast(column(key_field.name), "string").as_(key_field.name),
-            *[column(field.name) for field in index_fields],
+            cast(column("key"), "string").as_("key"),
+            *[column(field) for field in data_tuple[0]],
         )
         .from_(name)
         .sql(),
-        key_field=key_field,
-        index_fields=index_fields,
+        key_field="key",
     )
 
     hashes = [hash_values(*row) for row in data_tuple]
@@ -863,13 +861,6 @@ def linked_sources_factory(
             for row_id, keys in row_keys.items()
         ]
 
-        # Create fields
-        key_field = SourceField(name="key", type=DataTypes.STRING)
-        index_fields = tuple(
-            SourceField(name=feature.name, type=feature.datatype)
-            for feature in parameters.features
-        )
-
         # Create source config
         source = Source(
             location=RelationalDBLocation(str(parameters.name)).set_client(
@@ -877,13 +868,12 @@ def linked_sources_factory(
             ),
             name=parameters.name,
             extract_transform=select(
-                cast(column(key_field.name), "string").as_(key_field.name),
-                *[column(field.name) for field in index_fields],
+                cast(column("key"), "string").as_("key"),
+                *[column(feature.name) for feature in parameters.features],
             )
             .from_(parameters.name)
             .sql(),
-            key_field=key_field,
-            index_fields=index_fields,
+            key_field="key",
         )
 
         # Add source to linked.sources

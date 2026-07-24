@@ -5,6 +5,13 @@ so it is where raw data (and therefore non-determinism) enters a plan: its
 configuration key includes a hash of the data it read, which is what makes a freshly
 constructed `Source` pick up warehouse changes while an existing object memoises its
 read.
+
+**The extract/transform is the whole declaration.** Every column it returns is part of
+the record, so every column except the key contributes to that record's identity — two
+rows are the same leaf when they agree on all of them. There is no second list of
+indexed fields to keep in step with the SQL, and no field types to restate: a column you
+do not want to affect identity is a column you should not select, and a type you want
+pinned is a `cast` in the SELECT.
 """
 
 from __future__ import annotations
@@ -19,9 +26,8 @@ import polars as pl
 import pyarrow.parquet as pq
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.cleaning import Clean
-from matchlab.core.config import SourceConfig, SourceField
-from matchlab.core.datatypes import DataTypes
+from matchlab.cleaning import Cleaner
+from matchlab.core.config import SourceConfig
 from matchlab.core.db import QueryReturnClass, QueryReturnType
 from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
 from matchlab.core.logging import logger, profile_time
@@ -43,9 +49,7 @@ class Source(Step):
         location: Location,
         name: str,
         extract_transform: str,
-        key_field: str | SourceField,
-        index_fields: list[str] | list[SourceField],
-        infer_types: bool | None = None,
+        key_field: str,
         validate_etl: bool = True,
     ) -> None:
         """Define a source.
@@ -53,56 +57,28 @@ class Source(Step):
         Args:
             location: Where the data lives.
             name: The source's name within the plan.
-            extract_transform: SQL producing the rows to index.
-            key_field: The unique identifier field, or a `SourceField` for it.
-            index_fields: The fields to match on, or `SourceField`s for them.
-            infer_types: Infer field types from the warehouse. Defaults to inferring
-                when fields are given as names, and not when they are already
-                `SourceField` instances.
+            extract_transform: SQL producing the rows to index. Every column it
+                returns other than the key contributes to record identity.
+            key_field: The name of the unique identifier field. Read as a string
+                whatever the warehouse returns it as.
             validate_etl: Validate the extract/transform SQL up front.
         """
         super().__init__(name=name)
 
-        if infer_types is None:
-            infer_types = isinstance(key_field, str)
+        if not isinstance(key_field, str):
+            raise ValueError(
+                f"key_field must be a column name, got {type(key_field).__name__}"
+            )
 
         if validate_etl:
             location.validate_extract_transform(extract_transform)
 
         self.location = location
         self.extract_transform = extract_transform
-
-        if infer_types:
-            self._check_field_types(key_field, index_fields, str)
-            inferred = location.infer_types(extract_transform)
-            self.key_field = SourceField(name=key_field, type=DataTypes.STRING)
-            self.index_fields = tuple(
-                SourceField(name=field, type=inferred[field]) for field in index_fields
-            )
-        else:
-            self.key_field, self.index_fields = self._check_field_types(
-                key_field, index_fields, SourceField
-            )
+        self.key_field = key_field
 
         # Memoised warehouse read: (extract, hashes). Populated on first fingerprint.
         self._read: tuple[pl.DataFrame, pl.DataFrame] | None = None
-        # Memoised content hash of the extract, computed alongside the first read.
-        self._extract_hash: bytes | None = None
-
-    @staticmethod
-    def _check_field_types(
-        key_field: str | SourceField,
-        index_fields: Iterable[str | SourceField],
-        expected: type,
-    ) -> tuple[Any, tuple[Any, ...]]:
-        if not isinstance(key_field, expected):
-            raise ValueError(
-                f"Expected {expected.__name__}, got {type(key_field).__name__}"
-            )
-        fields = tuple(index_fields)
-        if not all(isinstance(field, expected) for field in fields):
-            raise ValueError(f"All index_fields must be {expected.__name__} instances")
-        return key_field, fields
 
     # -- configuration ----------------------------------------------------------------
 
@@ -113,7 +89,6 @@ class Source(Step):
             location_config=self.location.config,
             extract_transform=self.extract_transform,
             key_field=self.key_field,
-            index_fields=self.index_fields,
         )
 
     @property
@@ -127,9 +102,18 @@ class Source(Step):
         return self.config.qualified_key(self.name)
 
     @property
+    def index_fields(self) -> list[str]:
+        """Every column the extract returns except the key, in sorted order.
+
+        Read from the warehouse rather than declared, so it cannot drift from the SQL.
+        """
+        extract, _ = self._read_warehouse()
+        return sorted(column for column in extract.columns if column != self.key_field)
+
+    @property
     def qualified_index_fields(self) -> list[str]:
-        """This source's index fields, prefixed with the source name."""
-        return self.config.qualified_index_fields(self.name)
+        """`index_fields`, prefixed with the source name."""
+        return [self.qualify_field(field) for field in self.index_fields]
 
     def qualify_field(self, field: str) -> str:
         """Prefix a single field name with this source's name."""
@@ -155,13 +139,13 @@ class Source(Step):
             def rename(column: str) -> str:
                 return f"{self.name}_{column}"
 
-        all_fields = (*self.index_fields, self.key_field)
-        schema_overrides = {field.name: field.type.to_dtype() for field in all_fields}
-
-        selection = (self.key_field.name, keys) if keys else None
+        # Keys are always strings, whatever the warehouse returns them as. Every
+        # other column is read as the warehouse types it — pin one with a `cast` in
+        # the extract/transform if you need it stable across drivers.
+        selection = (self.key_field, keys) if keys else None
         yield from self.location.execute(
             extract_transform=self.extract_transform,
-            schema_overrides=schema_overrides,
+            schema_overrides={self.key_field: pl.String},
             rename=rename,
             batch_size=batch_size,
             return_type=return_type,
@@ -178,6 +162,9 @@ class Source(Step):
     def _read_warehouse(self) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Read the source and content-address every row. Memoised.
 
+        Every column except the key contributes to the row hash, so two rows are the
+        same leaf exactly when the extract returns identical values for both.
+
         Returns:
             `(extract, hashes)` — the raw rows, and a `hash → keys` index in which
             byte-identical rows share a hash (content-addressed dedup at index time).
@@ -186,8 +173,7 @@ class Source(Step):
             return self._read
 
         logger.info("Reading source data", prefix=f"Read {self.name}")
-        key = self.key_field.name
-        index = sorted(field.name for field in self.index_fields)
+        key = self.key_field
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / f"{self.name}.parquet"
@@ -208,6 +194,12 @@ class Source(Step):
                 if batch[key].is_null().any():
                     raise ValueError(f"Source '{self.name}' has null keys")
                 frames.append(batch)
+                index = sorted(column for column in batch.columns if column != key)
+                if not index:
+                    raise ValueError(
+                        f"Source '{self.name}' returns only its key field. The "
+                        "extract/transform must select at least one other column."
+                    )
                 row_hashes = hash_rows(
                     df=batch, columns=index, method=HashMethod.SHA256
                 )
@@ -239,25 +231,19 @@ class Source(Step):
         a new `Source` object re-reads and gets a different key, invalidating
         everything downstream of it.
 
-        Both halves of the read are hashed, and both are load-bearing:
-
-        * `hashes` content-addresses rows by their **index fields**, which is what
-          determines leaf identity and therefore what matches.
-        * `extract` is every column the extract/transform selected. Those need not all
-          be indexed — you might index on company and postcode but pull town through
-          for a cleaning expression or for `view_cluster` — and `Clean` reads the
-          stored extract. Hashing only `hashes` would leave a change to a non-indexed
-          column invisible to the fingerprint, so the source would cache-hit, never
-          re-store, and every downstream view would keep reading the stale column.
+        Hashing `hashes` alone is sufficient because every non-key column feeds the row
+        hash, and `hashes` records which keys carry each one. A change to any selected
+        column therefore moves the fingerprint. This was not true while a separate list
+        of index fields could be narrower than the extract: a column outside it changed
+        the stored extract without touching the fingerprint, so the source cache-hit,
+        never re-stored, and downstream views kept reading the stale value.
         """
-        extract, hashes = self._read_warehouse()
-        if self._extract_hash is None:
-            self._extract_hash = hash_arrow_table(extract.to_arrow())
+        _, hashes = self._read_warehouse()
         payload = json.dumps(
             {"config": self.config.model_dump(mode="json"), "name": self.name},
             sort_keys=True,
         ).encode()
-        return payload + hash_arrow_table(hashes.to_arrow()) + self._extract_hash
+        return payload + hash_arrow_table(hashes.to_arrow())
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         extract, _ = self._read_warehouse()
@@ -267,14 +253,14 @@ class Source(Step):
 
     # -- verbs ------------------------------------------------------------------------
 
-    def clean(self, cleaning: dict[str, str] | None = None, **kwargs: Any) -> Clean:
+    def clean(self, cleaning: dict[str, str] | None = None, **kwargs: Any) -> Cleaner:
         """Return a cleaned, queryable view of this source."""
-        return Clean(self, cleaning=cleaning, **kwargs)
+        return Cleaner(self, cleaning=cleaning, **kwargs)
 
     def dedupe(self, *args: Any, **kwargs: Any) -> Model:
         """Deduplicate this source. Shorthand for `self.clean().dedupe(...)`."""
         return self.clean().dedupe(*args, **kwargs)
 
-    def link(self, other: Source | Clean, *args: Any, **kwargs: Any) -> Model:
+    def link(self, other: Source | Cleaner, *args: Any, **kwargs: Any) -> Model:
         """Link this source to another source or cleaned view."""
         return self.clean().link(other, *args, **kwargs)

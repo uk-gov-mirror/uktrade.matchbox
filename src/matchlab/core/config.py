@@ -4,7 +4,7 @@ import re
 import textwrap
 from collections.abc import Iterable
 from enum import StrEnum
-from typing import Annotated, Self, TypeAlias
+from typing import Annotated, TypeAlias
 
 from pydantic import (
     AfterValidator,
@@ -12,10 +12,8 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
-    model_validator,
 )
 
-from matchlab.core.datatypes import DataTypes
 from matchlab.core.exceptions import NameValidationError
 
 
@@ -89,27 +87,13 @@ class LocationConfig(BaseModel):
     name: str
 
 
-class SourceField(BaseModel):
-    """A field in a source that can be indexed."""
-
-    model_config = ConfigDict(frozen=True)
-
-    name: str = Field(
-        description=(
-            "The name of the field in the source after the "
-            "extract/transform logic has been applied."
-        )
-    )
-    type: DataTypes = Field(
-        description="The cached field type. Used to ensure a stable hash.",
-    )
-
-
 class SourceConfig(BaseModel):
-    """Configuration of a source that can, or has been, indexed in the backend.
+    """Configuration of a source: where its rows come from, and what keys them.
 
-    They are foundational processes on top of which linking and deduplication models can
-        build new steps.
+    There is no separate list of indexed fields. The extract/transform is the single
+    declaration of what a source *is* — every column it returns is part of the record,
+    and therefore part of that record's identity. A column you do not want to affect
+    identity is a column you should not select.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -125,49 +109,25 @@ class SourceConfig(BaseModel):
             "Language is location dependent."
         )
     )
-    # Fields can to be set at creation, or initialised with `.default_columns()`
-    key_field: SourceField = Field(
+    key_field: str = Field(
         description=textwrap.dedent("""
-            The key field. This is the source's key for unique
+            The name of the key field. This is the source's key for unique
             entities, such as a primary key in a relational database.
 
-            Keys must ALWAYS be a string.
+            Keys are always read as strings, whatever the warehouse returns.
 
             For example, if the source describes companies, it may have used
             a Companies House number as its key.
 
             This key is ALWAYS correct. It should be something generated and
             owned by the source being indexed.
-            
+
             For example, your organisation's CRM ID is a key field within the CRM.
-            
-            A CRM ID entered by hand in another dataset shouldn't be used 
+
+            A CRM ID entered by hand in another dataset shouldn't be used
             as a key field.
         """),
     )
-    index_fields: tuple[SourceField, ...] = Field(
-        default=None,
-        description=textwrap.dedent(
-            """
-            The fields to index in this source, after the extract/transform logic 
-            has been applied. 
-
-            This is usually set manually, and should map onto the columns that the
-            extract/transform logic returns.
-            """
-        ),
-    )
-
-    @model_validator(mode="after")
-    def validate_key_field(self) -> Self:
-        """Ensure that the key field is a string and not in the index fields."""
-        if self.key_field in self.index_fields:
-            raise ValueError("Key field must not be in the index fields. ")
-
-        if self.key_field.type != DataTypes.STRING:
-            raise ValueError("Key field must have string type.")
-
-        return self
 
     @property
     def dependencies(self) -> list[StepName]:
@@ -203,18 +163,7 @@ class SourceConfig(BaseModel):
         Returns:
             The qualified key field name.
         """
-        return self.qualify_field(name, self.key_field.name)
-
-    def qualified_index_fields(self, name: str) -> list[str]:
-        """Get the qualified index fields for the source.
-
-        Args:
-            name: The name of the source.
-
-        Returns:
-            List of qualified index field names.
-        """
-        return [self.qualify_field(name, field.name) for field in self.index_fields]
+        return self.qualify_field(name, self.key_field)
 
     def qualify_field(self, name: str, field: str) -> str:
         """Qualify field names with the source name.

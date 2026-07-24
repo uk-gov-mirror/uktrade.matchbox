@@ -31,7 +31,7 @@ from matchlab.core.factories.sources import (
     linked_sources_factory,
 )
 from matchlab.models.models import Model
-from matchlab.resolvers import Resolve
+from matchlab.resolvers import Resolver
 
 
 @dataclass
@@ -41,7 +41,7 @@ class Scenario:
     linked: LinkedSourcesTestkit
     engine: Engine
     models: dict[str, ModelTestkit] = field(default_factory=dict)
-    apex: Resolve | None = None
+    apex: Resolver | None = None
 
     @property
     def sources(self) -> dict[str, SourceTestkit]:

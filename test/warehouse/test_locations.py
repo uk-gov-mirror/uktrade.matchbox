@@ -15,7 +15,6 @@ _pytest.skip(
 
 WarehouseConnectionType = object
 
-import adbc_driver_postgresql.dbapi as adbc_postgres
 import polars as pl
 import pytest
 from adbc_driver_manager import ProgrammingError
@@ -26,12 +25,10 @@ from sqlalchemy.exc import OperationalError
 from matchlab.core.config import (
     LocationType,
 )
-from matchlab.core.datatypes import DataTypes
 from matchlab.core.exceptions import ExtractTransformError
 from matchlab.core.factories.sources import (
     FeatureConfig,
     source_factory,
-    source_from_tuple,
 )
 from matchlab.locations import ClientType, RelationalDBLocation
 
@@ -181,86 +178,7 @@ def test_relational_db_extract_transform(
             ).validate_extract_transform(sql)
 
 
-@pytest.mark.parametrize(
-    "warehouse",
-    ["sqla_sqlite", "adbc_sqlite"],
-    indirect=True,
-)
-def test_relational_db_infer_types(
-    warehouse: WarehouseConnectionType,
-    sqla_sqlite_warehouse: Engine,
-) -> None:
-    """Test that types are inferred correctly from the extract transform SQL."""
-    source_testkit = source_from_tuple(
-        data_tuple=(
-            {"foo": "10", "bar": None},
-            {"foo": "foo_val", "bar": None},
-            {"foo": None, "bar": 10},
-        ),
-        data_keys=["a", "b", "c"],
-        name="source",
-        engine=sqla_sqlite_warehouse,
-    ).write_to_location()
-
-    location = RelationalDBLocation(name="dbname").set_client(warehouse)
-
-    query = f"""
-        select key as renamed_key, foo, bar from
-        (select key, foo, bar from {source_testkit.name});
-    """
-
-    inferred_types = location.infer_types(query)
-
-    assert len(inferred_types) == 3
-    assert inferred_types["renamed_key"] == DataTypes.STRING
-    assert inferred_types["foo"] == DataTypes.STRING
-    assert inferred_types["bar"] == DataTypes.INT64
-
-
 @pytest.mark.docker
-@pytest.mark.parametrize("warehouse", ["adbc_postgres", "sqla_postgres"], indirect=True)
-def test_relational_db_infer_complex_types_postgres(
-    warehouse: WarehouseConnectionType,
-    adbc_postgres_warehouse: adbc_postgres.Connection,
-) -> None:
-    """Test that complex Postgres types (Arrays) are correctly inferred.
-
-    Verifies support for:
-    - TEXT[] -> List(String)
-    - INTEGER[] -> List(Int64)
-    """
-    # 1. Create a table with native Postgres Array types
-    # .write_to_location() fails if we use the SQLAlchemy engine as it goes
-    # via Pandas and Numpy arrays
-    source_testkit = source_from_tuple(
-        data_tuple=(
-            {
-                "tags": ["urgent", "legacy"],
-                "numbers": [10, 20],
-            },
-            {
-                "tags": ["draft"],
-                "numbers": [5],
-            },
-        ),
-        data_keys={"a", "b"},
-        name="test_complex_inference",
-        engine=adbc_postgres_warehouse,
-    ).write_to_location()
-
-    # Run inference
-    location = RelationalDBLocation(name="postgres_db").set_client(warehouse)
-    query = f"SELECT tags, numbers FROM {source_testkit.name}"
-
-    inferred_types = location.infer_types(query)
-
-    # TEXT[] should map to List(String)
-    assert inferred_types["tags"] == DataTypes.LIST(DataTypes.STRING)
-
-    # INTEGER[] should map to List(Int64)
-    assert inferred_types["numbers"] == DataTypes.LIST(DataTypes.INT64)
-
-
 @pytest.mark.parametrize(
     "warehouse",
     ["sqla_sqlite", "adbc_sqlite"],

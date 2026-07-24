@@ -12,7 +12,7 @@ from splink import comparison_library as cl
 from splink.internals.blocking_rule_creator import BlockingRuleCreator
 from splink.internals.comparison_creator import ComparisonCreator
 
-from matchlab.cleaning import Clean
+from matchlab.cleaning import Cleaner
 from matchlab.core.factories.entities import FeatureConfig
 from matchlab.core.factories.sources import (
     SourceTestkit,
@@ -51,14 +51,10 @@ def configure_deterministic_linker(
     """
     # Extract field names excluding key and id
     left_fields = {
-        c.name
-        for c in left_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in left_testkit.field_names if name not in ("key", "id")
     }
     right_fields = {
-        c.name
-        for c in right_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in right_testkit.field_names if name not in ("key", "id")
     }
     shared_fields: list[str] = sorted(left_fields & right_fields)
 
@@ -97,14 +93,10 @@ def configure_deterministic_linker_sequential(
     """
     # Extract field names excluding key and id
     left_fields = {
-        c.name
-        for c in left_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in left_testkit.field_names if name not in ("key", "id")
     }
     right_fields = {
-        c.name
-        for c in right_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in right_testkit.field_names if name not in ("key", "id")
     }
     shared_fields: list[str] = sorted(left_fields & right_fields)
 
@@ -145,14 +137,10 @@ def configure_weighted_deterministic_linker(
     """
     # Extract field names excluding key and id
     left_fields = {
-        c.name
-        for c in left_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in left_testkit.field_names if name not in ("key", "id")
     }
     right_fields = {
-        c.name
-        for c in right_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in right_testkit.field_names if name not in ("key", "id")
     }
     shared_fields: list[str] = sorted(left_fields & right_fields)
 
@@ -194,14 +182,10 @@ def configure_splink_linker(
     """
     # Extract field names excluding key and id
     left_fields = {
-        c.name
-        for c in left_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in left_testkit.field_names if name not in ("key", "id")
     }
     right_fields = {
-        c.name
-        for c in right_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in right_testkit.field_names if name not in ("key", "id")
     }
     shared_fields: list[str] = sorted(left_fields & right_fields)
 
@@ -278,7 +262,7 @@ LINKERS = [
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(Clean, "_frame")
+@patch.object(Cleaner, "_frame")
 def test_exact_match_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -347,7 +331,7 @@ def test_exact_match_linking(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(Clean, "_frame")
+@patch.object(Cleaner, "_frame")
 def test_exact_match_with_duplicates_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -413,7 +397,7 @@ def test_exact_match_with_duplicates_linking(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(Clean, "_frame")
+@patch.object(Cleaner, "_frame")
 def test_partial_entity_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -484,7 +468,7 @@ def test_partial_entity_linking(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(Clean, "_frame")
+@patch.object(Cleaner, "_frame")
 def test_no_matching_entities_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:

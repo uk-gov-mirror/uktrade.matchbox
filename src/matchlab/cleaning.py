@@ -24,11 +24,11 @@ from matchlab.steps import Step
 
 if TYPE_CHECKING:
     from matchlab.models import Model
-    from matchlab.resolvers import Resolve
+    from matchlab.resolvers import Resolver
     from matchlab.sources import Source
 
 
-class Clean(Step):
+class Cleaner(Step):
     """A cleaned view over sources, optionally resolved through a resolver."""
 
     kind: ClassVar[str] = "clean"
@@ -37,7 +37,7 @@ class Clean(Step):
     def __init__(
         self,
         *sources: Source,
-        resolver: Resolve | None = None,
+        resolver: Resolver | None = None,
         combine_type: QueryCombineType = QueryCombineType.CONCAT,
         cleaning: dict[str, str] | None = None,
         name: str | None = None,
@@ -181,7 +181,7 @@ class Clean(Step):
 
     def link(
         self,
-        other: Source | Clean,
+        other: Source | Cleaner,
         model_class: Any,  # noqa: ANN401 - a Linker subclass
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
         name: str | None = None,
@@ -189,7 +189,7 @@ class Clean(Step):
         """Link this view to another source or cleaned view."""
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle
 
-        right = other if isinstance(other, Clean) else other.clean()
+        right = other if isinstance(other, Cleaner) else other.clean()
         return Model(
             left=self,
             right=right,

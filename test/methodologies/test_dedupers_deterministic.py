@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 import polars as pl
 import pytest
 
-from matchlab.cleaning import Clean
+from matchlab.cleaning import Cleaner
 from matchlab.core.factories.entities import FeatureConfig
 from matchlab.core.factories.sources import (
     SourceTestkit,
@@ -33,11 +33,7 @@ def configure_naive_deduper(testkit: SourceTestkit) -> dict[str, Any]:
         A dictionary with validated settings for NaiveDeduper
     """
     # Extract field names excluding key and id
-    fields = [
-        c.name
-        for c in testkit.source_config.index_fields
-        if c.name not in ("key", "id")
-    ]
+    fields = [name for name in testkit.field_names if name not in ("key", "id")]
 
     settings_dict = {
         "id": "id",
@@ -59,7 +55,7 @@ DEDUPERS = [
 
 
 @pytest.mark.parametrize(("Deduper", "configure_deduper"), DEDUPERS)
-@patch.object(Clean, "_frame")
+@patch.object(Cleaner, "_frame")
 def test_no_deduplication(
     mock_query_run: Mock,
     Deduper: Deduper,
@@ -116,7 +112,7 @@ def test_no_deduplication(
 
 
 @pytest.mark.parametrize(("Deduper", "configure_deduper"), DEDUPERS)
-@patch.object(Clean, "_frame")
+@patch.object(Cleaner, "_frame")
 def test_exact_duplicate_deduplication(
     mock_query_run: Mock, Deduper: Deduper, configure_deduper: DeduperConfigurator
 ) -> None:

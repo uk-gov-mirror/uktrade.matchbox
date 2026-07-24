@@ -14,10 +14,10 @@ from matchlab.core.exceptions import (
 
 if TYPE_CHECKING:
     from matchlab.adapters import Adapter
-    from matchlab.resolvers import Resolve
+    from matchlab.resolvers import Resolver
 else:
     Adapter = Any
-    Resolve = Any
+    Resolver = Any
 
 
 class EvaluationFieldMetadata(BaseModel):
@@ -105,7 +105,9 @@ def create_judgement(
 
 
 def create_evaluation_item(
-    df: pl.DataFrame, source_configs: list[tuple[str, SourceConfig]], leaves: list[int]
+    df: pl.DataFrame,
+    source_configs: list[tuple[str, list[str], SourceConfig]],
+    leaves: list[int],
 ) -> EvaluationItem:
     """Create EvaluationItem with structured metadata."""
     # Get all data columns (exclude metadata columns)
@@ -114,17 +116,17 @@ def create_evaluation_item(
     # Build mapping of field_name -> list of qualified column names
     field_to_columns: dict[str, list[str]] = {}
 
-    for source_id, config in source_configs:
-        for field in config.index_fields:
+    for source_id, fields, config in source_configs:
+        for field in fields:
             # Build qualified column name for this source+field
-            column_name = config.qualify_field(source_id, field.name)
+            column_name = config.qualify_field(source_id, field)
 
             # Only add if this column exists in DataFrame
             if column_name in data_cols:
                 # Add to list for this field name
-                if field.name not in field_to_columns:
-                    field_to_columns[field.name] = []
-                field_to_columns[field.name].append(column_name)
+                if field not in field_to_columns:
+                    field_to_columns[field] = []
+                field_to_columns[field].append(column_name)
 
     # Create EvaluationFieldMetadata objects (one per unique field name)
     fields: list[EvaluationFieldMetadata] = []
@@ -149,7 +151,7 @@ def _read_sample_file(sample_file: str, n: int) -> pl.DataFrame:
     return select_rows.rename({"id": "root", "leaf_id": "leaf"})
 
 
-def _get_samples_from_adapter(resolver: "Resolve", n: int) -> pl.DataFrame:
+def _get_samples_from_adapter(resolver: "Resolver", n: int) -> pl.DataFrame:
     if not resolver.is_collected:
         resolver.collect()
     return resolver._require_adapter().sample(resolver._fp, n)
@@ -158,7 +160,7 @@ def _get_samples_from_adapter(resolver: "Resolve", n: int) -> pl.DataFrame:
 @validate_call(config=ConfigDict(arbitrary_types_allowed=True))
 def get_samples(
     n: int,
-    resolver: "Resolve",
+    resolver: "Resolver",
     sample_file: str | None = None,
 ) -> dict[int, EvaluationItem]:
     """Retrieve samples enriched with source data as EvaluationItems.
@@ -187,7 +189,7 @@ def get_samples(
 
     by_name = {source.name: source for source in resolver.sources}
     results_by_source: list[pl.DataFrame] = []
-    source_configs: list[tuple[str, SourceConfig]] = []
+    source_configs: list[tuple[str, list[str], SourceConfig]] = []
 
     for source_step in samples["source"].unique():
         source = by_name.get(source_step)
@@ -196,7 +198,7 @@ def get_samples(
                 f"Source '{source_step}' is not in the lineage of '{resolver.name}'."
             )
 
-        source_configs.append((source_step, source.config))
+        source_configs.append((source_step, source.index_fields, source.config))
 
         samples_by_source = samples.filter(pl.col("source") == source_step)
         keys_by_source = samples_by_source["key"].to_list()

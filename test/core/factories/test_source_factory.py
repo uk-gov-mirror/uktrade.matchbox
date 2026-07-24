@@ -6,7 +6,6 @@ from sqlalchemy import Engine
 
 from matchlab.core.arrow import SCHEMA_INDEX
 from matchlab.core.config import LocationConfig, LocationType
-from matchlab.core.datatypes import DataTypes
 from matchlab.core.factories.entities import (
     FeatureConfig,
     ReplaceRule,
@@ -157,23 +156,20 @@ def test_source_factory_mock_properties(sqlite_in_memory_warehouse: Engine) -> N
     expected_location = LocationConfig(type=LocationType.RDBMS, name=location_name)
     assert source_config.location_config == expected_location
 
-    # Check indexed fields configuration
-    assert len(source_config.index_fields) == len(features)
-    for feature, index_field in zip(features, source_config.index_fields, strict=True):
-        assert index_field.name == feature.name
-        assert index_field.type == feature.datatype
+    # Every generated feature is selected by the extract, and so is part of identity
+    assert source_testkit.field_names == [feature.name for feature in features]
+    for feature in features:
+        assert feature.name in source_config.extract_transform
 
     # Check default step name and default key field
     assert source_testkit.source.name == name
-    assert source_config.key_field.name == "key"
+    assert source_config.key_field == "key"
 
     # Verify source properties are preserved through model_dump
     dump = source_config.model_dump()
     assert str(dump["location_config"]["name"]) == location_name
-    assert dump["key_field"] == {"name": "key", "type": str(DataTypes.STRING)}
-    assert dump["index_fields"] == tuple(
-        {"name": f.name, "type": str(f.datatype)} for f in features
-    )
+    assert dump["key_field"] == "key"
+    assert "index_fields" not in dump
 
 
 def test_entity_variations_tracking() -> None:
@@ -367,7 +363,7 @@ def test_source_from_tuple() -> None:
     assert testkit.data.shape[0] == 2
     assert set(testkit.data.column_names) == {"id", "key", "a", "b"}
     assert testkit.data_hashes.shape[0] == 2
-    assert set(field.name for field in testkit.source_config.index_fields) == {"a", "b"}
+    assert set(testkit.field_names) == {"a", "b"}
 
 
 @pytest.mark.parametrize(

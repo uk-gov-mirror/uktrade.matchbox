@@ -16,7 +16,7 @@ from pyarrow import compute as pc
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import create_engine
 
-from matchlab.cleaning import Clean
+from matchlab.cleaning import Cleaner
 from matchlab.core.arrow import SCHEMA_MODEL_EDGES
 from matchlab.core.config import (
     ModelStepName,
@@ -43,9 +43,9 @@ from matchlab.models.models import Model
 
 if TYPE_CHECKING:
     from matchlab.core.factories.resolvers import ResolverTestkit
-    from matchlab.resolvers import Resolve
+    from matchlab.resolvers import Resolver
 else:
-    Resolve = Any
+    Resolver = Any
     ResolverTestkit = Any
 
 T = TypeVar("T", bound=Hashable)
@@ -220,7 +220,9 @@ def truth_from_testkits(
             for entity in entities
             for key in entity.get_keys(testkit.name)
         }
-        features = [field.name for field in testkit.source.index_fields]
+        # From the testkit, not the source: the source would have to read the
+        # warehouse to list its columns, and this runs before any collect.
+        features = [feature.name for feature in testkit.features]
         groups: dict[tuple, int] = {}
         for row in pl.from_arrow(testkit.data).iter_rows(named=True):
             entity_id = key_to_entity.get(str(row["key"]))
@@ -711,10 +713,10 @@ class ModelTestkit(BaseModel):
 
     model: Model
     left_data: pa.Table
-    left: Clean
+    left: Cleaner
     left_clusters: dict[int, ClusterEntity]
     right_data: pa.Table | None
-    right: Clean | None
+    right: Cleaner | None
     right_clusters: dict[int, ClusterEntity] | None
     scores: pl.DataFrame = Field(frozen=True)
 
@@ -788,7 +790,7 @@ class ModelTestkit(BaseModel):
 
         return self
 
-    def resolve(self, *args: Any, **kwargs: Any) -> "Resolve":
+    def resolve(self, *args: Any, **kwargs: Any) -> "Resolver":
         """Thin wrapper to resolve this testkit's Model into clusters."""
         return self.model.resolve(*args, **kwargs)
 

@@ -9,7 +9,7 @@ import pytest
 from splink import SettingsCreator
 from splink import comparison_library as cl
 
-from matchlab.cleaning import Clean
+from matchlab.cleaning import Cleaner
 from matchlab.core.datatypes import DataTypes
 from matchlab.core.factories.entities import (
     FeatureConfig,
@@ -48,14 +48,10 @@ def configure_weighted_scored(
     """
     # Extract field names excluding key and id
     left_fields = {
-        c.name
-        for c in left_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in left_testkit.field_names if name not in ("key", "id")
     }
     right_fields = {
-        c.name
-        for c in right_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in right_testkit.field_names if name not in ("key", "id")
     }
     shared_fields: list[str] = sorted(left_fields & right_fields)
 
@@ -102,14 +98,10 @@ def configure_splink_scored(
     """
     # Extract field names excluding key and id
     left_fields = {
-        c.name
-        for c in left_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in left_testkit.field_names if name not in ("key", "id")
     }
     right_fields = {
-        c.name
-        for c in right_testkit.source_config.index_fields
-        if c.name not in ("key", "id")
+        name for name in right_testkit.field_names if name not in ("key", "id")
     }
     shared_fields: list[str] = sorted(left_fields & right_fields)
 
@@ -120,11 +112,7 @@ def configure_splink_scored(
 
     for field in shared_fields:
         field_type = next(
-            (
-                c.type
-                for c in left_testkit.source_config.index_fields
-                if c.name == field
-            ),
+            (f.datatype for f in left_testkit.features if f.name == field),
             "TEXT",
         )
 
@@ -196,7 +184,7 @@ SCORED_LINKERS = [
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), SCORED_LINKERS)
-@patch.object(Clean, "_frame")
+@patch.object(Cleaner, "_frame")
 def test_scored_model_scores_generation(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:

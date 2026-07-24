@@ -13,18 +13,18 @@ Nothing runs until `collect()`, and collecting again only does the work whose pl
 or inputs changed.
 """
 
-from matchlab.cleaning import Clean
+from matchlab.cleaning import Cleaner
 from matchlab.locations import RelationalDBLocation
 from matchlab.models import Model
-from matchlab.resolvers import Resolve
+from matchlab.resolvers import Resolver
 from matchlab.sources import Source
 from matchlab.steps import Step, default_adapter, gc, set_default_adapter
 
 __all__ = (
-    "Clean",
+    "Cleaner",
     "Model",
     "RelationalDBLocation",
-    "Resolve",
+    "Resolver",
     "Source",
     "Step",
     "default_adapter",

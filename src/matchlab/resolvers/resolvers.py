@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.cleaning import Clean
+from matchlab.cleaning import Cleaner
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.logging import logger, profile_time
 from matchlab.core.resolution import materialise_resolution
@@ -35,7 +35,7 @@ def add_resolver_class(resolver_class: type[ResolverMethod]) -> None:
 add_resolver_class(Components)
 
 
-class Resolve(Step):
+class Resolver(Step):
     """Clusters computed over one or more models' edges."""
 
     kind: ClassVar[str] = "resolver"
@@ -204,8 +204,8 @@ class Resolve(Step):
         *sources: Source,
         cleaning: dict[str, str] | None = None,
         **kwargs: Any,
-    ) -> Clean:
+    ) -> Cleaner:
         """Return a cleaned view of sources resolved *through* this resolver."""
-        return Clean(
+        return Cleaner(
             *(sources or self.sources), resolver=self, cleaning=cleaning, **kwargs
         )

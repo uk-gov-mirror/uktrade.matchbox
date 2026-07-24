@@ -20,7 +20,6 @@ from sqlalchemy.exc import OperationalError
 from sqlglot.errors import ParseError
 
 from matchlab.core.config import LocationConfig, LocationType
-from matchlab.core.datatypes import DataTypes
 from matchlab.core.db import (
     QueryReturnClass,
     QueryReturnType,
@@ -137,11 +136,6 @@ class Location(ABC):
         Raises:
             ExtractTransformError: If the ET logic is invalid.
         """
-        ...
-
-    @abstractmethod
-    def infer_types(self, extract_transform: str) -> dict[str, DataTypes]:
-        """Extract all data types from the ET logic."""
         ...
 
     @abstractmethod
@@ -288,32 +282,6 @@ class RelationalDBLocation(Location):
             raise ExtractTransformError(
                 "SQL statement must not contain DDL or DML commands."
             )
-
-    @requires_client
-    def infer_types(self, extract_transform: str) -> dict[str, DataTypes]:  # noqa: D102
-        extract_transform = extract_transform.rstrip(" \t\n;")
-        one_row_query = f"select * from ({extract_transform}) as sub limit 1;"
-        one_row: pl.DataFrame = next(self.execute(one_row_query))
-        column_names = one_row.columns
-
-        inferred_types = {}
-        for col in column_names:
-            # This expression uses cross-dialect SQL standards;
-            # though this is hard to prove as the standard is behind a paywall
-            sample_query = (
-                f"select {col} from ({extract_transform}) as sub "
-                f"where {col} is not null limit 1;"
-            )
-
-            sample_row: pl.DataFrame = list(self.execute(sample_query))[0]
-
-            if len(sample_row):
-                sample_dtype = sample_row[col].dtype
-                inferred_types[col] = DataTypes.from_dtype(sample_dtype)
-            else:
-                inferred_types[col] = DataTypes.NULL
-
-        return inferred_types
 
     @overload
     def execute(

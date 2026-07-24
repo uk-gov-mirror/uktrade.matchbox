@@ -7,7 +7,7 @@ import polars as pl
 from faker import Faker
 from pydantic import BaseModel, ConfigDict, Field
 
-from matchlab.cleaning import Clean
+from matchlab.cleaning import Cleaner
 from matchlab.core.arrow import SCHEMA_CLUSTERS
 from matchlab.core.config import (
     ModelStepName,
@@ -21,7 +21,7 @@ from matchlab.core.factories.models import ModelTestkit, model_factory
 from matchlab.core.factories.sources import linked_sources_factory
 from matchlab.models import Model
 from matchlab.resolvers import (
-    Resolve,
+    Resolver,
     ResolverMethod,
     ResolverSettings,
     add_resolver_class,
@@ -96,7 +96,7 @@ class ResolverTestkit(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    resolver: Resolve
+    resolver: Resolver
     assignments: pl.DataFrame
     entities: tuple[ClusterEntity, ...]
 
@@ -105,7 +105,7 @@ class ResolverTestkit(BaseModel):
         """Return resolver name."""
         return self.resolver.name
 
-    def clean(self, *args: Any, **kwargs: Any) -> Clean:
+    def clean(self, *args: Any, **kwargs: Any) -> Cleaner:
         """Thin wrapper to build a cleaned view through this testkit's Resolve."""
         return self.resolver.clean(*args, **kwargs)
 
@@ -187,7 +187,7 @@ def resolver_factory(
 
     generator = Faker()
     generator.seed_instance(seed)
-    resolver = Resolve(
+    resolver = Resolver(
         *resolver_inputs,
         name=name or f"{generator.unique.word()}_resolver",
         resolver_class=MockResolver,

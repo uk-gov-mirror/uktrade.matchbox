@@ -14,7 +14,7 @@ from matchlab.core.factories.resolvers import (
     resolver_factory,
 )
 from matchlab.core.factories.sources import linked_sources_factory
-from matchlab.resolvers import Resolve
+from matchlab.resolvers import Resolver
 
 
 def test_resolver_factory_can_autobuild() -> None:
@@ -22,7 +22,7 @@ def test_resolver_factory_can_autobuild() -> None:
     testkit = resolver_factory()
 
     assert isinstance(testkit, ResolverTestkit)
-    assert isinstance(testkit.resolver, Resolve)
+    assert isinstance(testkit.resolver, Resolver)
     assert testkit.resolver.resolver_class is MockResolver
     assert not testkit.resolver.is_collected
 

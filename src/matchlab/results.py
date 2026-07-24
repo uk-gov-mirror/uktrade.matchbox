@@ -160,11 +160,10 @@ class ResolverMatches:
 
             key_cols.append(source.qualified_key)
             # Determine column names of output dataframe
-            rename_keys = {source.key_field.name: source.qualified_key}
+            rename_keys = {source.key_field: source.qualified_key}
             if not merge_fields:
                 rename_index_fields = {
-                    field.name: source.qualify_field(field.name)
-                    for field in source.index_fields
+                    field: source.qualify_field(field) for field in source.index_fields
                 }
                 rename_dict = {**rename_keys, **rename_index_fields}
             else:

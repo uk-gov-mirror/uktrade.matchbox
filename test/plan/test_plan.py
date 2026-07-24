@@ -21,7 +21,7 @@ import polars as pl
 import pytest
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import Resolve, Source, gc, set_default_adapter
+from matchlab import Resolver, Source, gc, set_default_adapter
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import StepNotFound
 from matchlab.locations import RelationalDBLocation
@@ -65,18 +65,17 @@ def _source(warehouse: Engine, name: str) -> Source:
         name=name,
         extract_transform=f"select pk, company, town from {name}",
         key_field="pk",
-        index_fields=["company", "town"],
     )
 
 
-def _dedupe_crn(crn: Source) -> Resolve:
+def _dedupe_crn(crn: Source) -> Resolver:
     return crn.dedupe(
         model_class=NaiveDeduper,
         model_settings={"unique_fields": [crn.f("company")]},
     ).resolve()
 
 
-def _apex(warehouse: Engine) -> tuple[Resolve, Source, Source]:
+def _apex(warehouse: Engine) -> tuple[Resolver, Source, Source]:
     """Build the full dedupe → link plan without ever constructing a DAG."""
     crn = _source(warehouse, "crn")
     dh = _source(warehouse, "dh")
@@ -112,7 +111,7 @@ def test_a_plan_needs_no_dag(warehouse: Engine) -> None:
     assert not crn.is_collected
 
     deduped = _dedupe_crn(crn)
-    assert isinstance(deduped, Resolve)
+    assert isinstance(deduped, Resolver)
     # The plan is reachable purely through upstream references.
     assert crn in deduped.lineage()
 
@@ -205,38 +204,80 @@ def test_building_downstream_only_runs_the_new_steps(warehouse: Engine) -> None:
     assert apex.get_matches().as_lookup().height > 0
 
 
-def test_a_change_to_a_non_indexed_column_invalidates_the_source(
-    warehouse: Engine,
-) -> None:
-    """The fingerprint must cover the whole extract, not just the indexed fields.
-
-    `town` is selected but not indexed, so it never reaches a leaf hash — but `Clean`
-    reads it out of the stored extract. Hashing only the index would leave this change
-    invisible, the source would cache-hit without re-storing, and the view would keep
-    serving the old value.
-    """
+def _crn_source(warehouse: Engine, extract_transform: str) -> Source:
     location = RelationalDBLocation(name="warehouse")
     location.set_client(warehouse)
+    return Source(
+        location=location,
+        name="crn",
+        extract_transform=extract_transform,
+        key_field="pk",
+    )
 
-    def build() -> Source:
-        return Source(
-            location=location,
-            name="crn",
-            extract_transform="select pk, company, town from crn",
-            key_field="pk",
-            index_fields=["company"],  # town rides along unindexed
-        )
 
-    view = build().clean({"town": "crn_town"})
+def test_a_change_to_any_selected_column_invalidates_the_source(
+    warehouse: Engine,
+) -> None:
+    """Identity is the whole extract, so any selected column moves the fingerprint.
+
+    There is no narrower list of indexed fields for a column to fall outside of, which
+    is what used to let a change go unnoticed: the source cache-hit, never re-stored,
+    and downstream views kept serving the old value.
+    """
+    et = "select pk, company, town from crn"
+
+    view = _crn_source(warehouse, et).clean({"town": "crn_town"})
     view.collect()
     assert sorted(view.data()["town"].to_list()) == ["hull", "leeds", "london"]
 
     with warehouse.begin() as conn:
         conn.execute(text("UPDATE crn SET town = 'oxford' WHERE pk = 'a1'"))
 
-    refreshed = build().clean({"town": "crn_town"})
+    refreshed = _crn_source(warehouse, et).clean({"town": "crn_town"})
     refreshed.collect()
     assert sorted(refreshed.data()["town"].to_list()) == ["hull", "leeds", "oxford"]
+
+
+def test_identity_is_every_selected_column(warehouse: Engine) -> None:
+    """Selecting a column makes it part of the record, so it splits leaves.
+
+    Leave it out of the extract and the rows collapse to one leaf. This is the knob
+    that replaced `index_fields`: the SELECT is the whole declaration.
+    """
+    # a1/a2 agree on company and differ on town.
+    with_town = _crn_source(warehouse, "select pk, company, town from crn")
+    with_town.collect()
+    leaves = dict(with_town.leaves().iter_rows())
+    assert leaves["a1"] != leaves["a2"]
+
+    without_town = _crn_source(warehouse, "select pk, company from crn")
+    without_town.collect()
+    leaves = dict(without_town.leaves().iter_rows())
+    assert leaves["a1"] == leaves["a2"]
+
+
+def test_a_key_only_extract_is_rejected(warehouse: Engine) -> None:
+    source = _crn_source(warehouse, "select pk from crn")
+    with pytest.raises(ValueError, match="only its key field"):
+        source.collect()
+
+
+def test_keys_are_read_as_strings(warehouse: Engine) -> None:
+    """Whatever the warehouse types the key as, matchlab hands back a string."""
+    with warehouse.begin() as conn:
+        conn.execute(text("CREATE TABLE nums (id INTEGER, company TEXT)"))
+        conn.execute(text("INSERT INTO nums VALUES (1,'acme'),(2,'beta')"))
+
+    location = RelationalDBLocation(name="warehouse")
+    location.set_client(warehouse)
+    source = Source(
+        location=location,
+        name="nums",
+        extract_transform="select id, company from nums",
+        key_field="id",
+    )
+    source.collect()
+    assert sorted(source.leaves()["key"].to_list()) == ["1", "2"]
 
 
 def test_a_source_memoises_its_read(warehouse: Engine) -> None:

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.cleaning import Clean
+from matchlab.cleaning import Cleaner
 from matchlab.core.config import ModelType
 from matchlab.core.logging import logger, profile_time
 from matchlab.models import dedupers, linkers
@@ -19,7 +19,7 @@ from matchlab.results import normalise_model_scores
 from matchlab.steps import Step
 
 if TYPE_CHECKING:
-    from matchlab.resolvers import Resolve
+    from matchlab.resolvers import Resolver
     from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 
 _MODEL_CLASSES: dict[str, type[Linker] | type[Deduper]] = {
@@ -42,10 +42,10 @@ class Model(Step):
 
     def __init__(
         self,
-        left: Clean,
+        left: Cleaner,
         model_class: type[Deduper] | type[Linker] | str,
         model_settings: DeduperSettings | LinkerSettings | dict,
-        right: Clean | None = None,
+        right: Cleaner | None = None,
         name: str | None = None,
     ) -> None:
         """Define a model.
@@ -127,7 +127,7 @@ class Model(Step):
         return self._require_adapter().read_model(self._fp)
 
     @property
-    def inputs(self) -> tuple[Clean, ...]:
+    def inputs(self) -> tuple[Cleaner, ...]:
         """The cleaned views this model reads."""
         return (self.left,) if self.right is None else (self.left, self.right)
 
@@ -139,11 +139,11 @@ class Model(Step):
         resolver_class: type[ResolverMethod] | str = "Components",
         resolver_settings: ResolverSettings | dict[str, Any] | None = None,
         name: str | None = None,
-    ) -> Resolve:
+    ) -> Resolver:
         """Resolve this model (and any others) into clusters."""
-        from matchlab.resolvers import Resolve  # noqa: PLC0415 - avoids a cycle
+        from matchlab.resolvers import Resolver  # noqa: PLC0415 - avoids a cycle
 
-        return Resolve(
+        return Resolver(
             self,
             *other_models,
             resolver_class=resolver_class,
