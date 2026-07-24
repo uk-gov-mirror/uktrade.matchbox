@@ -89,14 +89,24 @@ async def test_a_judgement_reaches_the_adapter(
 
     app = _app(resolver, num_samples=5, session_tag="review-test")
     async with app.run_test() as pilot:
-        item = app.current_item
-        assert item is not None
+        assert app.current_item is not None
 
-        # Endorse every shown record as one entity.
-        groups = item.get_unique_record_groups()
-        app.queue.current.assignments = dict.fromkeys(range(len(groups)), "a")
-        await app.action_submit()
-        await pilot.pause()
+        # Judge until a cluster with more than one record has been submitted. A
+        # singleton yields no pairs to score, and which cluster leads is sampling
+        # order — not something this test should depend on. The queue refills, so
+        # bound the loop rather than draining it.
+        for _ in range(10):
+            session = app.queue.current
+            if session is None:
+                break
+            groups = session.item.get_unique_record_groups()
+            session.assignments = dict.fromkeys(range(len(groups)), "a")
+            await app.action_submit()
+            await pilot.pause()
+            if len(groups) > 1:
+                break
+        else:  # pragma: no cover - the fixture always has a multi-record cluster
+            pytest.fail("no multi-record cluster was offered")
 
     judgements, expansion = adapter.read_eval_data(tag="review-test")
     assert judgements.height > 0

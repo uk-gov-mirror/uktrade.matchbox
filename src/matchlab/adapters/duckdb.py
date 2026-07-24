@@ -23,7 +23,7 @@ from matchlab.core.arrow import (
     check_schema_subset,
 )
 from matchlab.core.eval import Judgement
-from matchlab.core.hash import hash_values
+from matchlab.core.resolution import root_id_of
 
 #: Bumped whenever the stored shape changes. A store written by an older matchlab is
 #: recreated rather than half-read, which is the honest failure for a cache.
@@ -68,12 +68,16 @@ def _mint_cluster_id(leaves: list[int]) -> int:
     """Deterministic, content-addressed cluster ID for a group of leaves.
 
     A singleton maps to the leaf itself, so evaluation's singleton-expansion fallback
-    (`process_judgements`) works without an explicit expansion row. A group hashes to a
-    stable 64-bit ID, invariant to input order (`hash_values` sorts).
+    (`process_judgements`) works without an explicit expansion row.
+
+    A group uses `root_id`, the same function a resolver mints its roots with. That
+    is load-bearing rather than tidy: scoring compares a judged group against the
+    resolution's clusters by ID, so if the two ever disagree every comparison misses
+    and precision/recall is computed over an empty set.
     """
     if len(leaves) == 1:
         return int(leaves[0])
-    return int.from_bytes(hash_values(*leaves)[:8], "big")
+    return root_id_of(leaves)
 
 
 class DuckDBAdapter(Adapter):

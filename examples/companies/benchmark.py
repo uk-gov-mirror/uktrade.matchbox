@@ -129,7 +129,6 @@ def build(n_rows: int) -> int:
 def time_pipelines(n_rows: int) -> None:
     """Build data at this size and time both implementations over it."""
 
-
     actual = build(n_rows)
     by_hand.DB = DB
     with_matchlab.DB = DB

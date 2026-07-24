@@ -26,27 +26,41 @@ python benchmark.py 10_000 100_000 1_000_000 5_000_000
 
 | rows | by hand | matchlab | ratio | matchlab re-run |
 |---:|---:|---:|---:|---:|
-| 13 k | 0.05 s | 0.40 s | 8.0× | 0.04 s |
-| 130 k | 0.40 s | 1.24 s | 3.1× | 0.21 s |
-| 1.3 M | 4.16 s | 12.06 s | 2.9× | 2.21 s |
-| 6.5 M | 21.6 s | 67.6 s | 3.1× | 12.0 s |
+| 13 k | 0.05 s | 0.38 s | 7.6× | 0.04 s |
+| 130 k | 0.40 s | 1.00 s | 2.5× | 0.22 s |
+| 1.3 M | 4.22 s | 9.58 s | 2.3× | 2.26 s |
+| 6.5 M | 22.0 s | 54.2 s | 2.5× | 12.3 s |
 
-Both scale linearly, and **matchlab costs a stable ~3× once the data is big enough to
-matter**. The eye-catching multiple at tiny sizes is fixed overhead — a DuckDB store,
-content-hashing every row, fingerprinting every step — and it amortises away. Don't
-draw conclusions from a 21-row pipeline in either direction.
+Both scale linearly, and **matchlab costs a stable ~2.5× once the data is big enough to
+matter**. The eye-catching multiple at tiny sizes is fixed overhead — opening a store,
+hashing every row, fingerprinting every step — and it amortises away. Don't draw
+conclusions from a 21-row pipeline in either direction.
 
 Three things worth reading off that table:
 
-- **3× is the honest price**, and it buys something: a queryable store, a complete flat
-  resolution, and caching. It is not a scaling problem.
+- **2.5× is the honest price**, and it buys something: a queryable store, a complete
+  flat resolution, and caching. It is not a scaling problem.
 - **The re-run column beats `by_hand` outright.** From the second run on, matchlab does
-  2.2 s of nothing where the hand-rolled pipeline does 4.2 s of work again. If you
+  2.3 s of nothing where the hand-rolled pipeline does 4.2 s of work again. If you
   iterate — and matching is iteration — that flips the comparison.
 - **Both produce identical groups at every size**, which is what makes the rest of this
   README worth reading.
 
 Lines of pipeline code: 65 against 111. Real, but not the argument either.
+
+### Where the 2.5× goes
+
+Profiling says it is *not* DuckDB — query execution doesn't appear at all. It's:
+
+- **Python-level union-find**, about a third of it. Both implementations do this, but
+  matchlab runs two resolvers and builds a DataFrame around each.
+- **Genuine extra work**: content-hashing every row so identical records share a leaf,
+  materialising the *complete* merge-forward resolution rather than a dict, and
+  persisting all of it. That's what makes `lookup_key` instant and the store portable.
+- **A fresh in-memory DuckDB connection per view**, which is small but pure waste.
+
+An earlier version was ~3.1×. Minting content-addressed cluster IDs called a Python
+function per cluster through `map_elements`; vectorising it took 20% off the total.
 
 ## What isn't in `by_hand.py` at all
 

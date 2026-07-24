@@ -12,7 +12,7 @@ from matchlab.core.arrow import SCHEMA_CLUSTERS
 from matchlab.core.resolution import (
     leaf_id,
     materialise_resolution,
-    root_id,
+    root_id_of,
 )
 
 
@@ -45,13 +45,15 @@ def _partition(resolution: pl.DataFrame) -> set[frozenset[str]]:
 
 def test_leaf_id_is_stable_and_int() -> None:
     h = b"\xab" * 32
-    assert leaf_id(h) == leaf_id(h)
-    assert isinstance(leaf_id(h), int)
+    frame = pl.DataFrame({"hash": [h, h]})
+    leaves = frame.select(leaf_id(pl.col("hash")).alias("leaf"))["leaf"]
+    assert leaves[0] == leaves[1]
+    assert leaves[0] == int.from_bytes(h[:8], "big")
 
 
 def test_root_id_is_order_invariant() -> None:
-    assert root_id([3, 1, 2]) == root_id([1, 2, 3])
-    assert root_id([1, 2]) != root_id([1, 3])
+    assert root_id_of([3, 1, 2]) == root_id_of([1, 2, 3])
+    assert root_id_of([1, 2]) != root_id_of([1, 3])
 
 
 # -- the layered fall-through scenario (concrete form of the Phase 0 spike) ------------
@@ -165,3 +167,19 @@ def test_no_clusters_means_everything_falls_through() -> None:
         frozenset({"ka1", "ka2"}),  # upstream cluster survives
         frozenset({"ka3"}),
     }
+
+
+def test_the_adapter_mints_the_same_ids_a_resolver_does() -> None:
+    """Scoring compares judged groups to resolved clusters *by ID*.
+
+    If `_mint_cluster_id` and `root_id` ever diverge, every comparison misses and
+    precision/recall is computed over an empty set — which is what happened when
+    `root_id` was vectorised and this coupling was implicit.
+    """
+    from matchlab.adapters.duckdb import _mint_cluster_id  # noqa: PLC0415
+
+    for leaves in ([5, 9], [1, 2, 3], [10**18, 7]):
+        assert _mint_cluster_id(leaves) == root_id_of(leaves)
+
+    # A singleton is deliberately the leaf itself, for evaluation's fallback.
+    assert _mint_cluster_id([42]) == 42

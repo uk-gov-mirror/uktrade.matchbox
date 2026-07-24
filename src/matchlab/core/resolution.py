@@ -33,34 +33,50 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import polars as pl
+import polars_hash  # noqa: F401 - registers the `nchash` expression namespace
 
 from matchlab.core.arrow import SCHEMA_EVAL_SAMPLES
-from matchlab.core.hash import hash_values
 
 # Upstream resolution schema consumed by `materialise_resolution`: every reachable
 # query-space ID mapped to a source row and its leaf.
 UPSTREAM_COLUMNS = ("id", "source", "key", "leaf")
 
 
-def leaf_id(row_hash: bytes) -> int:
-    """Map a source row's content hash to a stable 64-bit leaf cluster ID.
+def leaf_id(row_hash: pl.Expr) -> pl.Expr:
+    """Map a column of row content hashes to stable 64-bit leaf cluster IDs.
 
     Replaces the server's per-row sequence assignment. Content-addressed, so identical
     rows share a leaf and re-runs are stable.
+
+    Vectorised deliberately: this runs once per source row, and a Python function
+    called through `map_elements` dominated collection.
     """
-    return int.from_bytes(row_hash[:8], "big")
+    return row_hash.bin.slice(0, 8).bin.reinterpret(dtype=pl.UInt64, endianness="big")
 
 
-def root_id(leaves: Iterable[int]) -> int:
-    """Deterministic 64-bit root cluster ID for a set of leaves.
+def root_id(leaves: pl.Expr) -> pl.Expr:
+    """Deterministic 64-bit root cluster ID for a column of leaf lists.
 
-    Invariant to leaf order (`hash_values` sorts) and to the (arbitrary) component
-    label, so two runs that produce the same clustering produce the same root IDs.
+    Invariant to leaf order — callers sort — and to the (arbitrary) component label,
+    so two runs that produce the same clustering produce the same root IDs.
+
+    Vectorised for the same reason as `leaf_id`: one call per cluster is one Python
+    call per cluster, and there are as many clusters as there are entities.
     """
-    leaves = list(leaves)
+    # `polars_hash` registers the `nchash` namespace on polars expressions at import.
+    joined = leaves.cast(pl.List(pl.Utf8)).list.join(",")
+    return joined.nchash.xxh3_64().cast(pl.UInt64)
+
+
+def root_id_of(leaves: Iterable[int]) -> int:
+    """`root_id` for a single leaf set. For tests and one-off checks, not for loops."""
+    leaves = sorted(leaves)
     if not leaves:
         raise ValueError("A cluster must contain at least one leaf")
-    return int.from_bytes(hash_values(*leaves)[:8], "big")
+    frame = pl.DataFrame({"leaves": [leaves]}).with_columns(
+        pl.col("leaves").list.eval(pl.element().cast(pl.UInt64))
+    )
+    return frame.select(root_id(pl.col("leaves")).alias("root"))["root"][0]
 
 
 def materialise_resolution(
@@ -117,11 +133,7 @@ def materialise_resolution(
     component_roots = (
         labelled.group_by("_component")
         .agg(pl.col("leaf").unique().sort().alias("_leaves"))
-        .with_columns(
-            pl.col("_leaves")
-            .map_elements(root_id, return_dtype=pl.UInt64)
-            .alias("root")
-        )
+        .with_columns(root_id(pl.col("_leaves")).alias("root"))
         .select("_component", "root")
     )
 

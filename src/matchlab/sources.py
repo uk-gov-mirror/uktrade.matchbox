@@ -250,7 +250,7 @@ class Source(Step):
         _, hashes = self._read_warehouse()
         return hashes.explode("keys", empty_as_null=True).select(
             pl.col("keys").alias("key"),
-            pl.col("hash").map_elements(leaf_id, return_dtype=pl.UInt64).alias("leaf"),
+            leaf_id(pl.col("hash")).alias("leaf"),
         )
 
     # -- Step contract ----------------------------------------------------------------
