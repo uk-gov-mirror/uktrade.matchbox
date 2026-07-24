@@ -1,0 +1,153 @@
+"""The `matchlab` command.
+
+Two commands, because there are only two things a terminal does better than a Python
+prompt: tell you what version you have, and give you a full-screen reviewer.
+
+There is no `matchlab run`. Matchbox had one because a pipeline lived on a server and
+had to be fetched by name; here the pipeline *is* Python, and `python pipeline.py` runs
+it. What the reviewer needs is a live `Resolver` with its warehouse clients attached,
+so `review` takes a `module:attribute` target and imports it — the same shape uvicorn
+and celery use, and the reason this needs no plan serialisation.
+"""
+
+import argparse
+import importlib
+import logging
+import sys
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from matchlab.resolvers import Resolver
+
+
+def _load_target(target: str) -> "Resolver":
+    """Import `module:attribute` and return the resolver it names.
+
+    The attribute may be a `Resolver`, or a callable returning one — useful when
+    building the plan needs a warehouse connection you'd rather not open at import
+    time. A `Resolver` isn't callable, so the two never blur.
+
+    Raises:
+        SystemExit: If the target can't be imported or isn't a resolver.
+    """
+    from matchlab.resolvers import Resolver  # noqa: PLC0415 - keeps startup cheap
+
+    if ":" not in target:
+        raise SystemExit(
+            f"Target '{target}' should look like 'module:attribute' — for example "
+            "'pipeline:entities', naming a Resolver in pipeline.py."
+        )
+
+    module_name, _, attribute = target.partition(":")
+
+    # So that a script in the working directory can be named directly.
+    if str(Path.cwd()) not in sys.path:
+        sys.path.insert(0, str(Path.cwd()))
+
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as exc:
+        raise SystemExit(f"Could not import '{module_name}': {exc}") from exc
+
+    try:
+        obj: Any = getattr(module, attribute)
+    except AttributeError as exc:
+        raise SystemExit(f"'{module_name}' has no attribute '{attribute}'") from exc
+
+    if callable(obj):
+        obj = obj()
+
+    if not isinstance(obj, Resolver):
+        raise SystemExit(
+            f"'{target}' is a {type(obj).__name__}, not a Resolver. Review needs the "
+            "resolver whose clusters you want to look at."
+        )
+
+    return obj
+
+
+def _redirect_logging(log_file: str) -> None:
+    """Send all logging to a file, so it doesn't scribble over the UI."""
+    root = logging.getLogger()
+    for handler in root.handlers[:]:
+        root.removeHandler(handler)
+
+    handler = logging.FileHandler(log_file, mode="w")
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    )
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="matchlab",
+        description="Build, run and evaluate entity resolution pipelines.",
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    commands.add_parser("version", help="Show the installed matchlab version.")
+
+    review = commands.add_parser(
+        "review",
+        help="Review a resolver's clusters interactively.",
+        description=(
+            "Open the cluster reviewer over a plan defined in Python. TARGET names "
+            "a Resolver as 'module:attribute' — for example 'pipeline:entities' for "
+            "a resolver assigned to `entities` in pipeline.py. It may also name a "
+            "function returning one, if building the plan needs a connection you'd "
+            "rather open on demand."
+        ),
+    )
+    review.add_argument("target", metavar="TARGET", help="module:attribute")
+    review.add_argument(
+        "-n", "--samples", type=int, default=5, help="Clusters to queue (default: 5)."
+    )
+    review.add_argument(
+        "-t", "--tag", help="Tag every judgement from this session, for later scoring."
+    )
+    review.add_argument(
+        "-f",
+        "--file",
+        dest="sample_file",
+        help="Review the clusters in a dump written by ResolverMatches.as_dump().",
+    )
+    review.add_argument(
+        "-s",
+        "--store",
+        help="DuckDB store to read from and write judgements to "
+        "(default: the shared store in your cache directory).",
+    )
+    review.add_argument(
+        "--log", dest="log_file", help="Send log output to this file instead."
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Run the `matchlab` command."""
+    args = _build_parser().parse_args(argv)
+
+    if args.command == "version":
+        from importlib.metadata import version  # noqa: PLC0415
+
+        print(version("matchlab"))  # noqa: T201 - the whole point of the command
+        return
+
+    if args.log_file:
+        _redirect_logging(args.log_file)
+
+    from matchlab.adapters import DuckDBAdapter  # noqa: PLC0415
+    from matchlab.eval import review  # noqa: PLC0415
+
+    adapter = DuckDBAdapter(args.store) if args.store else None
+
+    review(
+        _load_target(args.target),
+        n=args.samples,
+        adapter=adapter,
+        tag=args.tag,
+        sample_file=args.sample_file,
+    )

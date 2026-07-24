@@ -49,6 +49,18 @@ review(entities, sample_file="sample.parquet")
 A dump records which records appeared together, not their values, so the resolver is
 still needed — the sources are re-read to display them.
 
+There's a command too, for when you'd rather not open a REPL. It takes a
+`module:attribute` naming a resolver in your own code — the same shape `uvicorn` uses:
+
+```shell
+matchlab review pipeline:entities --tag review-2026-07
+```
+
+`pipeline.py` is just your plan. The attribute can also be a function returning a
+resolver, if building it needs a warehouse connection you'd rather open on demand. Add
+`--log run.log` to keep logging off the screen, and `--store ./run.duckdb` to read and
+write somewhere other than the shared cache.
+
 !!! note
     The reviewer needs Textual: `pip install matchlab[tui]`. Everything below works
     without it.

@@ -551,6 +551,15 @@ way to display them. `sample_file` only bypasses `adapter.sample()`.
 Textual is an optional extra (`matchlab[tui]`); `pytest-asyncio` in `auto` mode runs
 Textual's `run_test()` pilot. 11 tests, over a real plan and a real DuckDB store.
 
+**And a command again.** `matchlab review pipeline:entities` — argparse, no new
+dependency, registered as `[project.scripts]`. The target is `module:attribute`, as
+uvicorn and celery do it, which sidesteps serialisation entirely: Python builds the
+plan, so the clients come attached. `matchlab version` is the only other command; the
+old CLI's `health`/`auth`/`collections`/`groups`/`admin` were all server operations.
+
+There is deliberately no `matchlab run`: a pipeline is a Python file, and
+`python pipeline.py` runs it.
+
 ### Still open
 
 * **TODO(fingerprints)** — see Known limitations below. Unchanged by Phase D, except

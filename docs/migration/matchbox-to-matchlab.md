@@ -178,9 +178,17 @@ multiplies a single entity's evidence — but nothing offers it if you disagree.
 **Everything server-side.** Collections, runs, permissions, groups, users, uploads,
 `load_default()` / `load_pending()` / `set_default()`, and the whole HTTP layer.
 
-**The CLI.** Every command began by loading a saved DAG by name from the server. Saving
-and loading plans doesn't exist yet, so the CLI will return as a feature built on that,
-not as a port. The evaluation *library* API is unaffected.
+**Most of the CLI.** `health`, `auth`, `collections`, `groups` and `admin` were all
+server operations. `matchbox eval` survives as `matchlab review`, but it names a plan
+differently: there is no `--collection` to fetch by name, so it takes a
+`module:attribute` pointing at a resolver in your own code.
+
+```shell
+matchbox eval --collection companies --warehouse postgresql://...  # before
+matchlab review pipeline:entities                                  # after
+```
+
+`--warehouse` is gone with it: the plan is Python, so it already has its clients.
 
 **`low_memory`, `cache_leaf_ids`, `clear_data`.** All inter-step data now flows through
 the adapter, so there is nothing held in memory to drop.
