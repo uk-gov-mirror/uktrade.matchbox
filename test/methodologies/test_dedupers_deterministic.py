@@ -7,7 +7,6 @@ from unittest.mock import Mock, patch
 import polars as pl
 import pytest
 
-from matchlab.cleaners import Cleaner
 from matchlab.core.factories.entities import FeatureConfig
 from matchlab.core.factories.sources import (
     SourceTestkit,
@@ -17,6 +16,7 @@ from matchlab.core.factories.sources import (
 from matchlab.models import Model
 from matchlab.models.dedupers.base import Deduper
 from matchlab.models.dedupers.naive import NaiveDeduper, NaiveSettings
+from matchlab.views import View
 
 DeduperConfigurator = Callable[[SourceTestkit], dict[str, Any]]
 
@@ -55,7 +55,7 @@ DEDUPERS = [
 
 
 @pytest.mark.parametrize(("Deduper", "configure_deduper"), DEDUPERS)
-@patch.object(Cleaner, "_frame")
+@patch.object(View, "_frame")
 def test_no_deduplication(
     mock_query_run: Mock,
     Deduper: Deduper,
@@ -95,7 +95,7 @@ def test_no_deduplication(
         name="exact_deduper",
         model_class=Deduper,
         model_settings=configure_deduper(source_testkit),
-        left=source_testkit.source.clean(),
+        left=source_testkit.source.view(),
     )
     results = deduper.collect().edges()
 
@@ -112,7 +112,7 @@ def test_no_deduplication(
 
 
 @pytest.mark.parametrize(("Deduper", "configure_deduper"), DEDUPERS)
-@patch.object(Cleaner, "_frame")
+@patch.object(View, "_frame")
 def test_exact_duplicate_deduplication(
     mock_query_run: Mock, Deduper: Deduper, configure_deduper: DeduperConfigurator
 ) -> None:
@@ -148,7 +148,7 @@ def test_exact_duplicate_deduplication(
         name="exact_deduper",
         model_class=Deduper,
         model_settings=configure_deduper(source),
-        left=source.source.clean(),
+        left=source.source.view(),
     )
     results = deduper.collect().edges()
 

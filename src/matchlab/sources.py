@@ -26,13 +26,13 @@ import polars as pl
 import pyarrow.parquet as pq
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.cleaners import Cleaner
 from matchlab.core.config import SourceConfig
 from matchlab.core.db import QueryReturnClass, QueryReturnType
 from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
 from matchlab.core.logging import logger, profile_time
 from matchlab.core.resolution import leaf_id
 from matchlab.steps import Step
+from matchlab.views import View
 
 if TYPE_CHECKING:
     from matchlab.locations import Location
@@ -280,14 +280,14 @@ class Source(Step):
 
     # -- verbs ------------------------------------------------------------------------
 
-    def clean(self, cleaning: dict[str, str] | None = None, **kwargs: Any) -> Cleaner:
+    def view(self, cleaning: dict[str, str] | None = None, **kwargs: Any) -> View:
         """Return a cleaned, queryable view of this source."""
-        return Cleaner(self, cleaning=cleaning, **kwargs)
+        return View(self, cleaning=cleaning, **kwargs)
 
     def dedupe(self, *args: Any, **kwargs: Any) -> Model:
-        """Deduplicate this source. Shorthand for `self.clean().dedupe(...)`."""
-        return self.clean().dedupe(*args, **kwargs)
+        """Deduplicate this source. Shorthand for `self.view().dedupe(...)`."""
+        return self.view().dedupe(*args, **kwargs)
 
-    def link(self, other: Source | Cleaner, *args: Any, **kwargs: Any) -> Model:
+    def link(self, other: Source | View, *args: Any, **kwargs: Any) -> Model:
         """Link this source to another source or cleaned view."""
-        return self.clean().link(other, *args, **kwargs)
+        return self.view().link(other, *args, **kwargs)

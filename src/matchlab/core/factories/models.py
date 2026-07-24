@@ -16,7 +16,6 @@ from pyarrow import compute as pc
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import create_engine
 
-from matchlab.cleaners import Cleaner
 from matchlab.core.arrow import SCHEMA_MODEL_EDGES
 from matchlab.core.config import (
     ModelType,
@@ -39,6 +38,7 @@ from matchlab.models import add_model_class
 from matchlab.models.dedupers.base import Deduper, DeduperSettings
 from matchlab.models.linkers.base import Linker, LinkerSettings
 from matchlab.models.models import Model
+from matchlab.views import View
 
 if TYPE_CHECKING:
     from matchlab.core.factories.resolvers import ResolverTestkit
@@ -712,10 +712,10 @@ class ModelTestkit(BaseModel):
 
     model: Model
     left_data: pa.Table
-    left: Cleaner
+    left: View
     left_clusters: dict[int, ClusterEntity]
     right_data: pa.Table | None
-    right: Cleaner | None
+    right: View | None
     right_clusters: dict[int, ClusterEntity] | None
     scores: pl.DataFrame = Field(frozen=True)
 
@@ -861,7 +861,7 @@ def model_factory(
     if left_testkit is not None:
         # Using provided sources
         left_data = left_testkit.data
-        left = left_testkit.clean()
+        left = left_testkit.view()
         left_entities = left_testkit.entities
         left_source_testkit = (
             left_testkit if isinstance(left_testkit, SourceTestkit) else None
@@ -875,7 +875,7 @@ def model_factory(
         if right_testkit is not None:
             model_type = ModelType.LINKER
             right_data = right_testkit.data
-            right = right_testkit.clean()
+            right = right_testkit.view()
             right_entities = right_testkit.entities
             right_source_testkit = (
                 right_testkit if isinstance(right_testkit, SourceTestkit) else None
@@ -942,7 +942,7 @@ def model_factory(
         # Extract source data
         left_source_testkit = linked.sources["crn"]
         left_data = left_source_testkit.data
-        left = left_source_testkit.source.clean()
+        left = left_source_testkit.source.view()
         left_entities = left_source_testkit.entities
 
         right_source_testkit = None
@@ -952,7 +952,7 @@ def model_factory(
         if resolved_model_type == ModelType.LINKER:
             right_source_testkit = linked.sources["cdms"]
             right_data = right_source_testkit.data
-            right = right_source_testkit.source.clean()
+            right = right_source_testkit.source.view()
             right_entities = right_source_testkit.entities
 
         dummy_true_entities = tuple(linked.true_entities)

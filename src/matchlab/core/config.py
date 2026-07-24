@@ -33,14 +33,6 @@ class LocationType(StrEnum):
     RDBMS = "rdbms"
 
 
-class QueryCombineType(StrEnum):
-    """Enumeration of ways to combine multiple rows having the same cluster ID."""
-
-    CONCAT = "concat"
-    EXPLODE = "explode"
-    SET_AGG = "set_agg"
-
-
 class ModelType(StrEnum):
     """Enumeration of supported model types."""
 
@@ -113,8 +105,8 @@ class SourceConfig(BaseModel):
     )
 
 
-class CleanerConfig(BaseModel):
-    """Configuration of a cleaned view over one or more sources."""
+class ViewConfig(BaseModel):
+    """Configuration of a view: which records a model matches over, and their shape."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -128,15 +120,18 @@ class CleanerConfig(BaseModel):
             "one, records are grouped by their source leaves."
         ),
     )
-    combine_type: QueryCombineType = Field(
-        default=QueryCombineType.CONCAT,
-        description="How to combine rows sharing a cluster ID.",
-    )
     cleaning: dict[str, str] | None = Field(
         default=None,
         description=(
             "Output column to SQL expression. `None` passes every column through; "
-            "an empty dict projects to identifiers only."
+            "an empty dict projects to `id` only."
+        ),
+    )
+    group: bool = Field(
+        default=False,
+        description=(
+            "Collapse each `id` to one row, so the cleaning expressions run as "
+            "aggregates. Changes the grain of what a model sees."
         ),
     )
 

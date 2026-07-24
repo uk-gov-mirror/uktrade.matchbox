@@ -5,7 +5,7 @@ Build a plan from a `Source`, chain verbs, then `collect()`:
 ```python
 from matchlab import Source
 
-deduped = source.clean(...).dedupe(...).resolve()
+deduped = source.view(...).dedupe(...).resolve()
 lookup = deduped.collect().get_matches().as_lookup()
 ```
 
@@ -13,15 +13,15 @@ Nothing runs until `collect()`, and collecting again only does the work whose pl
 or inputs changed.
 """
 
-from matchlab.cleaners import Cleaner
 from matchlab.locations import RelationalDBLocation
 from matchlab.models import Model
 from matchlab.resolvers import Resolver
 from matchlab.sources import Source
 from matchlab.steps import Step, default_adapter, gc, set_default_adapter
+from matchlab.views import View
 
 __all__ = (
-    "Cleaner",
+    "View",
     "Model",
     "RelationalDBLocation",
     "Resolver",

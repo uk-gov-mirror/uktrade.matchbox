@@ -118,8 +118,8 @@ def link_scenario(
     )
     link = Model(
         name="link_crn_cdms",
-        left=resolved_crn.clean(crn.source),
-        right=cdms.source.clean(),
+        left=resolved_crn.view(crn.source),
+        right=cdms.source.view(),
         model_class=ScriptedLinker,
         model_settings=ScriptedLinkerSettings(truth_id=truth_id),
     )

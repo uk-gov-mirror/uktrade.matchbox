@@ -17,7 +17,6 @@ from sqlalchemy import Engine, create_engine
 from sqlglot import cast, select
 from sqlglot.expressions import column
 
-from matchlab.cleaners import Cleaner
 from matchlab.core.arrow import SCHEMA_INDEX, SCHEMA_QUERY
 from matchlab.core.config import (
     SourceConfig,
@@ -35,6 +34,7 @@ from matchlab.core.factories.entities import (
 from matchlab.core.hash import hash_values
 from matchlab.locations import RelationalDBLocation
 from matchlab.sources import Source
+from matchlab.views import View
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -140,9 +140,9 @@ class SourceTestkit(BaseModel):
             column for column in self.data.column_names if column not in ("key", "id")
         ]
 
-    def clean(self, *args: Any, **kwargs: Any) -> Cleaner:
+    def view(self, *args: Any, **kwargs: Any) -> View:
         """Thin wrapper to build a cleaned view over this testkit's Source."""
-        return self.source.clean(*args, **kwargs)
+        return self.source.view(*args, **kwargs)
 
     def write_to_location(self, set_client: Any | None = None) -> Self:  # noqa: ANN401
         """Write the data to the SourceConfig's location.

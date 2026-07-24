@@ -1,16 +1,17 @@
 """Cleaning SQL semantics.
 
 Ported from the pre-plan `test/client/test_queries.py::test_clean_*` block — the
-function moved from `queries._clean` to `cleaning._apply_cleaning` but its contract is
-unchanged, so these assertions carry over verbatim.
+function moved from `queries._clean` to `views._apply_cleaning`, and gained `group`,
+but the projection contract is otherwise unchanged.
 """
 
+import duckdb
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 from sqlglot.errors import ParseError
 
-from matchlab.cleaners import _apply_cleaning
+from matchlab.views import _apply_cleaning
 
 
 @pytest.mark.parametrize(
@@ -134,11 +135,11 @@ def test_complex_sql_expressions() -> None:
     assert result["category_upper"].to_list() == ["A", "B", "A"]
 
 
-def test_leaf_id_is_passed_through_when_present() -> None:
+def test_only_id_and_the_named_columns_survive() -> None:
+    """`id` passes through automatically; everything else must be asked for."""
     data = pl.DataFrame(
         {
             "id": [1, 2, 3],
-            "leaf_id": ["a", "b", "c"],
             "value": [10, 20, 30],
             "status": ["active", "inactive", "pending"],
         }
@@ -146,9 +147,41 @@ def test_leaf_id_is_passed_through_when_present() -> None:
 
     result = _apply_cleaning(data, {"processed_value": "value * 2"})
 
-    assert set(result.columns) == {"id", "leaf_id", "processed_value"}
-    assert result["leaf_id"].to_list() == ["a", "b", "c"]
+    assert set(result.columns) == {"id", "processed_value"}
     assert result["processed_value"].to_list() == [20, 40, 60]
+
+
+def test_group_collapses_each_id_to_one_row() -> None:
+    """Aggregates decide how each column combines — per column, not wholesale."""
+    data = pl.DataFrame(
+        {
+            "id": [1, 1, 2],
+            "company": ["acme", "acme", "beta"],
+            "town": ["london", "leeds", "hull"],
+        }
+    )
+
+    result = _apply_cleaning(
+        data,
+        {
+            "name": "any_value(company)",
+            "towns": "list(distinct town)",
+        },
+        group=True,
+    ).sort("id")
+
+    assert result["id"].to_list() == [1, 2]
+    assert result["name"].to_list() == ["acme", "beta"]
+    assert sorted(result["towns"][0]) == ["leeds", "london"]
+    assert result["towns"][1].to_list() == ["hull"]
+
+
+def test_group_reports_a_non_aggregate_expression() -> None:
+    """DuckDB names the offending column, which is a better error than we'd write."""
+    data = pl.DataFrame({"id": [1, 1], "town": ["london", "leeds"]})
+
+    with pytest.raises(duckdb.BinderException, match="town"):
+        _apply_cleaning(data, {"town": "town"}, group=True)
 
 
 def test_invalid_sql_raises() -> None:

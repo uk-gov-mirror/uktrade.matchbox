@@ -82,7 +82,7 @@ def _apex(warehouse: Engine) -> tuple[Resolver, Source, Source]:
     dh = _source(warehouse, "dh")
     r_crn = _dedupe_crn(crn)
     apex = (
-        r_crn.clean(crn)
+        r_crn.view(crn)
         .link(
             dh,
             model_class=DeterministicLinker,
@@ -190,7 +190,7 @@ def test_building_downstream_only_runs_the_new_steps(warehouse: Engine) -> None:
     # A brand-new downstream branch over already-collected inputs.
     dh = _source(warehouse, "dh")
     apex = (
-        deduped.clean(crn)
+        deduped.view(crn)
         .link(
             dh,
             model_class=DeterministicLinker,
@@ -227,14 +227,14 @@ def test_a_change_to_any_selected_column_invalidates_the_source(
     """
     et = "select pk, company, town from crn"
 
-    view = _crn_source(warehouse, et).clean({"town": "crn_town"})
+    view = _crn_source(warehouse, et).view({"town": "crn_town"})
     view.collect()
     assert sorted(view.data()["town"].to_list()) == ["hull", "leeds", "london"]
 
     with warehouse.begin() as conn:
         conn.execute(text("UPDATE crn SET town = 'oxford' WHERE pk = 'a1'"))
 
-    refreshed = _crn_source(warehouse, et).clean({"town": "crn_town"})
+    refreshed = _crn_source(warehouse, et).view({"town": "crn_town"})
     refreshed.collect()
     assert sorted(refreshed.data()["town"].to_list()) == ["hull", "leeds", "oxford"]
 
@@ -287,7 +287,7 @@ def test_a_reserved_word_is_a_fine_source_name(warehouse: Engine) -> None:
         extract_transform="select pk, company from crn",
         key_field="pk",
     )
-    view = source.clean({"name": f"lower({source.f('company')})"})
+    view = source.view({"name": f"lower({source.f('company')})"})
     view.collect()
     assert sorted(view.data()["name"].to_list()) == ["acme", "acme", "beta"]
 
@@ -333,7 +333,7 @@ def test_a_source_memoises_its_read(warehouse: Engine) -> None:
 
 def test_clean_is_fused_by_default(warehouse: Engine, adapter: DuckDBAdapter) -> None:
     crn = _source(warehouse, "crn")
-    view = crn.clean({"name": "crn_company"})
+    view = crn.view({"name": "crn_company"})
     deduped = view.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
     ).resolve()
@@ -348,7 +348,7 @@ def test_collecting_a_clean_directly_materialises_it(
     warehouse: Engine, adapter: DuckDBAdapter
 ) -> None:
     crn = _source(warehouse, "crn")
-    view = crn.clean({"name": "crn_company"})
+    view = crn.view({"name": "crn_company"})
 
     frame = view.collect().data()
     assert adapter.has(view._fp)
@@ -411,6 +411,85 @@ def test_gc_reclaims_a_dropped_plan(warehouse: Engine, adapter: DuckDBAdapter) -
     assert not adapter.has(doomed)
 
 
+# -- views ----------------------------------------------------------------------------
+
+
+def test_reading_through_a_resolver_repeats_an_entity_per_record(
+    warehouse: Engine,
+) -> None:
+    """Without `group`, a view is record-grained even when `id` is an entity."""
+    crn = _source(warehouse, "crn")
+    deduped = _dedupe_crn(crn)
+    deduped.collect()
+
+    view = deduped.view(crn, cleaning={"name": "crn_company"})
+    view.collect()
+    frame = view.data()
+
+    # a1/a2 deduped to one entity, but each contributes a row.
+    assert frame.height == 3
+    assert frame["id"].n_unique() == 2
+
+
+def test_group_gives_one_row_per_entity(warehouse: Engine) -> None:
+    """`group=True` collapses each id, with the aggregate saying how per column."""
+    crn = _source(warehouse, "crn")
+    deduped = _dedupe_crn(crn)
+    deduped.collect()
+
+    view = deduped.view(
+        crn,
+        cleaning={
+            "name": "any_value(crn_company)",
+            "towns": "list(distinct crn_town)",
+        },
+        group=True,
+    )
+    view.collect()
+    frame = view.data().sort("name")
+
+    assert frame.height == 2
+    assert frame["name"].to_list() == ["acme", "beta"]
+    # The deduped entity keeps both towns rather than silently losing one.
+    assert sorted(frame["towns"][0]) == ["leeds", "london"]
+
+
+def test_a_grouped_view_still_merges_forward(warehouse: Engine) -> None:
+    """Grouping changes the view's grain, never the resolution's.
+
+    Leaves travel via `identifiers()`, read from the adapter, so collapsing rows in
+    the view cannot lose a record from the resolution below it.
+    """
+    crn = _source(warehouse, "crn")
+    dh = _source(warehouse, "dh")
+    deduped = _dedupe_crn(crn)
+
+    apex = (
+        deduped.view(crn, cleaning={"name": "any_value(crn_company)"}, group=True)
+        .link(
+            dh,
+            model_class=DeterministicLinker,
+            model_settings={"comparisons": f"l.name = r.{dh.f('company')}"},
+        )
+        .resolve()
+    )
+    lookup = apex.collect().get_matches().as_lookup()
+    crn_ids = _ids_by_key(lookup, "crn_pk")
+    dh_ids = _ids_by_key(lookup, "dh_pk")
+
+    # Every source record still appears, with the dedupe carried forward.
+    assert set(crn_ids) == {"a1", "a2", "a3"}
+    assert set(dh_ids) == {"b1", "b2"}
+    assert crn_ids["a1"] == crn_ids["a2"] == dh_ids["b1"]
+    assert crn_ids["a3"] != crn_ids["a1"]
+
+
+def test_group_without_cleaning_is_rejected(warehouse: Engine) -> None:
+    crn = _source(warehouse, "crn")
+    with pytest.raises(ValueError, match="needs cleaning expressions"):
+        crn.view(group=True)
+
+
 # -- configuration --------------------------------------------------------------------
 
 
@@ -450,8 +529,8 @@ def test_a_derived_name_distinguishes_reading_through_a_resolver(
     which it is — and stay usable as an identifier while doing so.
     """
     crn = _source(warehouse, "crn")
-    direct = crn.clean()
-    through = _dedupe_crn(crn).clean(crn)
+    direct = crn.view()
+    through = _dedupe_crn(crn).view(crn)
 
     assert direct.name != through.name
     assert through.config.sources == ("crn",)

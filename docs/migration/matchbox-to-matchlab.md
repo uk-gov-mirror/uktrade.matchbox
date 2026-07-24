@@ -114,13 +114,30 @@ Nouns became verbs, and each one is a step in the plan:
 
 | Matchbox | matchlab |
 |---|---|
-| `source.query(...)` | `source.clean(...)` |
+| `source.query(...)` | `source.view(...)` |
 | `query.deduper(...)` | `.dedupe(...)` |
 | `query.linker(other, ...)` | `.link(other, ...)` |
 | `model.resolver(...)` | `.resolve(...)` |
 | `dag.run_and_sync()` | `step.collect()` |
 | `dag.get_matches(resolver=...)` | `resolver.get_matches()` |
 | `dag.lookup_key(...)` | `resolver.lookup_key(...)` |
+
+`query` became `view` rather than `clean`: the node's job is to say which records a
+model matches over, and cleaning is an optional clause of that.
+
+`QueryCombineType` is gone. `concat` was the default and is now the only behaviour —
+one row per record, even when reading through a resolver. `set_agg` collapsed each
+entity to one row but wrapped *every* column in a list, which most matchers can't
+consume; `explode` did nothing the default didn't. To collapse entities now, pass
+`group=True` with aggregate cleaning expressions, which lets you choose per column:
+
+```python
+resolver.view(
+    crn,
+    cleaning={"name": "any_value(crn_company)", "towns": "list(distinct crn_town)"},
+    group=True,
+)
+```
 
 ## Removed without replacement
 

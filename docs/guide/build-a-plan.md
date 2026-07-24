@@ -55,19 +55,19 @@ Steps chain. Each verb returns a new lazy step:
 
 | Verb | Produces | Meaning |
 |---|---|---|
-| `.clean(...)` | `Cleaner` | A queryable view, optionally with cleaning SQL |
+| `.view(...)` | `View` | The records a model matches over, optionally reshaped |
 | `.dedupe(...)` | `Model` | Candidate matches *within* one view |
 | `.link(other, ...)` | `Model` | Candidate matches *between* two views |
 | `.resolve(...)` | `Resolver` | Collapse candidate edges into clusters |
 | `.collect()` | (same step) | Run everything the step depends on |
 
-### Cleaning
+### Views
 
-`clean` takes a mapping of output column to SQL expression. Only the columns you name
-survive — plus the identifiers, which always pass through.
+A view says **which records a model matches over, and what shape they're in**. Both
+halves matter, and the first is the one that's easy to miss.
 
 ```python
-cleaned = crn.clean(
+cleaned = crn.view(
     {
         "name": f"lower({crn.f('company')})",
         "town": crn.f("town"),
@@ -75,13 +75,54 @@ cleaned = crn.clean(
 )
 ```
 
+Only the columns you name survive, plus `id` — the grouping the model matches on.
 `source.f("field")` gives you the source-qualified column name (`crn_company`), which
 is how fields are named once a view is built.
 
 !!! note
-    `clean(None)` means "no cleaning" and passes every column through. `clean({})` is a
-    real projection that selects nothing, leaving only the identifiers. They are
-    deliberately different.
+    `view(None)` means "no cleaning" and passes every column through. `view({})` is a
+    real projection that selects nothing, leaving only `id`. They are deliberately
+    different.
+
+#### What `id` is, and when to group
+
+Read a source directly and `id` is the record — one row each. Read it *through a
+resolver* and `id` is the resolver's entity, so several records share one:
+
+```python
+deduped.view(crn, cleaning={"name": "crn_company"}).data()
+
+# id | name
+# E1 | acme     <- from a1
+# E1 | acme     <- from a2
+# E2 | beta
+```
+
+That's often what you want — more evidence per entity. When it isn't, `group=True`
+collapses each `id` to one row, and every expression becomes an aggregate so you say
+how each column combines:
+
+```python
+deduped.view(
+    crn,
+    cleaning={
+        "name": "any_value(crn_company)",  # they agree — that's why they grouped
+        "towns": "list(distinct crn_town)",  # they differ — keep both
+    },
+    group=True,
+).data()
+
+# id | name | towns
+# E1 | acme | ["london", "leeds"]
+# E2 | beta | ["hull"]
+```
+
+Any DuckDB aggregate works, `list` and `string_agg` included. A non-aggregate gets you
+DuckDB's own error naming the column. `group=True` needs cleaning expressions — there's
+no sensible default for how a column collapses.
+
+Grouping changes what the *model* sees, never the resolution: record identity travels
+separately, so a resolver below a grouped view still carries every record forward.
 
 ### Deduplicating and linking
 
@@ -94,7 +135,7 @@ deduped = cleaned.dedupe(
     model_settings={"unique_fields": ["name"]},
 )
 
-linked = crn.clean().link(
+linked = crn.view().link(
     dh,
     model_class=DeterministicLinker,
     model_settings={"comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"},
@@ -127,7 +168,7 @@ To match *on top of* an earlier resolution, read a source through it:
 deduped_crn = crn.dedupe(...).resolve()
 
 entities = (
-    deduped_crn.clean(crn)  # crn, as resolved by the dedupe
+    deduped_crn.view(crn)  # crn, as resolved by the dedupe
     .link(dh, model_class=..., model_settings=...)
     .resolve()
 )
@@ -184,7 +225,7 @@ however much is built above it.
 There's no lookup-by-name: to hold on to a step, hold on to the variable.
 
 ```python
-cleaned = crn.clean({"name": f"lower({crn.f('company')})"})
+cleaned = crn.view({"name": f"lower({crn.f('company')})"})
 entities = cleaned.dedupe(...).resolve().collect()
 
 cleaned.data()  # still yours to inspect

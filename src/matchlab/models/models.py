@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.cleaners import Cleaner
 from matchlab.core.config import ModelConfig, ModelType
 from matchlab.core.logging import logger, profile_time
 from matchlab.models import dedupers, linkers
@@ -16,6 +15,7 @@ from matchlab.models.dedupers.base import Deduper, DeduperSettings
 from matchlab.models.linkers.base import Linker, LinkerSettings
 from matchlab.results import normalise_model_scores
 from matchlab.steps import Step
+from matchlab.views import View
 
 if TYPE_CHECKING:
     from matchlab.resolvers import Resolver
@@ -41,10 +41,10 @@ class Model(Step):
 
     def __init__(
         self,
-        left: Cleaner,
+        left: View,
         model_class: type[Deduper] | type[Linker] | str,
         model_settings: DeduperSettings | LinkerSettings | dict,
-        right: Cleaner | None = None,
+        right: View | None = None,
         name: str | None = None,
     ) -> None:
         """Define a model.
@@ -125,7 +125,7 @@ class Model(Step):
         return self._require_adapter().read_model(self._fp)
 
     @property
-    def inputs(self) -> tuple[Cleaner, ...]:
+    def inputs(self) -> tuple[View, ...]:
         """The cleaned views this model reads."""
         return (self.left,) if self.right is None else (self.left, self.right)
 

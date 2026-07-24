@@ -7,7 +7,6 @@ import polars as pl
 from faker import Faker
 from pydantic import BaseModel, ConfigDict, Field
 
-from matchlab.cleaners import Cleaner
 from matchlab.core.arrow import SCHEMA_CLUSTERS
 from matchlab.core.config import (
     ResolverType,
@@ -23,6 +22,7 @@ from matchlab.resolvers import (
     ResolverSettings,
     add_resolver_class,
 )
+from matchlab.views import View
 
 
 class MockResolverSettings(ResolverSettings):
@@ -99,9 +99,9 @@ class ResolverTestkit(BaseModel):
         """Return resolver name."""
         return self.resolver.name
 
-    def clean(self, *args: Any, **kwargs: Any) -> Cleaner:
+    def view(self, *args: Any, **kwargs: Any) -> View:
         """Thin wrapper to build a cleaned view through this testkit's Resolve."""
-        return self.resolver.clean(*args, **kwargs)
+        return self.resolver.view(*args, **kwargs)
 
 
 def resolver_factory(

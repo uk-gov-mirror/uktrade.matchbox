@@ -12,7 +12,6 @@ from splink import comparison_library as cl
 from splink.internals.blocking_rule_creator import BlockingRuleCreator
 from splink.internals.comparison_creator import ComparisonCreator
 
-from matchlab.cleaners import Cleaner
 from matchlab.core.factories.entities import FeatureConfig
 from matchlab.core.factories.sources import (
     SourceTestkit,
@@ -31,6 +30,7 @@ from matchlab.models.linkers.weighteddeterministic import (
     WeightedDeterministicLinker,
     WeightedDeterministicSettings,
 )
+from matchlab.views import View
 
 LinkerConfigurator = Callable[[SourceTestkit, SourceTestkit], dict[str, Any]]
 
@@ -262,7 +262,7 @@ LINKERS = [
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(Cleaner, "_frame")
+@patch.object(View, "_frame")
 def test_exact_match_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -313,8 +313,8 @@ def test_exact_match_linking(
         name="exact_match_linker",
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.source.clean(),
-        right=right_source.source.clean(),
+        left=left_source.source.view(),
+        right=right_source.source.view(),
     )
     results = linker.collect().edges()
 
@@ -331,7 +331,7 @@ def test_exact_match_linking(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(Cleaner, "_frame")
+@patch.object(View, "_frame")
 def test_exact_match_with_duplicates_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -379,8 +379,8 @@ def test_exact_match_with_duplicates_linking(
         name="exact_match_linker",
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.clean(),
-        right=right_source.clean(),
+        left=left_source.view(),
+        right=right_source.view(),
     )
     results = linker.collect().edges()
 
@@ -397,7 +397,7 @@ def test_exact_match_with_duplicates_linking(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(Cleaner, "_frame")
+@patch.object(View, "_frame")
 def test_partial_entity_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -450,8 +450,8 @@ def test_partial_entity_linking(
         name="partial_match_linker",
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.clean(),
-        right=right_source.clean(),
+        left=left_source.view(),
+        right=right_source.view(),
     )
     results = linker.collect().edges()
 
@@ -468,7 +468,7 @@ def test_partial_entity_linking(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(Cleaner, "_frame")
+@patch.object(View, "_frame")
 def test_no_matching_entities_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -514,8 +514,8 @@ def test_no_matching_entities_linking(
         name="no_match_linker",
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.clean(),
-        right=right_source.clean(),
+        left=left_source.view(),
+        right=right_source.view(),
     )
     results = linker.collect().edges()
 

@@ -9,7 +9,6 @@ import pytest
 from splink import SettingsCreator
 from splink import comparison_library as cl
 
-from matchlab.cleaners import Cleaner
 from matchlab.core.datatypes import DataTypes
 from matchlab.core.factories.entities import (
     FeatureConfig,
@@ -28,6 +27,7 @@ from matchlab.models.linkers.weighteddeterministic import (
     WeightedDeterministicLinker,
     WeightedDeterministicSettings,
 )
+from matchlab.views import View
 
 LinkerConfigurator = Callable[[SourceTestkit, SourceTestkit], dict[str, Any]]
 
@@ -184,7 +184,7 @@ SCORED_LINKERS = [
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), SCORED_LINKERS)
-@patch.object(Cleaner, "_frame")
+@patch.object(View, "_frame")
 def test_scored_model_scores_generation(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -234,8 +234,8 @@ def test_scored_model_scores_generation(
         name="score_test_linker",
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.clean(),
-        right=right_source.clean(),
+        left=left_source.view(),
+        right=right_source.view(),
     )
 
     results = linker.collect().edges()

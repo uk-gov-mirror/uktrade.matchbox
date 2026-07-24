@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.cleaners import Cleaner
 from matchlab.core.config import ResolverConfig
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.logging import logger, profile_time
@@ -18,6 +17,7 @@ from matchlab.resolvers.components import Components
 from matchlab.results import ResolverMatches
 from matchlab.sources import Source
 from matchlab.steps import Step
+from matchlab.views import View
 
 if TYPE_CHECKING:
     pass
@@ -198,13 +198,13 @@ class Resolver(Step):
 
     # -- verbs ------------------------------------------------------------------------
 
-    def clean(
+    def view(
         self,
         *sources: Source,
         cleaning: dict[str, str] | None = None,
         **kwargs: Any,
-    ) -> Cleaner:
+    ) -> View:
         """Return a cleaned view of sources resolved *through* this resolver."""
-        return Cleaner(
+        return View(
             *(sources or self.sources), resolver=self, cleaning=cleaning, **kwargs
         )
