@@ -324,12 +324,13 @@ def test_collecting_a_clean_directly_materialises_it(
 # -- lineage navigation ---------------------------------------------------------------
 
 
-def test_get_step_is_lineage_scoped(warehouse: Engine) -> None:
+def test_lineage_reaches_upstream_only(warehouse: Engine) -> None:
+    """A step knows its inputs and nothing else, so lineage never looks down."""
     apex, crn, _dh = _apex(warehouse)
 
-    assert apex.get_step("crn") is crn
-    with pytest.raises(StepNotFound):
-        crn.get_step(apex.name)
+    assert crn in apex.lineage()
+    assert apex not in crn.lineage()
+    assert crn.lineage() == [crn]
 
 
 def test_draw_shows_only_the_sub_plan(warehouse: Engine) -> None:

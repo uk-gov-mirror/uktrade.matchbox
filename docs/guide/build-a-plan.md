@@ -167,12 +167,24 @@ entities.collect(adapter=DuckDBAdapter("./run.duckdb"))
 
 ```python
 entities.draw()  # the plan, as a tree
-entities.get_step("crn")  # a step by name, searching only this plan's lineage
 entities.lineage()  # every step, inputs first
 ```
 
-`get_step` looks *upstream* only. A source can't reach the resolver built on top of it,
-because a step knows its inputs and nothing else.
+Both look *upstream* only. A source can't reach the resolver built on top of it,
+because a step knows its inputs and nothing else — `crn.lineage()` is just `[crn]`
+however much is built above it.
+
+There's no lookup-by-name: to hold on to a step, hold on to the variable.
+
+```python
+cleaned = crn.clean({"name": f"lower({crn.f('company')})"})
+entities = cleaned.dedupe(...).resolve().collect()
+
+cleaned.data()  # still yours to inspect
+```
+
+Names are for telling steps apart — in `draw()`, in error messages, and in settings
+that refer to a step without holding it, such as a resolver's per-model thresholds.
 
 ## Reclaiming storage
 

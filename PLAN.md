@@ -56,7 +56,7 @@ class Step(ABC):
 | `Resolve` | `(model…)` |
 
 Everything the old `DAG` did becomes a **derived walk from a root node**:
-`node.lineage()`, `node.get_step(name)`, `node.draw()`, `node.collect(adapter=None)`.
+`node.lineage()`, `node.draw()`, `node.collect(adapter=None)`.
 The `DAG` class disappears; what survives is `lineage.py` — **pure functions over a root
 node** (topo sort via Kahn's, ancestor walk, cycle + name-collision validation,
 drawing), deduplicating shared nodes by object identity.
@@ -175,7 +175,7 @@ Terminal reads: `query`/`match` **deleted**; `lookup_key`, `get_matches`,
   server env. Verified end-to-end on a real SQLite warehouse
   (`test/integration/test_local_dag.py`).
 * **Phase 3 (partial)** — lazy `collect()` with incremental caching, lineage-scoped
-  `get_step`/`draw`, fluent verbs and implicit DAG. **The *semantics* are validated and
+  `lineage`/`draw`, fluent verbs and implicit DAG. **The *semantics* are validated and
   keep; the *implementation* is superseded by Phase A**, which moves them off the DAG
   registry onto the plan tree.
 

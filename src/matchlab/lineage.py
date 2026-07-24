@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from matchlab.core.exceptions import StepNotFound
-
 if TYPE_CHECKING:
     from matchlab.steps import Step
 
@@ -49,24 +47,14 @@ def walk(root: Step) -> list[Step]:
     return ordered
 
 
-def find(root: Step, name: str) -> Step:
-    """Return the step called `name` from `root`'s lineage.
-
-    Raises:
-        StepNotFound: If no step in the lineage has that name.
-    """
-    for step in walk(root):
-        if step.name == name:
-            return step
-    raise StepNotFound(f"'{name}' is not in the lineage of '{root.name}'")
-
-
 def validate(root: Step) -> None:
     """Check a plan is well-formed before it is executed.
 
     Cycles cannot be constructed (a step's inputs must exist before it does), so the
-    only real hazard is two distinct steps sharing a name, which would make
-    `find` — and any serialised form of the plan — ambiguous.
+    only real hazard is two distinct steps sharing a name. Names are how a setting
+    refers to a step without holding it — `ComponentsSettings.thresholds` is keyed by
+    model name — so a duplicate makes that reference, and any serialised form of the
+    plan, ambiguous. Pass `name=` to disambiguate steps a derived name would collide.
 
     Raises:
         ValueError: If two distinct steps in the lineage share a name.

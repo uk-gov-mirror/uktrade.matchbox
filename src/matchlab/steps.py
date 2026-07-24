@@ -224,10 +224,6 @@ class Step(ABC):
         """Return this step and all its inputs, upstream-first."""
         return lineage.walk(self)
 
-    def get_step(self, name: str) -> Step:
-        """Return an input step by name, searching only this step's lineage."""
-        return lineage.find(self, name)
-
     def draw(self) -> str:
         """Render this step's sub-plan as a tree."""
         return lineage.draw(self)

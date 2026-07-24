@@ -11,7 +11,6 @@ from pydantic import BaseModel
 
 from matchlab import lineage
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.core.exceptions import StepNotFound
 from matchlab.steps import Step
 
 
@@ -63,15 +62,6 @@ def test_walk_from_a_leaf_is_just_the_leaf() -> None:
     leaf = FakeStep("leaf")
     FakeStep("downstream", upstream=(leaf,))  # never reachable from the leaf
     assert [step.name for step in lineage.walk(leaf)] == ["leaf"]
-
-
-def test_find_searches_only_upstream() -> None:
-    source = FakeStep("source")
-    apex = FakeStep("apex", upstream=(source,))
-
-    assert lineage.find(apex, "source") is source
-    with pytest.raises(StepNotFound):
-        lineage.find(source, "apex")  # downstream is not in a node's lineage
 
 
 def test_validate_rejects_duplicate_names() -> None:
