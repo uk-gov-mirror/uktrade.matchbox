@@ -17,6 +17,15 @@ from pathlib import Path
 
 import polars as pl
 
+# The two pipelines sit alongside this file, so make them importable however this is
+# run — as a script, or from the repository root.
+sys.path.insert(0, str(Path(__file__).parent))
+
+import by_hand  # noqa: E402
+import with_matchlab  # noqa: E402
+
+from matchlab.adapters import DuckDBAdapter  # noqa: E402
+
 DB = Path(__file__).parent / "benchmark.sqlite"
 
 SUFFIXES = ["LTD", "LIMITED", "PLC", "", "Ltd.", "ltd"]
@@ -119,10 +128,7 @@ def build(n_rows: int) -> int:
 
 def time_pipelines(n_rows: int) -> None:
     """Build data at this size and time both implementations over it."""
-    import by_hand
-    import with_matchlab
 
-    from matchlab.adapters import DuckDBAdapter
 
     actual = build(n_rows)
     by_hand.DB = DB
@@ -151,7 +157,6 @@ def time_pipelines(n_rows: int) -> None:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).parent))
     sizes = [int(arg.replace("_", "")) for arg in sys.argv[1:]] or [10_000]
     print(f"{'rows':>10} | {'by hand':>15} | {'matchlab':>16} | cached | entities")  # noqa: T201
     for size in sizes:
