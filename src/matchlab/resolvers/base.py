@@ -7,7 +7,7 @@ from typing import ClassVar
 import polars as pl
 from pydantic import BaseModel, ConfigDict
 
-from matchlab.core.config import ModelStepName, ResolverType
+from matchlab.core.config import ResolverType
 
 
 class ResolverSettings(BaseModel, ABC):
@@ -16,7 +16,7 @@ class ResolverSettings(BaseModel, ABC):
     model_config = ConfigDict(extra="forbid")
 
     @abstractmethod
-    def validate_inputs(self, model_names: Iterable[ModelStepName]) -> None:
+    def validate_inputs(self, model_names: Iterable[str]) -> None:
         """Validates whether the models' clusters can be computed with this object.
 
         Should be used in conjunction with ResolverMethod.compute_clusters().
@@ -38,9 +38,7 @@ class ResolverMethod(BaseModel, ABC):
     settings: ResolverSettings
 
     @abstractmethod
-    def compute_clusters(
-        self, model_edges: Mapping[ModelStepName, pl.DataFrame]
-    ) -> pl.DataFrame:
+    def compute_clusters(self, model_edges: Mapping[str, pl.DataFrame]) -> pl.DataFrame:
         """Compute cluster assignments from model edges.
 
         Args:

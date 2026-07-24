@@ -17,7 +17,6 @@ from faker import Faker
 from frozendict import frozendict
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from matchlab.core.config import SourceStepName
 from matchlab.core.datatypes import DataTypes
 from matchlab.core.dsu import DisjointSet
 
@@ -171,7 +170,7 @@ class EntityReference(frozendict):
 
     def __init__(
         self,
-        mapping: dict[SourceStepName, frozenset[str]] | None = None,
+        mapping: dict[str, frozenset[str]] | None = None,
     ) -> None:
         """Initialise the EntityReference."""
         super().__init__({} if mapping is None else mapping)
@@ -250,7 +249,7 @@ class SourceKeyMixin:
 
     keys: EntityReference
 
-    def get_keys(self, name: SourceStepName) -> set[str]:
+    def get_keys(self, name: str) -> set[str]:
         """Get keys for a specific source.
 
         Args:
@@ -262,8 +261,8 @@ class SourceKeyMixin:
         return set(self.keys.get(name, frozenset()))
 
     def get_values(
-        self, sources: dict[SourceStepName, "SourceTestkit"]
-    ) -> dict[SourceStepName, dict[str, list[str]]]:
+        self, sources: dict[str, "SourceTestkit"]
+    ) -> dict[str, dict[str, list[str]]]:
         """Get all unique values for this entity across sources.
 
         Each source may have its own variations/transformations of the base data,
@@ -405,7 +404,7 @@ class SourceEntity(BaseModel, EntityIDMixin, SourceKeyMixin):
         """Hash based on sorted base values."""
         return hash(tuple(sorted(self.base_values.items())))
 
-    def add_source_reference(self, name: SourceStepName, keys: list[str]) -> None:
+    def add_source_reference(self, name: str, keys: list[str]) -> None:
         """Add or update a source reference.
 
         Args:
@@ -416,7 +415,7 @@ class SourceEntity(BaseModel, EntityIDMixin, SourceKeyMixin):
         mapping[name] = frozenset(keys)
         self.keys = EntityReference(mapping)
 
-    def to_cluster_entity(self, *names: SourceStepName) -> ClusterEntity | None:
+    def to_cluster_entity(self, *names: str) -> ClusterEntity | None:
         """Convert this SourceEntity to a ClusterEntity with the specified sources.
 
         This method makes diffing really easy. Testing whether ClusterEntity objects
@@ -457,7 +456,7 @@ class SourceEntity(BaseModel, EntityIDMixin, SourceKeyMixin):
 
 def query_to_cluster_entities(
     data: pa.Table | pd.DataFrame | pl.DataFrame,
-    keys: dict[SourceStepName, str],
+    keys: dict[str, str],
 ) -> set[ClusterEntity]:
     """Convert a query result to a set of ClusterEntities.
 

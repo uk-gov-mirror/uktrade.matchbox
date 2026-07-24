@@ -61,8 +61,7 @@ class Cleaner(Step):
 
         # The resolver is part of the derived name: reading a source directly and
         # reading it *through* a resolver are different views, and two steps in one
-        # plan may not share a name. The separator has to be one `validate_name`
-        # accepts, so a derived name is as valid as one you pass in.
+        # plan may not share a name.
         stem = "_".join(source.name for source in sources)
         suffix = f".{resolver.name}" if resolver else ""
         upstream: tuple[Step, ...] = (*sources, *((resolver,) if resolver else ()))

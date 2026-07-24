@@ -4,7 +4,6 @@ import polars as pl
 import pytest
 from faker import Faker
 
-from matchlab.core.config import SourceStepName
 from matchlab.core.datatypes import DataTypes
 from matchlab.core.factories.entities import (
     ClusterEntity,
@@ -44,9 +43,7 @@ def make_cluster_entity(id: int, *args: Any) -> ClusterEntity:
     return ClusterEntity(id=id, keys=EntityReference(keys))
 
 
-def make_source_entity(
-    source: SourceStepName, keys: list[str], base_val: str
-) -> SourceEntity:
+def make_source_entity(source: str, keys: list[str], base_val: str) -> SourceEntity:
     """Helper to create a SourceEntity."""
     entity = SourceEntity(base_values={"name": base_val})
     entity.add_source_reference(source, keys)
@@ -60,7 +57,7 @@ def make_source_entity(
         ("source2", frozenset({"A", "B"})),
     ),
 )
-def test_entity_reference_creation(name: SourceStepName, keys: frozenset[str]) -> None:
+def test_entity_reference_creation(name: str, keys: frozenset[str]) -> None:
     """Test basic EntityReference creation and access."""
     ref = EntityReference({name: keys})
     assert ref[name] == keys

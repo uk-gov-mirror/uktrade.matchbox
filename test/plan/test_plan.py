@@ -22,9 +22,8 @@ import polars as pl
 import pytest
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import Resolver, Source, gc, set_default_adapter
+from matchlab import Resolver, Source, gc, lineage, set_default_adapter
 from matchlab.adapters import DuckDBAdapter
-from matchlab.core.config import validate_name
 from matchlab.core.exceptions import StepNotFound
 from matchlab.locations import RelationalDBLocation
 from matchlab.models.dedupers import NaiveDeduper
@@ -406,11 +405,18 @@ def test_a_config_carries_no_upstream_settings(warehouse: Engine) -> None:
     assert set(resolver_config["inputs"]) == {model.name for model in apex.inputs}
 
 
-def test_derived_names_are_valid_names(warehouse: Engine) -> None:
-    """A name matchlab derives must pass the same validation as one you pass in."""
-    crn = _source(warehouse, "crn")
-    view = _dedupe_crn(crn).clean(crn)
+def test_a_derived_name_distinguishes_reading_through_a_resolver(
+    warehouse: Engine,
+) -> None:
+    """Reading a source directly and through a resolver are different views.
 
-    # Round-tripping through the config validates the name.
-    assert view.config.sources == ("crn",)
-    validate_name(view.name)
+    Two steps in one plan may not share a name, so the derived name has to say
+    which it is — and stay usable as an identifier while doing so.
+    """
+    crn = _source(warehouse, "crn")
+    direct = crn.clean()
+    through = _dedupe_crn(crn).clean(crn)
+
+    assert direct.name != through.name
+    assert through.config.sources == ("crn",)
+    lineage.validate(through)  # duplicate-name detection must pass

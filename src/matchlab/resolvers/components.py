@@ -7,7 +7,7 @@ import polars as pl
 from pydantic import Field
 
 from matchlab.core.arrow import SCHEMA_CLUSTERS
-from matchlab.core.config import ModelStepName, ResolverType
+from matchlab.core.config import ResolverType
 from matchlab.core.dsu import DisjointSet
 from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 
@@ -15,11 +15,11 @@ from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 class ComponentsSettings(ResolverSettings):
     """Settings for the Components resolver methodology."""
 
-    thresholds: dict[ModelStepName, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
+    thresholds: dict[str, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
         default_factory=dict
     )
 
-    def validate_inputs(self, model_names: Iterable[ModelStepName]) -> None:  # noqa: D102
+    def validate_inputs(self, model_names: Iterable[str]) -> None:  # noqa: D102
         if invalid := set(self.thresholds.keys()) - set(model_names):
             raise RuntimeError(f"Unknown models in thresholds: {invalid}")
 
@@ -34,7 +34,7 @@ class Components(ResolverMethod):
     settings: ComponentsSettings
 
     def compute_clusters(  # noqa: D102
-        self, model_edges: Mapping[ModelStepName, pl.DataFrame]
+        self, model_edges: Mapping[str, pl.DataFrame]
     ) -> pl.DataFrame:
         self.settings.validate_inputs(model_edges.keys())
 

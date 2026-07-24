@@ -2,8 +2,8 @@
 
 Naming follows the convention Polars uses: a single prefixed base class, so
 `except MatchlabError` is meaningful when imported bare, and unprefixed specifics
-beneath it. Specific names avoid shadowing builtins (`NameValidationError`, not
-`NameError`).
+beneath it. Specific names avoid shadowing builtins (`SchemaMismatch`, not
+`SchemaError`).
 
 The pre-`matchlab` module carried 40 exception classes, most of them HTTP status
 carriers for the server API — plus a registry that reflected over them to build a
@@ -20,10 +20,6 @@ class MatchlabError(Exception):
     def __init__(self, message: str | None = None) -> None:
         """Initialise the error, defaulting the message to the class docstring."""
         super().__init__(message or self.__doc__)
-
-
-class NameValidationError(MatchlabError, ValueError):
-    """A name did not pass validation."""
 
 
 class DataTypeError(MatchlabError, RuntimeError):

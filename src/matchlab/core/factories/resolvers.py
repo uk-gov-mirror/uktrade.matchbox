@@ -10,10 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from matchlab.cleaners import Cleaner
 from matchlab.core.arrow import SCHEMA_CLUSTERS
 from matchlab.core.config import (
-    ModelStepName,
-    ResolverStepName,
     ResolverType,
-    SourceStepName,
 )
 from matchlab.core.dsu import DisjointSet
 from matchlab.core.factories.entities import ClusterEntity, SourceEntity
@@ -31,20 +28,19 @@ from matchlab.resolvers import (
 class MockResolverSettings(ResolverSettings):
     """Settings type for MockResolver."""
 
-    thresholds: dict[
-        ModelStepName,
-        Annotated[float, Field(ge=0.0, le=1.0)],
-    ] = Field(default_factory=dict)
+    thresholds: dict[str, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
+        default_factory=dict
+    )
 
-    def validate_inputs(self, model_names: Iterable[ModelStepName]) -> None:
+    def validate_inputs(self, model_names: Iterable[str]) -> None:
         """Validate all model names are present in thresholds."""
         if missing := set(model_names) - set(self.thresholds.keys()):
             raise RuntimeError(f"Missing thresholds for models: {missing}")
 
 
 def _connected_components_from_edges(
-    model_edges: Mapping[ModelStepName, pl.DataFrame],
-    thresholds: Mapping[ModelStepName, float],
+    model_edges: Mapping[str, pl.DataFrame],
+    thresholds: Mapping[str, float],
 ) -> pl.DataFrame:
     """Generate clusters from model edge tables and per-model thresholds."""
     djs = DisjointSet[int]()
@@ -77,9 +73,7 @@ class MockResolver(ResolverMethod):
     resolver_type: ClassVar[ResolverType] = ResolverType.COMPONENTS
     settings: MockResolverSettings
 
-    def compute_clusters(
-        self, model_edges: Mapping[ModelStepName, pl.DataFrame]
-    ) -> pl.DataFrame:
+    def compute_clusters(self, model_edges: Mapping[str, pl.DataFrame]) -> pl.DataFrame:
         """Compute mock clusters with connected components."""
         self.settings.validate_inputs(model_edges.keys())
         return _connected_components_from_edges(
@@ -113,8 +107,8 @@ class ResolverTestkit(BaseModel):
 def resolver_factory(
     inputs: Iterable[ModelTestkit] | None = None,
     true_entities: Iterable[SourceEntity] | None = None,
-    name: ResolverStepName | None = None,
-    thresholds: Mapping[ModelStepName, float] | None = None,
+    name: str | None = None,
+    thresholds: Mapping[str, float] | None = None,
     seed: int = 42,
 ) -> ResolverTestkit:
     """Generate a complete resolver testkit.
@@ -151,10 +145,10 @@ def resolver_factory(
             seed=seed,
         )
         inputs = (default_model,)
-        source_names: set[SourceStepName] = set(linked.sources.keys())
+        source_names: set[str] = set(linked.sources.keys())
     else:
         inputs = tuple(inputs)
-        source_names: set[SourceStepName] = set()
+        source_names: set[str] = set()
         for testkit in inputs:
             if not isinstance(testkit, ModelTestkit):
                 raise TypeError("resolver_factory inputs must be ModelTestkit.")
@@ -169,7 +163,7 @@ def resolver_factory(
         input_map.setdefault(testkit.name, testkit)
 
     resolver_inputs: list[Model] = []
-    model_edges: dict[ModelStepName, pl.DataFrame] = {}
+    model_edges: dict[str, pl.DataFrame] = {}
     for testkit in input_map.values():
         resolver_inputs.append(testkit.model)
         model_edges[testkit.name] = testkit.scores

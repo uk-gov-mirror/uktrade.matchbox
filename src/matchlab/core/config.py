@@ -16,84 +16,21 @@ edges live on `Step.upstream`, and a step's fingerprint already folds in its par
 Nesting a parent's config inside a child's would duplicate that.
 """
 
-import re
 import textwrap
 from enum import StrEnum
-from typing import Annotated, Any, TypeAlias
+from typing import Any
 
 from pydantic import (
-    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
-    StringConstraints,
 )
-
-from matchlab.core.exceptions import NameValidationError
-
-
-def validate_name(value: str) -> str:
-    """Validate a plan step name.
-
-    Args:
-        value: The name to validate
-
-    Returns:
-        The validated name
-
-    Raises:
-        NameValidationError: If the name contains invalid characters
-    """
-    pattern = r"^[a-zA-Z0-9_.-]+$"
-    if not re.match(pattern, value):
-        raise NameValidationError(
-            f"Name '{value}' is invalid. It can only include "
-            "alphanumeric characters, underscores, dots or hyphens."
-        )
-    return value
-
-
-Name: TypeAlias = Annotated[
-    str,
-    StringConstraints(
-        pattern=r"^[a-zA-Z0-9_.-]+$",
-        min_length=1,
-        strip_whitespace=True,
-    ),
-    AfterValidator(validate_name),
-    Field(
-        description=(
-            "Valid name for a plan step. "
-            "Must contain only alphanumeric characters, underscores, dots, or hyphens."
-        ),
-        examples=["my-dataset", "user_data.v2", "experiment_001"],
-        json_schema_extra={
-            "pattern": r"^[a-zA-Z0-9_.-]+$",
-        },
-    ),
-]
 
 
 class LocationType(StrEnum):
     """Enumeration of location types."""
 
     RDBMS = "rdbms"
-
-
-SourceStepName: TypeAlias = Name
-"""Type alias for source step names."""
-
-CleanerStepName: TypeAlias = Name
-"""Name of a cleaned view."""
-
-ModelStepName: TypeAlias = Name
-"""Type alias for model step names."""
-
-ResolverStepName: TypeAlias = Name
-"""Type alias for resolver step names."""
-
-StepName: TypeAlias = SourceStepName | ModelStepName | ResolverStepName
-"""Type alias for any step names."""
 
 
 class QueryCombineType(StrEnum):
@@ -137,7 +74,7 @@ class SourceConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    name: SourceStepName = Field(
+    name: str = Field(
         description=(
             "The source's name within the plan. Part of the config because it is "
             "part of the output: it prefixes every column this source contributes "
@@ -181,10 +118,10 @@ class CleanerConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    sources: tuple[SourceStepName, ...] = Field(
+    sources: tuple[str, ...] = Field(
         description="Names of the sources this view reads, in lineage order."
     )
-    resolver: ResolverStepName | None = Field(
+    resolver: str | None = Field(
         default=None,
         description=(
             "The resolver whose clusters this view reads through, if any. Without "
@@ -216,8 +153,8 @@ class ModelConfig(BaseModel):
     model_settings: dict[str, Any] = Field(
         description="That class's settings, dumped to JSON."
     )
-    left: CleanerStepName = Field(description="Name of the view being matched.")
-    right: CleanerStepName | None = Field(
+    left: str = Field(description="Name of the view being matched.")
+    right: str | None = Field(
         default=None, description="Name of the right view, for linkers."
     )
 
@@ -233,7 +170,7 @@ class ResolverConfig(BaseModel):
     resolver_settings: dict[str, Any] = Field(
         description="That class's settings, dumped to JSON."
     )
-    inputs: tuple[ModelStepName, ...] = Field(
+    inputs: tuple[str, ...] = Field(
         description=(
             "Names of the models whose edges are resolved. Load-bearing: per-model "
             "settings such as score thresholds are keyed by these names."

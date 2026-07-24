@@ -4,10 +4,6 @@ import polars as pl
 import pytest
 
 from matchlab.core.arrow import SCHEMA_MODEL_EDGES
-from matchlab.core.config import (
-    ModelStepName,
-    StepName,
-)
 from matchlab.core.factories.models import (
     generate_dummy_scores,
     model_factory,
@@ -119,8 +115,8 @@ def test_model_type_creation(
     ],
 )
 def test_model_pipeline_with_dummy_methodology(
-    left_testkit: StepName,
-    right_testkit: StepName | None,
+    left_testkit: str,
+    right_testkit: str | None,
     model_type: Literal["deduper", "linker"],
 ) -> None:
     """Tests the factories validate "real" methodologies in various pipeline positions.
@@ -311,7 +307,7 @@ def test_model_factory_validation(
     ],
 )
 def test_model_factory_basic_creation(
-    name: ModelStepName,
+    name: str,
     model_type: str,
     n_true_entities: int,
     score_range: tuple[float, float],

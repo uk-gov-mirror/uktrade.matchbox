@@ -20,9 +20,7 @@ from sqlglot.expressions import column
 from matchlab.cleaners import Cleaner
 from matchlab.core.arrow import SCHEMA_INDEX, SCHEMA_QUERY
 from matchlab.core.config import (
-    ModelStepName,
     SourceConfig,
-    SourceStepName,
 )
 from matchlab.core.factories.entities import (
     ClusterEntity,
@@ -170,7 +168,7 @@ class LinkedSourcesTestkit(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     true_entities: set[SourceEntity] = Field(default_factory=set)
-    sources: dict[SourceStepName, SourceTestkit]
+    sources: dict[str, SourceTestkit]
 
     def find_entities(
         self,
@@ -204,7 +202,7 @@ class LinkedSourcesTestkit(BaseModel):
 
         return result
 
-    def true_entity_subset(self, *sources: SourceStepName) -> list[ClusterEntity]:
+    def true_entity_subset(self, *sources: str) -> list[ClusterEntity]:
         """Return a subset of true entities that appear in the given sources."""
         cluster_entities = [
             entity.to_cluster_entity(*sources) for entity in self.true_entities
@@ -214,7 +212,7 @@ class LinkedSourcesTestkit(BaseModel):
     def diff_model_edges(
         self,
         scores: pl.DataFrame,
-        sources: list[SourceStepName],
+        sources: list[str],
         left_clusters: tuple[ClusterEntity, ...],
         right_clusters: tuple[ClusterEntity, ...] | None = None,
         threshold: float = 0.0,
@@ -251,8 +249,8 @@ class LinkedSourcesTestkit(BaseModel):
     def diff_clusters(
         self,
         assignments: pl.DataFrame,
-        sources: list[SourceStepName],
-        input_clusters: Mapping[ModelStepName, tuple[ClusterEntity, ...]],
+        sources: list[str],
+        input_clusters: Mapping[str, tuple[ClusterEntity, ...]],
     ) -> tuple[bool, dict]:
         """Diff cluster assignments with the true SourceEntities.
 
@@ -519,7 +517,7 @@ def generate_source(
 @cache
 def source_factory(
     features: list[FeatureConfig] | list[dict] | None = None,
-    name: SourceStepName | None = None,
+    name: str | None = None,
     location_name: str = "dbname",
     engine: Engine | None = None,
     n_true_entities: int = 10,
@@ -536,7 +534,7 @@ def source_factory(
             the source data. If None, defaults to a set of common features.
         name: Name of the source. If None, a unique name is generated. This will be
             used as the name of the table in the RelationalDBLocation, but also in
-            the SourceStepName for the source.
+            the str for the source.
         location_name: Name of the location for the source.
         engine: SQLAlchemy engine to use for the source's RelationalDBLocation. If
             None, an in-memory SQLite engine is created.

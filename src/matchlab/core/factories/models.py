@@ -19,7 +19,6 @@ from sqlalchemy import create_engine
 from matchlab.cleaners import Cleaner
 from matchlab.core.arrow import SCHEMA_MODEL_EDGES
 from matchlab.core.config import (
-    ModelStepName,
     ModelType,
 )
 from matchlab.core.dsu import DisjointSet
@@ -796,7 +795,7 @@ class ModelTestkit(BaseModel):
 
 
 def model_factory(
-    name: ModelStepName | None = None,
+    name: str | None = None,
     left_testkit: SourceTestkit | ResolverTestkit | None = None,
     right_testkit: SourceTestkit | ResolverTestkit | None = None,
     true_entities: tuple[SourceEntity, ...] | None = None,
