@@ -37,10 +37,10 @@ from dataclasses import dataclass, field
 import pyarrow as pa
 
 # The only import from the package: the repo's own relabel-invariant cluster hash,
-# which we reuse as the equivalence oracle. It lives in matchbox.common.hash, which is
+# which we reuse as the equivalence oracle. It lives in matchlab.core.hash, which is
 # pure (no client settings, no server), so importing it does not trigger the
 # client-settings coupling this whole project is removing.
-from matchbox.common.hash import hash_clusters
+from matchlab.core.hash import hash_clusters
 
 Leaf = str
 Root = str

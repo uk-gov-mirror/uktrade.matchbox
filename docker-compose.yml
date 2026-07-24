@@ -1,105 +1,18 @@
+# matchlab is a local-first library: the only container it needs is a warehouse to
+# read source data from. The API, Postgres backend, Redis, Celery worker, Flower and
+# object storage all went with the server.
 services:
   warehouse:
     image: postgres:17
     restart: always
     ports:
-      - "${MB__DEV__WAREHOUSE_PORT}:5432"
-    volumes:
-      - warehouse_data:/var/lib/postgresql/data
+      - "7654:5432"
     environment:
-      - POSTGRES_USER=warehouse_user
-      - POSTGRES_PASSWORD=warehouse_password
-      - POSTGRES_DB=warehouse
-  filestorage:
-    image: rustfs/rustfs:latest
-    restart: unless-stopped
-    volumes:
-      - matchbox_store:/data
-    ports:
-      - "${MB__DEV__DATASTORE_PORT}:9000"
-      - "${MB__DEV__DATASTORE_CONSOLE_PORT}:9001"
-    environment:
-      RUSTFS_ACCESS_KEY: ${MB__SERVER__DATASTORE__ACCESS_KEY_ID}
-      RUSTFS_SECRET_KEY: ${MB__SERVER__DATASTORE__SECRET_ACCESS_KEY}
-  api:
-    build:
-      context: .
-      args:
-        MB_VERSION: ${MB_VERSION-0.0.0dev0}
-      dockerfile: src/matchbox/server/Dockerfile
-      target: dev
-    ports:
-      - "${MB__DEV__API_PORT}:8000"
-    command: fastapi dev --host 0.0.0.0 src/matchbox/server/api
-    depends_on:
-      - postgres
-      - warehouse
-      - filestorage
-      - redis
-      - worker
-    develop:
-      # https://docs.docker.com/compose/file-watch/#compose-watch-versus-bind-mounts
-      watch:
-        # Sync the working directory with the `/app` directory in the container
-        - action: sync
-          path: ./src/matchbox
-          target: /code/src/matchbox
-
-        # Rebuild the image on changes to the `pyproject.toml`
-        - action: rebuild
-          path: ./pyproject.toml
-  postgres:
-    image: postgres:17
-    restart: always
-    ports:
-      - "${MB__DEV__POSTGRES_BACKEND_PORT}:5432"
-    volumes:
-      - matchbox_data:/var/lib/postgresql/data
-      # Pre-seed schema: https://docs.docker.com/guides/pre-seeding/
-      - ./test/scripts/postgres:/docker-entrypoint-initdb.d
-    environment:
-      - POSTGRES_DB=matchbox
-      - POSTGRES_PASSWORD=matchbox_password
-      - POSTGRES_USER=matchbox_user
-      - MB__SERVER__POSTGRES__DB_SCHEMA=${MB__SERVER__POSTGRES__DB_SCHEMA:-mb}
-    # command:
-    #   - "postgres"
-    #   - "-c"
-    #   - "log_statement=all"
-    #   - "-c"
-    #   - "log_connections=on"
-    #   - "-c"
-    #   - "log_disconnections=on"
-    #   - "-c"
-    #   - "log_duration=on"
-  redis:
-    image: redis:8
-    restart: always
-    ports:
-      - "${MB__DEV__REDIS_PORT}:6379"
-  worker:
-    build:
-      context: .
-      dockerfile: src/matchbox/server/Dockerfile
-      target: dev
-      args:
-        MB_VERSION: ${MB_VERSION-0.0.0dev0}
-    command: celery -A matchbox.server.uploads.celery worker --loglevel=info
-    depends_on:
-      - postgres
-      - filestorage
-      - redis
-  flower:
-    image: mher/flower
-    container_name: flower
-    ports:
-      - "${MB__DEV__FLOWER_PORT}:5555"
-    command: celery --broker=${MB__SERVER__REDIS_URI} flower
-    depends_on:
-      - redis
-
-
-volumes:
-  warehouse_data:
-  matchbox_data:
-  matchbox_store:
+      POSTGRES_USER: warehouse_user
+      POSTGRES_PASSWORD: warehouse_password
+      POSTGRES_DB: warehouse
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U warehouse_user -d warehouse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

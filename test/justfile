@@ -2,19 +2,9 @@ set working-directory := ".."
 
 # Run all tests
 default *ARGS:
-    just build -d
     uv run pytest {{ARGS}}
 
-# Run local tests only
-local *ARGS:
-    uv run pytest {{ARGS}} -m "not docker"
-
-# Run docker tests only
-docker *ARGS:
-    just build -d
-    uv run pytest {{ARGS}} -m "docker"
-
-# Run serial tests only
-serial *ARGS:
-    just build -d
-    uv run pytest {{ARGS}} -m serial -n 0
+# Run tests that need the warehouse container
+warehouse *ARGS:
+    just warehouse -d
+    uv run pytest {{ARGS}} -m "warehouse"

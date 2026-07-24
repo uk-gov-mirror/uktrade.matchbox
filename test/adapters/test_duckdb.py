@@ -2,7 +2,7 @@
 
 The adapter is storage-only: these tests exercise round-trips, schema validation,
 garbage collection, on-disk persistence, and a real evaluation round-trip through
-`matchbox.common.eval.precision_recall`.
+`matchlab.core.eval.precision_recall`.
 """
 
 from pathlib import Path
@@ -10,9 +10,9 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from matchbox.adapters.duckdb import DuckDBAdapter
-from matchbox.common.eval import Judgement, precision_recall
-from matchbox.common.exceptions import MatchboxArrowSchemaMismatch
+from matchlab.adapters.duckdb import DuckDBAdapter
+from matchlab.core.eval import Judgement, precision_recall
+from matchlab.core.exceptions import SchemaMismatch
 
 
 @pytest.fixture
@@ -113,13 +113,13 @@ def test_resolver_round_trip(adapter: DuckDBAdapter) -> None:
 
 def test_store_resolver_rejects_bad_schema(adapter: DuckDBAdapter) -> None:
     bad = pl.DataFrame({"root": [1], "leaf": [2]})  # missing key/source
-    with pytest.raises(MatchboxArrowSchemaMismatch):
+    with pytest.raises(SchemaMismatch):
         adapter.store_resolver(FP_RESOLVER, bad)
 
 
 def test_store_model_rejects_bad_schema(adapter: DuckDBAdapter) -> None:
     bad = pl.DataFrame({"left_id": [1], "right_id": [2]})  # missing score
-    with pytest.raises(MatchboxArrowSchemaMismatch):
+    with pytest.raises(SchemaMismatch):
         adapter.store_model(FP_MODEL, bad)
 
 
