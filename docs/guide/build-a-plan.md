@@ -256,7 +256,7 @@ however much is built above it.
 There's no lookup-by-name: to hold on to a step, hold on to the variable.
 
 ```python
-cleaned = crn.view({"name": f"lower({crn.f('company')})"})
+cleaned = crn.view(cleaning={"name": f"lower({crn.f('company')})"})
 entities = cleaned.dedupe(...).resolve().collect()
 
 cleaned.data()  # still yours to inspect

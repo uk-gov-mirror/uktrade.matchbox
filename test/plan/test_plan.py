@@ -227,14 +227,14 @@ def test_a_change_to_any_selected_column_invalidates_the_source(
     """
     et = "select pk, company, town from crn"
 
-    view = _crn_source(warehouse, et).view({"town": "crn_town"})
+    view = _crn_source(warehouse, et).view(cleaning={"town": "crn_town"})
     view.collect()
     assert sorted(view.data()["town"].to_list()) == ["hull", "leeds", "london"]
 
     with warehouse.begin() as conn:
         conn.execute(text("UPDATE crn SET town = 'oxford' WHERE pk = 'a1'"))
 
-    refreshed = _crn_source(warehouse, et).view({"town": "crn_town"})
+    refreshed = _crn_source(warehouse, et).view(cleaning={"town": "crn_town"})
     refreshed.collect()
     assert sorted(refreshed.data()["town"].to_list()) == ["hull", "leeds", "oxford"]
 
@@ -287,7 +287,7 @@ def test_a_reserved_word_is_a_fine_source_name(warehouse: Engine) -> None:
         extract_transform="select pk, company from crn",
         key_field="pk",
     )
-    view = source.view({"name": f"lower({source.f('company')})"})
+    view = source.view(cleaning={"name": f"lower({source.f('company')})"})
     view.collect()
     assert sorted(view.data()["name"].to_list()) == ["acme", "acme", "beta"]
 
@@ -333,7 +333,7 @@ def test_a_source_memoises_its_read(warehouse: Engine) -> None:
 
 def test_clean_is_fused_by_default(warehouse: Engine, adapter: DuckDBAdapter) -> None:
     crn = _source(warehouse, "crn")
-    view = crn.view({"name": "crn_company"})
+    view = crn.view(cleaning={"name": "crn_company"})
     deduped = view.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
     ).resolve()
@@ -348,7 +348,7 @@ def test_collecting_a_clean_directly_materialises_it(
     warehouse: Engine, adapter: DuckDBAdapter
 ) -> None:
     crn = _source(warehouse, "crn")
-    view = crn.view({"name": "crn_company"})
+    view = crn.view(cleaning={"name": "crn_company"})
 
     frame = view.collect().data()
     assert adapter.has(view._fp)

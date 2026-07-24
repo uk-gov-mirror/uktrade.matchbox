@@ -125,19 +125,53 @@ Nouns became verbs, and each one is a step in the plan:
 `query` became `view` rather than `clean`: the node's job is to say which records a
 model matches over, and cleaning is an optional clause of that.
 
-`QueryCombineType` is gone. `concat` was the default and is now the only behaviour —
-one row per record, even when reading through a resolver. `set_agg` collapsed each
-entity to one row but wrapped *every* column in a list, which most matchers can't
-consume; `explode` did nothing the default didn't. To collapse entities now, pass
-`group=True` with aggregate cleaning expressions, which lets you choose per column:
+`cleaning` is now **keyword-only**, so `source.view(cleaning={...})` reads the same as
+`resolver.view(source, cleaning={...})` — where the positional slot is taken by the
+sources being read.
+
+### `QueryCombineType` is gone
+
+`concat` was the default and is now the only ungrouped behaviour: one row per record,
+even when reading through a resolver. The other two are worth explaining, because one
+of them didn't do what its name suggests.
+
+**`set_agg`** collapsed each entity to one row, but wrapped *every* column in a list —
+including the column you deduped on, whose values agree by construction. Comparison-based
+matchers can't consume a list, which is why it went unused.
+
+**`explode`** looks like it should have produced the cross-product of each entity's
+values across sources — the thing you'd want when a view reads several sources and each
+row carries one source's columns and nulls for the rest. It didn't. It grouped every
+column into a list and then exploded them *in parallel*, and Polars explodes multiple
+columns element-wise rather than as a cross product:
+
+```python
+{"a": [["x", "y"]], "b": [["p", "q"]]}  # explode("a", "b") gives (x, p), (y, q)
+```
+
+Since every list held one entry per row, that round-tripped straight back to the input.
+`explode` was therefore `concat` plus a `unique()` and a reordering — a broken feature
+rather than a redundant one.
+
+**Use `group=True`** with aggregate cleaning expressions instead. It does what `explode`
+was reaching for and lets you choose per column, and because DuckDB's `any_value` skips
+nulls it collapses a multi-source view onto one populated row:
 
 ```python
 resolver.view(
     crn,
-    cleaning={"name": "any_value(crn_company)", "towns": "list(distinct crn_town)"},
+    dh,
+    cleaning={
+        "company": "any_value(crn_company)",
+        "towns": "list(distinct coalesce(crn_town, dh_town))",
+    },
     group=True,
 )
 ```
+
+One thing is genuinely unavailable: a true cross product, N left rows × M right rows.
+`group` gives one row per entity. That is the right unit for a linker — a cross product
+multiplies a single entity's evidence — but nothing offers it if you disagree.
 
 ## Removed without replacement
 

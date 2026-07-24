@@ -280,8 +280,13 @@ class Source(Step):
 
     # -- verbs ------------------------------------------------------------------------
 
-    def view(self, cleaning: dict[str, str] | None = None, **kwargs: Any) -> View:
-        """Return a cleaned, queryable view of this source."""
+    def view(self, *, cleaning: dict[str, str] | None = None, **kwargs: Any) -> View:
+        """Return a view of this source's records.
+
+        `cleaning` is keyword-only so that this reads the same as
+        `Resolver.view(source, cleaning=...)`, where the positional slot is taken by
+        the sources being read.
+        """
         return View(self, cleaning=cleaning, **kwargs)
 
     def dedupe(self, *args: Any, **kwargs: Any) -> Model:
