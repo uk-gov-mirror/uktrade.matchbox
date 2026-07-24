@@ -6,7 +6,6 @@ import polars as pl
 from pydantic import BaseModel, ConfigDict, validate_call
 from sqlalchemy.exc import OperationalError
 
-from matchlab.core.config import SourceConfig
 from matchlab.core.eval import Judgement, precision_recall
 from matchlab.core.exceptions import (
     SourceTableError,
@@ -106,27 +105,30 @@ def create_judgement(
 
 def create_evaluation_item(
     df: pl.DataFrame,
-    source_configs: list[tuple[str, list[str], SourceConfig]],
+    source_fields: list[tuple[str, list[str]]],
     leaves: list[int],
 ) -> EvaluationItem:
-    """Create EvaluationItem with structured metadata."""
+    """Create EvaluationItem with structured metadata.
+
+    Args:
+        df: The cluster's rows, with source-qualified data columns.
+        source_fields: `(prefix, qualified columns)` per source. The columns come
+            from the fetched data rather than from the sources, which would have to
+            re-read the warehouse just to list their names.
+        leaves: The leaf IDs in this cluster.
+    """
     # Get all data columns (exclude metadata columns)
     data_cols = [c for c in df.columns if c not in ["root", "leaf", "key"]]
 
-    # Build mapping of field_name -> list of qualified column names
+    # Build mapping of field_name -> list of qualified column names. The same field
+    # in two sources shares a display name, which is what lines them up for review.
     field_to_columns: dict[str, list[str]] = {}
 
-    for source_id, fields, config in source_configs:
-        for field in fields:
-            # Build qualified column name for this source+field
-            column_name = config.qualify_field(source_id, field)
-
-            # Only add if this column exists in DataFrame
-            if column_name in data_cols:
-                # Add to list for this field name
-                if field not in field_to_columns:
-                    field_to_columns[field] = []
-                field_to_columns[field].append(column_name)
+    for prefix, columns in source_fields:
+        for column in columns:
+            if column in data_cols:
+                field = column.removeprefix(prefix)
+                field_to_columns.setdefault(field, []).append(column)
 
     # Create EvaluationFieldMetadata objects (one per unique field name)
     fields: list[EvaluationFieldMetadata] = []
@@ -189,7 +191,7 @@ def get_samples(
 
     by_name = {source.name: source for source in resolver.sources}
     results_by_source: list[pl.DataFrame] = []
-    source_configs: list[tuple[str, list[str], SourceConfig]] = []
+    source_fields: list[tuple[str, list[str]]] = []
 
     for source_step in samples["source"].unique():
         source = by_name.get(source_step)
@@ -197,8 +199,6 @@ def get_samples(
             raise SourceTableError(
                 f"Source '{source_step}' is not in the lineage of '{resolver.name}'."
             )
-
-        source_configs.append((source_step, source.index_fields, source.config))
 
         samples_by_source = samples.filter(pl.col("source") == source_step)
         keys_by_source = samples_by_source["key"].to_list()
@@ -216,8 +216,13 @@ def get_samples(
         samples_and_source = samples_by_source.join(
             source_data, left_on="key", right_on=source.qualified_key
         )
-        desired_columns = ["root", "leaf", "key"] + source.qualified_index_fields
-        results_by_source.append(samples_and_source[desired_columns])
+        qualified_fields = [
+            column for column in source_data.columns if column != source.qualified_key
+        ]
+        source_fields.append((source.prefix, qualified_fields))
+        results_by_source.append(
+            samples_and_source[["root", "leaf", "key"] + qualified_fields]
+        )
 
     if not results_by_source:
         return {}
@@ -228,7 +233,7 @@ def get_samples(
     for root in all_results["root"].unique():
         cluster_df = all_results.filter(pl.col("root") == root).drop("root")
         leaves = cluster_df.select("leaf").to_series().unique().to_list()
-        evaluation_item = create_evaluation_item(cluster_df, source_configs, leaves)
+        evaluation_item = create_evaluation_item(cluster_df, source_fields, leaves)
         results_by_root[root] = evaluation_item
 
     return results_by_root

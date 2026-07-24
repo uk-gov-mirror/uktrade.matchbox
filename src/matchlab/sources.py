@@ -91,15 +91,32 @@ class Source(Step):
             key_field=self.key_field,
         )
 
+    # -- column naming ----------------------------------------------------------------
+    #
+    # A view built over several sources qualifies every column with the source it came
+    # from, so `company` from `crn` becomes `crn_company`. These say what a column will
+    # be called once that has happened, which is how you refer to it in a cleaning
+    # expression or a model's settings — before anything has been collected.
+
     @property
     def prefix(self) -> str:
         """The column prefix this source's fields carry once queried."""
-        return self.config.prefix(self.name)
+        return f"{self.name}_"
+
+    def qualify_field(self, field: str) -> str:
+        """Prefix a single field name with this source's name."""
+        return self.prefix + field
+
+    def f(self, fields: str | Iterable[str]) -> str | list[str]:
+        """Prefix one or more field names with this source's name."""
+        if isinstance(fields, str):
+            return self.qualify_field(fields)
+        return [self.qualify_field(field) for field in fields]
 
     @property
     def qualified_key(self) -> str:
         """This source's key field, prefixed with the source name."""
-        return self.config.qualified_key(self.name)
+        return self.qualify_field(self.key_field)
 
     @property
     def index_fields(self) -> list[str]:
@@ -114,14 +131,6 @@ class Source(Step):
     def qualified_index_fields(self) -> list[str]:
         """`index_fields`, prefixed with the source name."""
         return [self.qualify_field(field) for field in self.index_fields]
-
-    def qualify_field(self, field: str) -> str:
-        """Prefix a single field name with this source's name."""
-        return self.config.qualify_field(self.name, field)
-
-    def f(self, fields: str | Iterable[str]) -> str | list[str]:
-        """Prefix one or more field names with this source's name."""
-        return self.config.f(self.name, fields)
 
     # -- warehouse access -------------------------------------------------------------
 

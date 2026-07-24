@@ -107,7 +107,7 @@ class ResolverMatches:
         """Return lookup across cluster ID and source keys."""
         lookup = (
             self.query_results[0]
-            .rename({"key": self.sources[0].config.qualified_key(self.sources[0].name)})
+            .rename({"key": self.sources[0].qualified_key})
             .drop("leaf_id")
         )
 
@@ -121,9 +121,7 @@ class ResolverMatches:
                     .drop(["id_right"])
                 )
 
-                lookup = lookup.rename(
-                    {"key": source.config.qualified_key(source.name)}
-                ).drop("leaf_id")
+                lookup = lookup.rename({"key": source.qualified_key}).drop("leaf_id")
 
         return lookup
 

@@ -2,7 +2,6 @@
 
 import re
 import textwrap
-from collections.abc import Iterable
 from enum import StrEnum
 from typing import Annotated, TypeAlias
 
@@ -128,68 +127,6 @@ class SourceConfig(BaseModel):
             as a key field.
         """),
     )
-
-    @property
-    def dependencies(self) -> list[StepName]:
-        """Local execution prerequisites.
-
-        While this can contain information about graph topology, it should only be used
-        to check validity, never to reconstruct it.
-        """
-        return []
-
-    @property
-    def parents(self) -> list[StepName]:
-        """Direct DAG edges to this node."""
-        return []
-
-    def prefix(self, name: str) -> str:
-        """Get the prefix for the source.
-
-        Args:
-            name: The name of the source.
-
-        Returns:
-            The prefix string (name + "_").
-        """
-        return name + "_"
-
-    def qualified_key(self, name: str) -> str:
-        """Get the qualified key for the source.
-
-        Args:
-            name: The name of the source.
-
-        Returns:
-            The qualified key field name.
-        """
-        return self.qualify_field(name, self.key_field)
-
-    def qualify_field(self, name: str, field: str) -> str:
-        """Qualify field names with the source name.
-
-        Args:
-            name: The name of the source.
-            field: The field name to qualify.
-
-        Returns:
-            A single qualified field.
-        """
-        return self.prefix(name) + field
-
-    def f(self, name: str, fields: str | Iterable[str]) -> str | list[str]:
-        """Qualify one or more field names with the source name.
-
-        Args:
-            name: The name of the source.
-            fields: The field name to qualify, or a list of field names.
-
-        Returns:
-            A single qualified field, or a list of qualified field names.
-        """
-        if isinstance(fields, str):
-            return self.qualify_field(name, fields)
-        return [self.qualify_field(name, field_name) for field_name in fields]
 
 
 class QueryCombineType(StrEnum):
