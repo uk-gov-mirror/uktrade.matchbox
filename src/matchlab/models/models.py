@@ -114,7 +114,7 @@ class Model(Step):
             self.model_instance.prepare(left)
             scores = self.model_instance.dedupe(data=left)
 
-        adapter.store_model(fp, normalise_model_scores(scores))
+        adapter.store_model(fp, self.name, normalise_model_scores(scores))
 
     # -- data -------------------------------------------------------------------------
 

@@ -8,6 +8,7 @@ point their own SQL at the `resolution` table — it is the whole point.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import duckdb
@@ -24,9 +25,26 @@ from matchlab.core.arrow import (
 from matchlab.core.eval import Judgement
 from matchlab.core.hash import hash_values
 
+#: Bumped whenever the stored shape changes. A store written by an older matchlab is
+#: recreated rather than half-read, which is the honest failure for a cache.
+_SCHEMA_VERSION = 2
+
 _SCHEMA_DDL = """
+CREATE TABLE IF NOT EXISTS meta (
+    schema_version INTEGER
+);
 CREATE TABLE IF NOT EXISTS artifacts (
     fp BLOB PRIMARY KEY, kind VARCHAR, name VARCHAR
+);
+-- A stored source knows its own key column, so its extract can be read back and
+-- joined to a resolution without the plan that built it.
+CREATE TABLE IF NOT EXISTS source_meta (
+    fp BLOB PRIMARY KEY, key_field VARCHAR
+);
+-- Which source artifacts a resolution was built from. A resolution records source
+-- *names*, and one store can hold several generations of the same name.
+CREATE TABLE IF NOT EXISTS resolution_sources (
+    fp BLOB, source_name VARCHAR, source_fp BLOB
 );
 CREATE TABLE IF NOT EXISTS source_leaves (
     fp BLOB, key VARCHAR, leaf UBIGINT
@@ -67,7 +85,28 @@ class DuckDBAdapter(Adapter):
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = duckdb.connect(self.path)
+        self._open_schema()
+
+    def _open_schema(self) -> None:
+        """Create the schema, recreating the store if it predates this version."""
+        existing = self.conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_name = 'meta'"
+        ).fetchone()
+        if existing:
+            row = self.conn.execute("SELECT schema_version FROM meta").fetchone()
+            if row and row[0] == _SCHEMA_VERSION:
+                return
+
+        # Either a pre-versioned store or an older version: start clean. Artifacts are
+        # a cache — everything in here can be recomputed from the plan that made it.
+        for (table,) in self.conn.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'main'"
+        ).fetchall():
+            self.conn.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
+
         self.conn.execute(_SCHEMA_DDL)
+        self.conn.execute("INSERT INTO meta VALUES (?)", [_SCHEMA_VERSION])
 
     # -- helpers ----------------------------------------------------------------------
 
@@ -103,12 +142,14 @@ class DuckDBAdapter(Adapter):
         if kind == "source":
             self.conn.execute(f'DROP TABLE IF EXISTS "{self._extract_table(fp)}"')
             self.conn.execute("DELETE FROM source_leaves WHERE fp = ?", [fp])
+            self.conn.execute("DELETE FROM source_meta WHERE fp = ?", [fp])
         elif kind == "clean":
             self.conn.execute(f'DROP TABLE IF EXISTS "{self._clean_table(fp)}"')
         elif kind == "model":
             self.conn.execute("DELETE FROM model_edges WHERE fp = ?", [fp])
         elif kind == "resolver":
             self.conn.execute("DELETE FROM resolution WHERE fp = ?", [fp])
+            self.conn.execute("DELETE FROM resolution_sources WHERE fp = ?", [fp])
         self.conn.execute("DELETE FROM artifacts WHERE fp = ?", [fp])
 
     # -- existence --------------------------------------------------------------------
@@ -122,6 +163,7 @@ class DuckDBAdapter(Adapter):
         self,
         fp: Fingerprint,
         name: str,
+        key_field: str,
         extract: pl.DataFrame,
         leaves: pl.DataFrame,
     ) -> None:
@@ -147,6 +189,7 @@ class DuckDBAdapter(Adapter):
         )
         self.conn.unregister("_reg_leaves")
 
+        self.conn.execute("INSERT INTO source_meta VALUES (?, ?)", [fp, key_field])
         self._register_artifact(fp, "source", name)
 
     def read_source_extract(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
@@ -163,7 +206,9 @@ class DuckDBAdapter(Adapter):
 
     # -- models -----------------------------------------------------------------------
 
-    def store_model(self, fp: Fingerprint, edges: pl.DataFrame) -> None:  # noqa: D102
+    def store_model(  # noqa: D102
+        self, fp: Fingerprint, name: str, edges: pl.DataFrame
+    ) -> None:
         check_schema_subset(SCHEMA_MODEL_EDGES, edges.to_arrow().schema)
         self._purge(fp)
         edges = edges.select(
@@ -178,7 +223,7 @@ class DuckDBAdapter(Adapter):
             [fp],
         )
         self.conn.unregister("_reg_edges")
-        self._register_artifact(fp, "model", "")
+        self._register_artifact(fp, "model", name)
 
     def read_model(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
         if self._kind(fp) != "model":
@@ -197,7 +242,7 @@ class DuckDBAdapter(Adapter):
             "AS SELECT * FROM _reg_clean"
         )
         self.conn.unregister("_reg_clean")
-        self._register_artifact(fp, "clean", "")
+        self._register_artifact(fp, "clean", "")  # views are fused; a name buys nothing
 
     def read_clean(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
         if self._kind(fp) != "clean":
@@ -207,7 +252,11 @@ class DuckDBAdapter(Adapter):
     # -- resolvers --------------------------------------------------------------------
 
     def store_resolver(  # noqa: D102
-        self, fp: Fingerprint, resolution: pl.DataFrame
+        self,
+        fp: Fingerprint,
+        name: str,
+        resolution: pl.DataFrame,
+        sources: Mapping[str, Fingerprint] | None = None,
     ) -> None:
         check_schema_subset(SCHEMA_EVAL_SAMPLES, resolution.to_arrow().schema)
         self._purge(fp)
@@ -224,7 +273,12 @@ class DuckDBAdapter(Adapter):
             [fp],
         )
         self.conn.unregister("_reg_res")
-        self._register_artifact(fp, "resolver", "")
+        for source_name, source_fp in (sources or {}).items():
+            self.conn.execute(
+                "INSERT INTO resolution_sources VALUES (?, ?, ?)",
+                [fp, source_name, source_fp],
+            )
+        self._register_artifact(fp, "resolver", name)
 
     def read_resolver(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
         if self._kind(fp) != "resolver":
@@ -292,6 +346,41 @@ class DuckDBAdapter(Adapter):
         return resolution.filter(pl.col("root").is_in(roots.to_list())).select(
             "root", "leaf", "key", "source"
         )
+
+    # -- lookups ----------------------------------------------------------------------
+
+    def find(self, kind: str, name: str) -> Fingerprint | None:  # noqa: D102
+        row = self.conn.execute(
+            "SELECT fp FROM artifacts WHERE kind = ? AND name = ?", [kind, name]
+        ).fetchone()
+        return row[0] if row else None
+
+    def names(self, kind: str) -> list[str]:  # noqa: D102
+        return [
+            row[0]
+            for row in self.conn.execute(
+                "SELECT DISTINCT name FROM artifacts WHERE kind = ? AND name <> '' "
+                "ORDER BY name",
+                [kind],
+            ).fetchall()
+        ]
+
+    def source_key_field(self, fp: Fingerprint) -> str:  # noqa: D102
+        row = self.conn.execute(
+            "SELECT key_field FROM source_meta WHERE fp = ?", [fp]
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"No stored source for fingerprint {fp.hex()}")
+        return row[0]
+
+    def resolution_sources(self, fp: Fingerprint) -> dict[str, Fingerprint]:  # noqa: D102
+        return {
+            name: source_fp
+            for name, source_fp in self.conn.execute(
+                "SELECT source_name, source_fp FROM resolution_sources WHERE fp = ?",
+                [fp],
+            ).fetchall()
+        }
 
     # -- lifecycle --------------------------------------------------------------------
 

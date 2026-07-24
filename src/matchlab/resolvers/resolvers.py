@@ -115,7 +115,15 @@ class Resolver(Step):
             how="vertical",
         ).unique()
 
-        adapter.store_resolver(fp, materialise_resolution(clusters, upstream))
+        # Record which source artifacts this resolution covers. A resolution names
+        # its sources, but a store can hold several generations of a name — this is
+        # what lets it be read back without the plan that built it.
+        adapter.store_resolver(
+            fp=fp,
+            name=self.name,
+            resolution=materialise_resolution(clusters, upstream),
+            sources={source.name: source._fp for source in self.sources},
+        )
 
     # -- data -------------------------------------------------------------------------
 

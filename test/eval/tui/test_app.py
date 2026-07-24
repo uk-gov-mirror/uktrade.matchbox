@@ -138,3 +138,58 @@ async def test_no_samples_is_handled_rather_than_crashing(
     app = _app(resolver, sample_file=str(empty))
     async with app.run_test():
         assert app.queue.total_count == 0
+
+
+async def test_a_store_can_be_reviewed_without_the_plan(
+    warehouse: Engine, tmp_path: Path
+) -> None:
+    """The point of storing extracts: review needs neither the plan nor the warehouse.
+
+    Collect into a file-backed store, throw the plan away, dispose the warehouse
+    engine, and the reviewer still shows real values — they came from the extract
+    cached at collect time, which is the data the matching actually saw.
+    """
+    store = DuckDBAdapter(tmp_path / "run.duckdb")
+    location = RelationalDBLocation(name="warehouse")
+    location.set_client(warehouse)
+    source = Source(
+        location=location,
+        name="crn",
+        extract_transform="select pk, company, town from crn",
+        key_field="pk",
+    )
+    plan = source.dedupe(
+        model_class=NaiveDeduper,
+        model_settings={"unique_fields": [source.f("company")]},
+        name="d_crn",
+    ).resolve(name="entities")
+    plan.collect(store)
+
+    del plan, source, location
+
+    # Not just "don't use the warehouse" — make it impossible to.
+    warehouse.dispose()
+    (tmp_path / "wh.sqlite").unlink()
+
+    assert store.names("resolver") == ["entities"]
+
+    app = EntityResolutionApp(
+        resolver_name="entities", adapter=store, scroll_debounce_delay=None
+    )
+    async with app.run_test():
+        assert app.current_item is not None
+        # Real values, not just identities.
+        columns = set(app.current_item.records.columns)
+        assert {"crn_company", "crn_town"} <= columns
+    store.close()
+
+
+async def test_an_unknown_resolution_name_lists_what_is_there(
+    resolver: Resolver, adapter: DuckDBAdapter
+) -> None:
+    from matchlab.core.exceptions import SourceTableError  # noqa: PLC0415
+    from matchlab.eval import get_samples  # noqa: PLC0415
+
+    resolver.collect()
+    with pytest.raises(SourceTableError, match="No stored resolution named 'nope'"):
+        get_samples(n=1, resolver_name="nope", adapter=adapter)

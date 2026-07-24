@@ -275,7 +275,11 @@ class Source(Step):
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         extract, _ = self._read_warehouse()
         adapter.store_source(
-            fp=fp, name=self.name, extract=extract, leaves=self.leaves()
+            fp=fp,
+            name=self.name,
+            key_field=self.key_field,
+            extract=extract,
+            leaves=self.leaves(),
         )
 
     # -- verbs ------------------------------------------------------------------------

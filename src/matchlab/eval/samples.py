@@ -3,8 +3,7 @@
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
-from pydantic import BaseModel, ConfigDict, validate_call
-from sqlalchemy.exc import OperationalError
+from pydantic import BaseModel
 
 from matchlab.core.eval import Judgement, precision_recall
 from matchlab.core.exceptions import (
@@ -153,76 +152,110 @@ def _read_sample_file(sample_file: str, n: int) -> pl.DataFrame:
     return select_rows.rename({"id": "root", "leaf_id": "leaf"})
 
 
-def _get_samples_from_adapter(resolver: "Resolver", n: int) -> pl.DataFrame:
-    if not resolver.is_collected:
-        resolver.collect()
-    return resolver._require_adapter().sample(resolver._fp, n)
+def _stored_records(
+    adapter: "Adapter", source_fp: "bytes", name: str, keys: list[str]
+) -> tuple[pl.DataFrame, str, list[str]]:
+    """Return a source's rows for `keys`, from the store rather than the warehouse.
+
+    The extract cached when the source was collected *is* the data the matching saw,
+    which is what you want to judge a resolution against — and it means review needs
+    no warehouse connection.
+
+    Returns:
+        `(rows, qualified key column, qualified value columns)`.
+    """
+    key_field = adapter.source_key_field(source_fp)
+    extract = adapter.read_source_extract(source_fp)
+    qualified = extract.select(pl.all().name.prefix(f"{name}_"))
+    qualified_key = f"{name}_{key_field}"
+    rows = qualified.filter(pl.col(qualified_key).cast(pl.Utf8).is_in(keys))
+    values = [column for column in qualified.columns if column != qualified_key]
+    return rows.with_columns(pl.col(qualified_key).cast(pl.Utf8)), qualified_key, values
 
 
-@validate_call(config=ConfigDict(arbitrary_types_allowed=True))
 def get_samples(
     n: int,
-    resolver: "Resolver",
+    resolver: "Resolver | None" = None,
     sample_file: str | None = None,
+    adapter: "Adapter | None" = None,
+    resolver_name: str | None = None,
 ) -> dict[int, EvaluationItem]:
     """Retrieve samples enriched with source data as EvaluationItems.
 
+    Record values come from the extract stored when each source was collected, not
+    from a fresh warehouse read — so this works offline, and shows the data the
+    matching actually saw.
+
+    Name a resolution either by passing the live `resolver`, or by `resolver_name`
+    against an `adapter`. The second form needs no plan: a stored resolution records
+    which source artifacts it covers.
+
     Args:
-        n: Number of clusters to sample
+        n: Number of clusters to sample.
         resolver: The resolver to sample from. Collected first if it isn't already.
-        sample_file: Path to a parquet file output by ResolverMatches. If specified,
-            samples come from the file and the resolver is used only to resolve
-            source definitions.
+        sample_file: A parquet file written by `ResolverMatches.as_dump()`. Samples
+            come from it rather than from the stored resolution.
+        adapter: Where to read from. Defaults to the resolver's, else the module
+            default.
+        resolver_name: Name a stored resolution instead of passing a resolver.
 
     Returns:
-        Dictionary of cluster ID to EvaluationItems describing the cluster
+        Dictionary of cluster ID to EvaluationItems describing the cluster.
 
     Raises:
-        SourceTableError: If a source cannot be queried from a location using
-            provided or default clients.
+        ValueError: If neither a resolver nor a resolver name is given.
+        SourceTableError: If a source the resolution names isn't in the store.
     """
+    from matchlab.steps import default_adapter  # noqa: PLC0415 - avoids a cycle
+
+    if resolver is not None:
+        if not resolver.is_collected:
+            resolver.collect(adapter)
+        adapter = adapter or resolver._require_adapter()
+        resolver_fp = resolver._fp
+        label = resolver.name
+    elif resolver_name is not None:
+        adapter = adapter or default_adapter()
+        resolver_fp = adapter.find("resolver", resolver_name)
+        if resolver_fp is None:
+            known = ", ".join(adapter.names("resolver")) or "none"
+            raise SourceTableError(
+                f"No stored resolution named '{resolver_name}'. Found: {known}."
+            )
+        label = resolver_name
+    else:
+        raise ValueError("Pass either a resolver or a resolver_name")
+
     if sample_file:
         samples = _read_sample_file(sample_file=sample_file, n=n)
     else:
-        samples = _get_samples_from_adapter(resolver=resolver, n=n)
+        samples = adapter.sample(resolver_fp, n)
 
     if not len(samples):
         return {}
 
-    by_name = {source.name: source for source in resolver.sources}
+    sources = adapter.resolution_sources(resolver_fp)
     results_by_source: list[pl.DataFrame] = []
     source_fields: list[tuple[str, list[str]]] = []
 
     for source_step in samples["source"].unique():
-        source = by_name.get(source_step)
-        if source is None:
+        source_fp = sources.get(source_step)
+        if source_fp is None:
             raise SourceTableError(
-                f"Source '{source_step}' is not in the lineage of '{resolver.name}'."
+                f"Resolution '{label}' references source '{source_step}', which is "
+                "not in the store. Re-collect the plan to repopulate it."
             )
 
         samples_by_source = samples.filter(pl.col("source") == source_step)
-        keys_by_source = samples_by_source["key"].to_list()
-
-        try:
-            source_data = pl.concat(
-                source.fetch(batch_size=10_000, qualify_names=True, keys=keys_by_source)
-            )
-        except OperationalError as exc:
-            raise SourceTableError(
-                f"Could not query source '{source_step}' from warehouse. "
-                "Check warehouse connection and ensure source table exists."
-            ) from exc
+        rows, qualified_key, values = _stored_records(
+            adapter, source_fp, source_step, samples_by_source["key"].to_list()
+        )
 
         samples_and_source = samples_by_source.join(
-            source_data, left_on="key", right_on=source.qualified_key
+            rows, left_on="key", right_on=qualified_key
         )
-        qualified_fields = [
-            column for column in source_data.columns if column != source.qualified_key
-        ]
-        source_fields.append((source.prefix, qualified_fields))
-        results_by_source.append(
-            samples_and_source[["root", "leaf", "key"] + qualified_fields]
-        )
+        source_fields.append((f"{source_step}_", values))
+        results_by_source.append(samples_and_source[["root", "leaf", "key"] + values])
 
     if not results_by_source:
         return {}

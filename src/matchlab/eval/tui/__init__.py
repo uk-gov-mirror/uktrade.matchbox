@@ -17,21 +17,28 @@ if TYPE_CHECKING:
 
 
 def review(
-    resolver: "Resolver",
+    resolver: "Resolver | str",
     n: int = 5,
     adapter: "Adapter | None" = None,
     tag: str | None = None,
     sample_file: str | Path | None = None,
     show_help: bool = True,
 ) -> None:
-    """Review a resolver's clusters interactively, recording judgements.
+    """Review resolved clusters interactively, recording judgements.
 
-    Collects the resolver first if it isn't already.
+    Takes either a live `Resolver` — collected first if it isn't already — or the
+    *name* of a resolution already in a store. The second form needs no plan and no
+    warehouse: record values come from the extract cached when each source was
+    collected, which is the data the matching actually saw.
+
+    ```python
+    review(entities, tag="session-1")  # from a plan
+    review("entities", adapter=DuckDBAdapter("run.duckdb"))  # from a store alone
+    ```
 
     Args:
-        resolver: The resolver whose clusters to review. Required even when
-            `sample_file` is given — a sample file records which records were shown
-            together, not their values, so the sources are re-read to display them.
+        resolver: The resolver whose clusters to review, or the name of a stored
+            resolution.
         n: How many clusters to hold in the queue at once.
         adapter: Where judgements are stored, and where samples are drawn from.
             Defaults to the module-level adapter.
@@ -53,11 +60,13 @@ def review(
             "Install it with `pip install matchlab[tui]`."
         ) from exc
 
-    if not resolver.is_collected:
+    named = isinstance(resolver, str)
+    if not named and not resolver.is_collected:
         resolver.collect(adapter)
 
     EntityResolutionApp(
-        resolver=resolver,
+        resolver=None if named else resolver,
+        resolver_name=resolver if named else None,
         num_samples=n,
         adapter=adapter,
         session_tag=tag,

@@ -560,6 +560,25 @@ old CLI's `health`/`auth`/`collections`/`groups`/`admin` were all server operati
 There is deliberately no `matchlab run`: a pipeline is a Python file, and
 `python pipeline.py` runs it.
 
+**And the store is now self-describing**, which is what makes
+`matchlab review entities --store run.duckdb` work with no plan and no warehouse:
+
+* `get_samples` reads record values from the **stored extract** rather than re-fetching.
+  That is also the more correct thing to judge — the data the matching saw, not what
+  the warehouse says today.
+* Models and resolvers record their `name` (only sources did), so a store can be
+  browsed: `adapter.names("resolver")`, `adapter.find(kind, name)`.
+* A source records its `key_field`, so its extract can be joined to a resolution
+  without the plan.
+* A resolution records the **source fingerprints** it covers. It names its sources, and
+  one store can hold several generations of a name, so the names alone were ambiguous.
+* `meta.schema_version` guards all of this: a store from an older matchlab is recreated
+  rather than half-read. Artifacts are a cache, so nothing is lost.
+
+This is the same goal as plan serialisation, reached from the other end — the store
+already held everything, it just wasn't labelled. What it does *not* give you is a plan
+you can re-run; for that, the edges and client-reattachment problems remain.
+
 ### Still open
 
 * **TODO(fingerprints)** — see Known limitations below. Unchanged by Phase D, except

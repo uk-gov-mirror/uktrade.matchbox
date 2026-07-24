@@ -5,9 +5,12 @@ prompt: tell you what version you have, and give you a full-screen reviewer.
 
 There is no `matchlab run`. Matchbox had one because a pipeline lived on a server and
 had to be fetched by name; here the pipeline *is* Python, and `python pipeline.py` runs
-it. What the reviewer needs is a live `Resolver` with its warehouse clients attached,
-so `review` takes a `module:attribute` target and imports it — the same shape uvicorn
-and celery use, and the reason this needs no plan serialisation.
+it.
+
+`review` takes either a `module:attribute` naming a resolver in your code — the shape
+uvicorn and celery use — or, with `--store`, just the name of a resolution already
+collected. The second needs no plan and no warehouse: a stored resolution knows which
+source artifacts it covers, and their extracts hold the values.
 """
 
 import argparse
@@ -94,14 +97,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "review",
         help="Review a resolver's clusters interactively.",
         description=(
-            "Open the cluster reviewer over a plan defined in Python. TARGET names "
-            "a Resolver as 'module:attribute' — for example 'pipeline:entities' for "
-            "a resolver assigned to `entities` in pipeline.py. It may also name a "
-            "function returning one, if building the plan needs a connection you'd "
-            "rather open on demand."
+            "Open the cluster reviewer. TARGET names a Resolver as "
+            "'module:attribute' — 'pipeline:entities' for a resolver assigned to "
+            "`entities` in pipeline.py — or a function returning one, if building "
+            "the plan needs a connection you'd rather open on demand. "
+            "With --store, TARGET is instead the name of a resolution already in "
+            "that store, and no Python is imported: the values shown come from the "
+            "extracts cached when the sources were collected, so no warehouse "
+            "connection is needed."
         ),
     )
-    review.add_argument("target", metavar="TARGET", help="module:attribute")
+    review.add_argument(
+        "target",
+        metavar="TARGET",
+        help="module:attribute, or a stored resolution's name when --store is given",
+    )
     review.add_argument(
         "-n", "--samples", type=int, default=5, help="Clusters to queue (default: 5)."
     )
@@ -144,8 +154,20 @@ def main(argv: list[str] | None = None) -> None:
 
     adapter = DuckDBAdapter(args.store) if args.store else None
 
+    # With a store, a bare name is a stored resolution — no plan to import.
+    target = args.target
+    if adapter is not None and ":" not in target:
+        known = adapter.names("resolver")
+        if target not in known:
+            raise SystemExit(
+                f"No resolution named '{target}' in {args.store}. "
+                f"Found: {', '.join(known) or 'none'}."
+            )
+    else:
+        target = _load_target(target)
+
     review(
-        _load_target(args.target),
+        target,
         n=args.samples,
         adapter=adapter,
         tag=args.tag,

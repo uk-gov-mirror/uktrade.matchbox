@@ -58,8 +58,31 @@ matchlab review pipeline:entities --tag review-2026-07
 
 `pipeline.py` is just your plan. The attribute can also be a function returning a
 resolver, if building it needs a warehouse connection you'd rather open on demand. Add
-`--log run.log` to keep logging off the screen, and `--store ./run.duckdb` to read and
-write somewhere other than the shared cache.
+`--log run.log` to keep logging off the screen.
+
+### Reviewing a store on its own
+
+You don't need the plan, or the warehouse, to review what it produced:
+
+```shell
+matchlab review entities --store ./run.duckdb
+```
+
+With `--store`, the target is the name of a resolution already in that store rather
+than Python to import. This works because collecting a source caches its extract, and
+a stored resolution records which source artifacts it covers — so the values on screen
+come out of the store.
+
+That's also the more correct thing to review: it's the data the matching actually saw,
+not what the warehouse says today. And it means you can hand someone a `.duckdb` file
+and they can judge it on a laptop with no database access.
+
+```python
+from matchlab.adapters import DuckDBAdapter
+from matchlab.eval import review
+
+review("entities", adapter=DuckDBAdapter("run.duckdb"), tag="second-opinion")
+```
 
 !!! note
     The reviewer needs Textual: `pip install matchlab[tui]`. Everything below works

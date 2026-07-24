@@ -20,6 +20,7 @@ Plus evaluation storage (judgements + cluster expansion) and lifecycle (`gc`).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 
 import polars as pl
 
@@ -51,6 +52,7 @@ class Adapter(ABC):
         self,
         fp: Fingerprint,
         name: str,
+        key_field: str,
         extract: pl.DataFrame,
         leaves: pl.DataFrame,
     ) -> None:
@@ -58,7 +60,9 @@ class Adapter(ABC):
 
         Args:
             fp: The source step's fingerprint.
-            name: The source's DAG name (used to tag its rows in resolutions).
+            name: The source's name (used to tag its rows in resolutions).
+            key_field: Which column of `extract` holds the key. Stored so the extract
+                can be read back and joined to a resolution without the plan.
             extract: The warehouse extract (arbitrary schema) to cache.
             leaves: The leaf assignment, columns `(key: str, leaf: uint64)`.
         """
@@ -77,7 +81,7 @@ class Adapter(ABC):
     # -- models -----------------------------------------------------------------------
 
     @abstractmethod
-    def store_model(self, fp: Fingerprint, edges: pl.DataFrame) -> None:
+    def store_model(self, fp: Fingerprint, name: str, edges: pl.DataFrame) -> None:
         """Store a model's edge list (`SCHEMA_MODEL_EDGES`)."""
         ...
 
@@ -105,16 +109,51 @@ class Adapter(ABC):
     # -- resolvers --------------------------------------------------------------------
 
     @abstractmethod
-    def store_resolver(self, fp: Fingerprint, resolution: pl.DataFrame) -> None:
+    def store_resolver(
+        self,
+        fp: Fingerprint,
+        name: str,
+        resolution: pl.DataFrame,
+        sources: Mapping[str, Fingerprint] | None = None,
+    ) -> None:
         """Store a resolver's complete flat resolution.
 
         Args:
             fp: The resolver step's fingerprint.
+            name: The resolver's name, so a store can be browsed without the plan.
             resolution: `SCHEMA_EVAL_SAMPLES` columns `(root, leaf, key, source)`,
                 already merged forward over all upstream leaves. The adapter does not
                 verify the merge — that is the client's contract — but it does validate
                 the schema.
+            sources: Source name to fingerprint, for every source this resolution
+                covers. A resolution names its sources but one store can hold several
+                generations of a name, so this records which were actually used.
         """
+        ...
+
+    # -- lookups ----------------------------------------------------------------------
+    #
+    # Enough to read a stored resolution back without the plan that built it, which is
+    # what lets evaluation run against a store alone.
+
+    @abstractmethod
+    def find(self, kind: str, name: str) -> Fingerprint | None:
+        """Return the fingerprint of a stored artifact by kind and name."""
+        ...
+
+    @abstractmethod
+    def names(self, kind: str) -> list[str]:
+        """Return the names of stored artifacts of a kind, sorted."""
+        ...
+
+    @abstractmethod
+    def source_key_field(self, fp: Fingerprint) -> str:
+        """Return which column of a stored source's extract holds the key."""
+        ...
+
+    @abstractmethod
+    def resolution_sources(self, fp: Fingerprint) -> dict[str, Fingerprint]:
+        """Return source name to fingerprint for a stored resolution."""
         ...
 
     @abstractmethod

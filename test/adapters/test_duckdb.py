@@ -80,7 +80,7 @@ def test_has_is_false_before_store(adapter: DuckDBAdapter) -> None:
 
 
 def test_source_round_trip(adapter: DuckDBAdapter) -> None:
-    adapter.store_source(FP_SRC, "crn", _extract(), _leaves())
+    adapter.store_source(FP_SRC, "crn", "key", _extract(), _leaves())
 
     assert adapter.has(FP_SRC)
     extract = adapter.read_source_extract(FP_SRC).sort("key")
@@ -100,13 +100,13 @@ def test_read_missing_source_raises(adapter: DuckDBAdapter) -> None:
 
 
 def test_model_round_trip(adapter: DuckDBAdapter) -> None:
-    adapter.store_model(FP_MODEL, _edges())
+    adapter.store_model(FP_MODEL, "d_crn", _edges())
     out = adapter.read_model(FP_MODEL).sort("left_id")
     assert out.equals(_edges().sort("left_id"))
 
 
 def test_resolver_round_trip(adapter: DuckDBAdapter) -> None:
-    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.store_resolver(FP_RESOLVER, "entities", _resolution())
     out = adapter.read_resolver(FP_RESOLVER).sort("leaf")
     assert out.equals(_resolution().sort("leaf"))
 
@@ -114,21 +114,21 @@ def test_resolver_round_trip(adapter: DuckDBAdapter) -> None:
 def test_store_resolver_rejects_bad_schema(adapter: DuckDBAdapter) -> None:
     bad = pl.DataFrame({"root": [1], "leaf": [2]})  # missing key/source
     with pytest.raises(SchemaMismatch):
-        adapter.store_resolver(FP_RESOLVER, bad)
+        adapter.store_resolver(FP_RESOLVER, "entities", bad)
 
 
 def test_store_model_rejects_bad_schema(adapter: DuckDBAdapter) -> None:
     bad = pl.DataFrame({"left_id": [1], "right_id": [2]})  # missing score
     with pytest.raises(SchemaMismatch):
-        adapter.store_model(FP_MODEL, bad)
+        adapter.store_model(FP_MODEL, "d_crn", bad)
 
 
 # -- idempotency ----------------------------------------------------------------------
 
 
 def test_store_is_idempotent(adapter: DuckDBAdapter) -> None:
-    adapter.store_resolver(FP_RESOLVER, _resolution())
-    adapter.store_resolver(FP_RESOLVER, _resolution())  # no duplicate rows
+    adapter.store_resolver(FP_RESOLVER, "entities", _resolution())
+    adapter.store_resolver(FP_RESOLVER, "entities", _resolution())  # no duplicate rows
     assert adapter.read_resolver(FP_RESOLVER).height == _resolution().height
 
 
@@ -138,7 +138,7 @@ def test_store_is_idempotent(adapter: DuckDBAdapter) -> None:
 def test_sample_returns_whole_clusters_and_is_seed_stable(
     adapter: DuckDBAdapter,
 ) -> None:
-    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.store_resolver(FP_RESOLVER, "entities", _resolution())
 
     sample_a = adapter.sample(FP_RESOLVER, n=1, seed=42)
     sample_b = adapter.sample(FP_RESOLVER, n=1, seed=42)
@@ -152,7 +152,7 @@ def test_sample_returns_whole_clusters_and_is_seed_stable(
 
 
 def test_sample_caps_at_available_clusters(adapter: DuckDBAdapter) -> None:
-    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.store_resolver(FP_RESOLVER, "entities", _resolution())
     everything = adapter.sample(FP_RESOLVER, n=999)
     assert everything.height == _resolution().height
 
@@ -200,10 +200,10 @@ def test_read_eval_data_empty_has_correct_schema(adapter: DuckDBAdapter) -> None
 
 
 def test_gc_removes_only_dead_artifacts(adapter: DuckDBAdapter) -> None:
-    adapter.store_source(FP_SRC, "crn", _extract(), _leaves())
-    adapter.store_source(FP_SRC_B, "dh", _extract(), _leaves())
-    adapter.store_model(FP_MODEL, _edges())
-    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.store_source(FP_SRC, "crn", "key", _extract(), _leaves())
+    adapter.store_source(FP_SRC_B, "dh", "key", _extract(), _leaves())
+    adapter.store_model(FP_MODEL, "d_crn", _edges())
+    adapter.store_resolver(FP_RESOLVER, "entities", _resolution())
 
     removed = adapter.gc(live={FP_SRC, FP_RESOLVER})
     assert removed == 2  # FP_SRC_B and FP_MODEL
@@ -225,7 +225,7 @@ def test_gc_removes_only_dead_artifacts(adapter: DuckDBAdapter) -> None:
 def test_persists_across_reopen(tmp_path: Path) -> None:
     db = tmp_path / "nested" / "store.duckdb"
     a = DuckDBAdapter(db)
-    a.store_resolver(FP_RESOLVER, _resolution())
+    a.store_resolver(FP_RESOLVER, "entities", _resolution())
     a.close()
 
     b = DuckDBAdapter(db)
