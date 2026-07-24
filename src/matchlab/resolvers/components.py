@@ -8,7 +8,7 @@ from pydantic import Field
 
 from matchlab.core.arrow import SCHEMA_CLUSTERS
 from matchlab.core.config import ModelStepName, ResolverType
-from matchlab.core.transform import DisjointSet
+from matchlab.core.dsu import DisjointSet
 from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 
 

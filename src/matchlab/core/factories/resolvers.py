@@ -15,10 +15,10 @@ from matchlab.core.config import (
     ResolverType,
     SourceStepName,
 )
+from matchlab.core.dsu import DisjointSet
 from matchlab.core.factories.entities import ClusterEntity, SourceEntity
 from matchlab.core.factories.models import ModelTestkit, model_factory
 from matchlab.core.factories.sources import linked_sources_factory
-from matchlab.core.transform import DisjointSet
 from matchlab.models import Model
 from matchlab.resolvers import (
     Resolve,

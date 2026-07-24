@@ -22,6 +22,7 @@ from matchlab.core.config import (
     ModelStepName,
     ModelType,
 )
+from matchlab.core.dsu import DisjointSet
 from matchlab.core.factories.entities import (
     ClusterEntity,
     FeatureConfig,
@@ -35,7 +36,6 @@ from matchlab.core.factories.sources import (
     linked_sources_factory,
 )
 from matchlab.core.hash import HASH_FUNC
-from matchlab.core.transform import DisjointSet
 from matchlab.models import add_model_class
 from matchlab.models.dedupers.base import Deduper, DeduperSettings
 from matchlab.models.linkers.base import Linker, LinkerSettings

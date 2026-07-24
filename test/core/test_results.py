@@ -1,4 +1,4 @@
-from matchlab.core.transform import DisjointSet
+from matchlab.core.dsu import DisjointSet
 
 
 class TestDisjointSet:

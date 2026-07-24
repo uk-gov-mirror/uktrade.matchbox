@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from matchlab.core.config import SourceStepName
 from matchlab.core.datatypes import DataTypes
-from matchlab.core.transform import DisjointSet
+from matchlab.core.dsu import DisjointSet
 
 if TYPE_CHECKING:
     from matchlab.core.factories.sources import SourceTestkit

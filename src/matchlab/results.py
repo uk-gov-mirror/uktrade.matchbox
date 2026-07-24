@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Self
 import polars as pl
 
 from matchlab.core.arrow import SCHEMA_MODEL_EDGES
+from matchlab.core.dsu import DisjointSet
 from matchlab.core.logging import logger
-from matchlab.core.transform import DisjointSet
 
 if TYPE_CHECKING:
     from matchlab.sources import Source
