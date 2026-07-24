@@ -9,7 +9,6 @@ and the way to inspect "what does my cleaned data actually look like?".
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 import duckdb
@@ -18,7 +17,7 @@ from sqlglot import expressions, parse_one
 from sqlglot import select as sqlglot_select
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.core.config import QueryCombineType
+from matchlab.core.config import CleanerConfig, QueryCombineType
 from matchlab.core.db import QueryReturnClass, QueryReturnType
 from matchlab.steps import Step
 
@@ -62,24 +61,24 @@ class Cleaner(Step):
 
         # The resolver is part of the derived name: reading a source directly and
         # reading it *through* a resolver are different views, and two steps in one
-        # plan may not share a name.
+        # plan may not share a name. The separator has to be one `validate_name`
+        # accepts, so a derived name is as valid as one you pass in.
         stem = "_".join(source.name for source in sources)
-        suffix = f"@{resolver.name}" if resolver else ""
+        suffix = f".{resolver.name}" if resolver else ""
         upstream: tuple[Step, ...] = (*sources, *((resolver,) if resolver else ()))
         super().__init__(name=name or f"clean_{stem}{suffix}", upstream=upstream)
 
     # -- Step contract ----------------------------------------------------------------
 
-    def _config_key(self) -> bytes:
-        return json.dumps(
-            {
-                "sources": [source.name for source in self.sources],
-                "resolver": self.resolver.name if self.resolver else None,
-                "combine_type": str(self.combine_type),
-                "cleaning": self.cleaning,
-            },
-            sort_keys=True,
-        ).encode()
+    @property
+    def config(self) -> CleanerConfig:
+        """The serialisable configuration for this view."""
+        return CleanerConfig(
+            sources=tuple(source.name for source in self.sources),
+            resolver=self.resolver.name if self.resolver else None,
+            combine_type=self.combine_type,
+            cleaning=self.cleaning,
+        )
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         adapter.store_clean(fp, self._compute(adapter))

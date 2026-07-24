@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import inspect
-import json
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.cleaners import Cleaner
-from matchlab.core.config import ModelType
+from matchlab.core.config import ModelConfig, ModelType
 from matchlab.core.logging import logger, profile_time
 from matchlab.models import dedupers, linkers
 from matchlab.models.dedupers.base import Deduper, DeduperSettings
@@ -90,17 +89,16 @@ class Model(Step):
 
     # -- Step contract ----------------------------------------------------------------
 
-    def _config_key(self) -> bytes:
-        return json.dumps(
-            {
-                "type": str(self.model_type),
-                "model_class": self.model_class.__name__,
-                "model_settings": self.model_settings.model_dump(mode="json"),
-                "left": self.left.name,
-                "right": self.right.name if self.right else None,
-            },
-            sort_keys=True,
-        ).encode()
+    @property
+    def config(self) -> ModelConfig:
+        """The serialisable configuration for this model."""
+        return ModelConfig(
+            model_type=self.model_type,
+            model_class=self.model_class.__name__,
+            model_settings=self.model_settings.model_dump(mode="json"),
+            left=self.left.name,
+            right=self.right.name if self.right else None,
+        )
 
     @profile_time(attr="name")
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:

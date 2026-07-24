@@ -14,6 +14,7 @@ The apex is a *link*, yet the dedupe grouping of {a1,a2} must survive through it
 a3/b2 — reachable but matched by nothing — must stay singletons (merge-forward).
 """
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from sqlalchemy import Engine, create_engine, text
 
 from matchlab import Resolver, Source, gc, set_default_adapter
 from matchlab.adapters import DuckDBAdapter
+from matchlab.core.config import validate_name
 from matchlab.core.exceptions import StepNotFound
 from matchlab.locations import RelationalDBLocation
 from matchlab.models.dedupers import NaiveDeduper
@@ -372,3 +374,43 @@ def test_gc_reclaims_a_dropped_plan(warehouse: Engine, adapter: DuckDBAdapter) -
 
     assert gc() > 0
     assert not adapter.has(doomed)
+
+
+# -- configuration --------------------------------------------------------------------
+
+
+def test_every_step_has_a_serialisable_config(warehouse: Engine) -> None:
+    """Each step kind reports its settings through a model, and it round-trips JSON."""
+    apex, _crn, _dh = _apex(warehouse)
+    apex.collect()
+
+    kinds = set()
+    for step in apex.lineage():
+        dumped = step.config.model_dump(mode="json")
+        assert json.loads(json.dumps(dumped)) == dumped
+        # The config is the fingerprint payload, so it must be stable.
+        assert step._config_key() == step._config_key()
+        kinds.add(step.kind)
+
+    assert kinds == {"source", "clean", "model", "resolver"}
+
+
+def test_a_config_carries_no_upstream_settings(warehouse: Engine) -> None:
+    """Configs describe a step's own settings; edges live on `upstream`."""
+    apex, crn, _dh = _apex(warehouse)
+
+    resolver_config = apex.config.model_dump(mode="json")
+    assert "extract_transform" not in json.dumps(resolver_config)
+    # Upstream names appear where they are load-bearing — per-model thresholds are
+    # keyed by them — but the parents' own settings do not.
+    assert set(resolver_config["inputs"]) == {model.name for model in apex.inputs}
+
+
+def test_derived_names_are_valid_names(warehouse: Engine) -> None:
+    """A name matchlab derives must pass the same validation as one you pass in."""
+    crn = _source(warehouse, "crn")
+    view = _dedupe_crn(crn).clean(crn)
+
+    # Round-tripping through the config validates the name.
+    assert view.config.sources == ("crn",)
+    validate_name(view.name)

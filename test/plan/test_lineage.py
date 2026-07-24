@@ -7,11 +7,18 @@ graph semantics are pinned independently of sources, adapters, or warehouses.
 from typing import ClassVar
 
 import pytest
+from pydantic import BaseModel
 
 from matchlab import lineage
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.exceptions import StepNotFound
 from matchlab.steps import Step
+
+
+class _FakeConfig(BaseModel):
+    """Minimal config so FakeStep satisfies the Step contract."""
+
+    name: str
 
 
 class FakeStep(Step):
@@ -20,8 +27,9 @@ class FakeStep(Step):
     kind: ClassVar[str] = "fake"
     stores: ClassVar[bool] = False
 
-    def _config_key(self) -> bytes:
-        return self.name.encode()
+    @property
+    def config(self) -> BaseModel:
+        return _FakeConfig(name=self.name)
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:  # pragma: no cover
         raise AssertionError("FakeStep never executes")

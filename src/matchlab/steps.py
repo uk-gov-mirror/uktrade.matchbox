@@ -19,11 +19,13 @@ refresh), while an existing `Source` object memoises its read.
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Self
 from weakref import WeakSet
 
 from platformdirs import user_cache_path
+from pydantic import BaseModel
 
 from matchlab import lineage
 from matchlab.adapters import Adapter, DuckDBAdapter, Fingerprint
@@ -102,14 +104,30 @@ class Step(ABC):
 
     # -- plan identity ----------------------------------------------------------------
 
+    @property
     @abstractmethod
+    def config(self) -> BaseModel:
+        """This step's settings, as a serialisable model.
+
+        One model per step kind, in `matchlab.core.config`. It must carry everything
+        this step's output depends on and nothing else — that is the invariant
+        `_config_key` rests on, and the one to check when adding a setting. Omit
+        something that changes the output and collect will hand back a stale artifact
+        without re-running (see `_fingerprint`).
+
+        Configs describe a step's own settings, not its inputs'. Edges live on
+        `upstream`, and `_fingerprint` already folds in the parents' fingerprints.
+        """
+        ...
+
     def _config_key(self) -> bytes:
         """Bytes identifying this step's configuration.
 
-        For a source this includes a content hash of the data read, so the fingerprint
-        tracks the warehouse. For every other kind it is pure configuration.
+        `Source` extends this with a content hash of the data it read, so that the
+        fingerprint tracks the warehouse. For every other kind the config is the
+        whole story.
         """
-        ...
+        return json.dumps(self.config.model_dump(mode="json"), sort_keys=True).encode()
 
     def _fingerprint(self) -> Fingerprint:
         """Address this step by kind, configuration and inputs.

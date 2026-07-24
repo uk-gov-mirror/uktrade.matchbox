@@ -16,7 +16,6 @@ pinned is a `cast` in the SELECT.
 
 from __future__ import annotations
 
-import json
 import tempfile
 from collections.abc import Callable, Generator, Iterable
 from pathlib import Path
@@ -86,6 +85,7 @@ class Source(Step):
     def config(self) -> SourceConfig:
         """The serialisable configuration for this source."""
         return SourceConfig(
+            name=self.name,
             location_config=self.location.config,
             extract_transform=self.extract_transform,
             key_field=self.key_field,
@@ -248,11 +248,7 @@ class Source(Step):
         never re-stored, and downstream views kept reading the stale value.
         """
         _, hashes = self._read_warehouse()
-        payload = json.dumps(
-            {"config": self.config.model_dump(mode="json"), "name": self.name},
-            sort_keys=True,
-        ).encode()
-        return payload + hash_arrow_table(hashes.to_arrow())
+        return super()._config_key() + hash_arrow_table(hashes.to_arrow())
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         extract, _ = self._read_warehouse()

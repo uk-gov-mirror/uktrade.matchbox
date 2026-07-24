@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.cleaners import Cleaner
+from matchlab.core.config import ResolverConfig
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.logging import logger, profile_time
 from matchlab.core.resolution import materialise_resolution
@@ -88,15 +88,14 @@ class Resolver(Step):
 
     # -- Step contract ----------------------------------------------------------------
 
-    def _config_key(self) -> bytes:
-        return json.dumps(
-            {
-                "resolver_class": self.resolver_class.__name__,
-                "resolver_settings": self.resolver_settings.model_dump(mode="json"),
-                "inputs": [model.name for model in self.inputs],
-            },
-            sort_keys=True,
-        ).encode()
+    @property
+    def config(self) -> ResolverConfig:
+        """The serialisable configuration for this resolver."""
+        return ResolverConfig(
+            resolver_class=self.resolver_class.__name__,
+            resolver_settings=self.resolver_settings.model_dump(mode="json"),
+            inputs=tuple(model.name for model in self.inputs),
+        )
 
     @profile_time(attr="name")
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
