@@ -21,6 +21,11 @@ server's `COALESCE`. Proven in `spikes/phase0_materialize_forward.py`.
 
 ---
 
+!!! note "Node names changed after Phase C"
+    `Clean` → `Cleaner` → **`View`** (`views.py`), `Resolve` → **`Resolver`**. The
+    Phase A/B/C sections below are a record of what was done at the time and keep the
+    names current then; everything above and in "Phase D" uses the names in the code.
+
 ## Architecture: steps as a plan tree
 
 ### How Polars structures it
@@ -51,9 +56,9 @@ class Step(ABC):
 | Node | `upstream` |
 |---|---|
 | `Source` | `()` — a leaf, like `scan_parquet` |
-| `Clean` | `(source…, resolver?)` |
-| `Model` (dedupe / link) | `(left_clean, right_clean?)` |
-| `Resolve` | `(model…)` |
+| `View` | `(source…, resolver?)` |
+| `Model` (dedupe / link) | `(left_view, right_view?)` |
+| `Resolver` | `(model…)` |
 
 Everything the old `DAG` did becomes a **derived walk from a root node**:
 `node.lineage()`, `node.draw()`, `node.collect(adapter=None)`.
@@ -86,12 +91,12 @@ caused four distinct problems:
    `resolver`, `run_and_sync`, `sync`, `run`, `new_run`, `load_default`, `set_default`,
    `set_client`, `final_steps`, `default_resolver`. Apex detection is meaningless when
    you collect the node you are holding; `lookup_key` and `get_matches` move onto
-   `Resolve`.
+   `Resolver`.
 3. **`collect()` returns the same node, memoised.** Lazy until collected, cached after.
    A node is therefore both "lazy" and "collected" — satisfying *"each step can take as
    input either a lazy step or a collected one"* with no second type.
    `get_matches()` on an uncollected node collects first.
-4. **`Clean` is a plan node, fused by default.** Not materialised unless you
+4. **`View` is a plan node, fused by default.** Not materialised unless you
    `.collect()` it — the equivalent of Polars' `.cache()`. Collecting it is the
    "show me my cleaned data" debugging path; once materialised, downstream reads it
    instead of re-fusing.
@@ -113,10 +118,10 @@ matchlab/
   steps.py                     # Step ABC + node types' shared behaviour
   lineage.py                   # pure functions over a root node (topo, walk, draw)
   sources.py                   # Source — a leaf; imports no plan machinery
-  cleaning.py  models.py  resolvers.py  results.py  locations.py
+  views.py  models.py  resolvers.py  results.py  locations.py
   adapters/                    # base.py (ABC) + duckdb.py — storage only
   core/                        # was matchbox.common (survivors)
-    arrow.py  datatypes.py  hash.py  transform.py  logging.py
+    arrow.py  datatypes.py  hash.py  dsu.py  logging.py
     resolution.py              # materialise_resolution, leaf_id, root_id
     config.py                  # config models rescued from dtos.py
     eval.py  factories/
@@ -151,9 +156,9 @@ class Adapter(ABC):
 | Step | Artifact (fingerprint-keyed, namespaced by step kind) |
 |---|---|
 | `Source` | warehouse extract + `key → leaf_id` |
-| `Clean` | *nothing by default* (fused); the cleaned table if explicitly collected |
+| `View` | *nothing by default* (fused); the view's table if explicitly collected |
 | `Model` | edge list `(left_id, right_id, score)` |
-| `Resolve` | complete flat resolution `(root, leaf, key, source)` |
+| `Resolver` | complete flat resolution `(root, leaf, key, source)` |
 
 Terminal reads: `query`/`match` **deleted**; `lookup_key`, `get_matches`,
 `as_lookup` are filters/joins on the stored resolution.
@@ -161,6 +166,12 @@ Terminal reads: `query`/`match` **deleted**; `lookup_key`, `get_matches`,
 ---
 
 ## Status
+
+**All phases complete. Outstanding: cut the first release (Phase C), and the two items
+listed at the end of Phase D.**
+
+Paths in the phase notes below are as they were at the time — `matchbox.*` before
+Phase B, `common/` before it became `core/`.
 
 **Done and durable — untouched by the re-architecture:**
 
@@ -179,7 +190,7 @@ Terminal reads: `query`/`match` **deleted**; `lookup_key`, `get_matches`,
   keep; the *implementation* is superseded by Phase A**, which moves them off the DAG
   registry onto the plan tree.
 
-Current local suite: 39 passing.
+Current local suite: **324 passing, 0 skipped** (2026-07-24).
 
 ---
 
@@ -218,7 +229,7 @@ reclaims its storage (`test_gc_reclaims_a_dropped_plan`). Local suite: 49 passin
 import the deleted `dags`/`queries`. Both were already server-coupled and unusable
 locally; Phase B removes them along with the server.
 
-## Phase B0 — test & testkit salvage ⬅ next
+## Phase B0 — test & testkit salvage ✅ done
 
 A survey of the 19,219-line suite showed the "delete the legacy tests" line in Phase B
 is too blunt: a meaningful slice tests logic that *survives*. Salvage while the old code
@@ -328,7 +339,7 @@ Net effect of B0: two Phase A regressions caught and fixed (`cleaning` None-vs-`
 value rather than ID), ~1,400 lines of server-shaped testkit deleted, and the
 ER-evaluation capability preserved and now actually asserted.
 
-## Phase B — demolition & repackaging ✅ (code) / docs pending
+## Phase B — demolition & repackaging ✅ done
 
 **Deleted.** `matchbox/server/**` (10,342 lines), `client/_handler/**`, the CLI,
 `test/server/**`, `test/e2e/**`, `test/scripts/**`, the server test fixtures, and the
@@ -429,6 +440,110 @@ CodeQL comment, PR template, `.vscode/launch.json` (dropped the uvicorn server p
 
 ---
 
+## Phase D — interface simplification ✅ (2026-07-24)
+
+Not planned up front. It came out of reading the finished code and asking, step by
+step, what each thing was still buying. Almost everything removed here was a shape
+inherited from the server that the local library had stopped needing.
+
+**The rule that kept recurring:** one declaration, not two. Wherever the codebase said
+the same thing twice — a field list beside the SQL that selects it, a type beside the
+warehouse's own, a name-validation pattern beside the identifier rules it was meant to
+protect — the two could drift, and the drift was where the bugs were.
+
+### `Source` is its query plus a key
+
+`Source(location, name, extract_transform, key_field)`. Identity is **every column the
+extract returns except the key**, so a column that shouldn't affect identity is one you
+shouldn't select, and a type you want pinned is a `cast` in the SELECT.
+
+Deleted: `index_fields`, `SourceField`, `infer_types`, `Location.infer_types`,
+`schema_overrides` plumbing. `DataTypes` survives for the testkit's data generator,
+which is a separate concern. Keys are cast to string on read rather than validated.
+`index_fields` remains as a *property* read from the extract, so it cannot drift.
+
+This closed a live bug found the same morning: `_config_key` hashed only the index, so
+changing a selected-but-unindexed column left the fingerprint unmoved — the source
+cache-hit, never re-stored, and every downstream view read the stale value. With
+identity as the extract, that class is structurally impossible.
+
+### `Cleaner` became `View`, and `combine_type` became `group`
+
+The node was named after its optional clause. Its real job is to say **which records a
+model matches over**: sources read directly are grouped by their leaves, sources read
+through a resolver by that resolver's clusters. Cleaning is a projection on top. That
+is why `identifiers()` looked unrelated to cleaning — it is the essential part.
+
+`combine_type` had no users anywhere, and none of its three settings solved the problem
+it existed for. `concat` left duplicate rows per entity; `set_agg` collapsed them but
+wrapped every column in a list; `explode` *looked* like it produced cross-source
+combinations but Polars explodes columns element-wise, so it round-tripped to its input.
+A broken feature, not a redundant one.
+
+`group=True` runs the cleaning as `GROUP BY id`, so each entity is one row and each
+column says how it combines. It requires cleaning expressions — there is no defensible
+default for collapsing a column. The old design could not have done this:
+`Query.run(return_leaf_id=True)` refused any combine type but `concat`, because
+collapsing rows destroyed the row-to-leaf mapping. Here leaves travel through
+`identifiers()`, read from the adapter, never through the view frame.
+
+### Configs are symmetric, and typed
+
+Phase B deleted `QueryConfig`/`ModelConfig`/`ResolverConfig` as unused, leaving one
+typed config and three anonymous dict literals inside `_config_key`. Restored as
+`ViewConfig`, `ModelConfig`, `ResolverConfig`; every step has a `config` property and
+`Step._config_key` is concrete over it, with `Source` overriding only to append its
+data hash.
+
+The invariant now lives somewhere reviewable: **a config carries everything its step's
+output depends on, and nothing else.** That rule explains the one asymmetry —
+`SourceConfig` records its own name because a source's name prefixes its columns and
+tags its rows, while no other step's name reaches its own output. Where a name is
+load-bearing to a consumer it lives in the *consumer's* config, which is why
+`ResolverConfig.inputs` stays: thresholds are keyed by model name.
+
+`SourceConfig` also lost six methods that predated the split — `parents` and
+`dependencies` had zero callers, and `prefix`/`qualify_field`/`f` never touched `self`
+(they took the source's name as an argument, because on the server the config didn't
+know it). They are `Source` methods now.
+
+### Names do less, and are checked where it matters
+
+Deleted `validate_name`, `Name`, and the four `*StepName` aliases — all
+`TypeAlias = Name`, so no type checker could tell them apart, and the union had no
+consumers. The pattern they enforced allowed `.` and `-`, which are exactly what breaks
+a column identifier, and rejected characters that were harmless.
+
+Replaced with a check on `Source.__init__` only, since only source names become
+identifiers: `^[a-zA-Z_][a-zA-Z0-9_]*$`, with an error naming the column it would have
+produced. Reserved words need no handling — the name is only ever a prefix.
+
+Also deleted `Step.get_step` / `lineage.find` (no callers; hold a variable) and the
+write-only `description` field on every step.
+
+### Loose ends closed
+
+* **`test/warehouse/test_locations.py` un-skipped.** It never needed Docker:
+  `validate_extract_transform` only reads `engine.dialect.name`, and SQLAlchemy builds
+  an engine without connecting. The real blocker was that the two SQLite fixtures were
+  separate `:memory:` databases, so a test wrote through SQLAlchemy and read through
+  ADBC. They now share a temp file. The `docker` marker and the `just test warehouse`
+  recipe went with them.
+* **Suite: 324 passing, 0 skipped**, with no container required for any of it.
+
+### Still open
+
+* **TODO(fingerprints)** — see Known limitations below. Unchanged by Phase D, except
+  that the observable-interface hazard now has a name: `View.identifiers()`.
+* **The CLI** — still waiting on plan serialisation. The typed configs from Phase D are
+  most of what a serialiser needs; what's missing is edges (steps refer to each other by
+  name, and a name is not a node) and a decision about how location clients are
+  reattached on load.
+* **`Source.dedupe`/`link` and the testkit `view()` wrappers** now have honest
+  signatures, but `SourceTestkit`/`ResolverTestkit` still forward `*args, **kwargs`.
+
+---
+
 ## Known limitations
 
 ### Fingerprints are input-addressed, not output-addressed
@@ -460,7 +575,7 @@ The cost is that the key can disagree with the bytes, in both directions:
   work is redone for nothing. `Model._config_key` records `left.name`/`right.name`, but
   input identity already arrives via the parent fingerprints; renaming an upstream step
   therefore invalidates the subtree beneath it without changing a byte.
-* **No early cutoff** — a `Clean` whose SQL is reformatted but semantically unchanged
+* **No early cutoff** — a `View` whose SQL is reformatted but semantically unchanged
   invalidates everything below it, because the cascade is keyed on config all the way
   down rather than stopping where the data stops changing.
 
@@ -514,11 +629,11 @@ Two hazards:
   the digest preimage **must** include the kind or every empty artifact collides at one
   address — the Phase 2 bug returning in a worse form.
 * Early cutoff assumes a step's digest determines everything its descendants observe.
-  `Clean.identifiers()` breaks that: it reads `source.name` off the live step object and
-  that name lands in the resolver's `source` column, while `Clean._compute` drops it
+  `View.identifiers()` breaks that: it reads `source.name` off the live step object and
+  that name lands in the resolver's `source` column, while `View._compute` drops it
   before returning. Rename a source in an explicitly-named plan and the resolver would
   hit cache on a resolution carrying the old name. Fix is principled — a step's digest
-  covers its whole *observable interface*, so `Clean` digests `(frame, identifiers)` —
+  covers its whole *observable interface*, so `View` digests `(frame, identifiers)` —
   but every other cross-step read needs the same audit, and missing one is silent
   corruption.
 
