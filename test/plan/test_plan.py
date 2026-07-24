@@ -205,6 +205,40 @@ def test_building_downstream_only_runs_the_new_steps(warehouse: Engine) -> None:
     assert apex.get_matches().as_lookup().height > 0
 
 
+def test_a_change_to_a_non_indexed_column_invalidates_the_source(
+    warehouse: Engine,
+) -> None:
+    """The fingerprint must cover the whole extract, not just the indexed fields.
+
+    `town` is selected but not indexed, so it never reaches a leaf hash — but `Clean`
+    reads it out of the stored extract. Hashing only the index would leave this change
+    invisible, the source would cache-hit without re-storing, and the view would keep
+    serving the old value.
+    """
+    location = RelationalDBLocation(name="warehouse")
+    location.set_client(warehouse)
+
+    def build() -> Source:
+        return Source(
+            location=location,
+            name="crn",
+            extract_transform="select pk, company, town from crn",
+            key_field="pk",
+            index_fields=["company"],  # town rides along unindexed
+        )
+
+    view = build().clean({"town": "crn_town"})
+    view.collect()
+    assert sorted(view.data()["town"].to_list()) == ["hull", "leeds", "london"]
+
+    with warehouse.begin() as conn:
+        conn.execute(text("UPDATE crn SET town = 'oxford' WHERE pk = 'a1'"))
+
+    refreshed = build().clean({"town": "crn_town"})
+    refreshed.collect()
+    assert sorted(refreshed.data()["town"].to_list()) == ["hull", "leeds", "oxford"]
+
+
 def test_a_source_memoises_its_read(warehouse: Engine) -> None:
     """Re-collecting an existing Source must not re-read the warehouse."""
     crn = _source(warehouse, "crn")

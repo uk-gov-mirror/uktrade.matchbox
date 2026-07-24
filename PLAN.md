@@ -446,10 +446,12 @@ job.)
 The cost is that the key can disagree with the bytes, in both directions:
 
 * **Stale hit** — config omits something that changes the output, so the step is never
-  re-run and the old artifact is read instead. Live instance: `SplinkLinker` training
-  functions that sample (`estimate_u_using_random_sampling`) are non-deterministic
-  unless given a `seed` in `arguments`. Same settings, same fingerprint, different
-  edges — first write wins, silently. Documented on `SplinkSettings`.
+  re-run and the old artifact is read instead. This is the dangerous direction, and the
+  only defence is the discipline that every `_config_key` covers everything its step's
+  output depends on. Live instance: `SplinkLinker` training functions that sample
+  (`estimate_u_using_random_sampling`) are non-deterministic unless given a `seed` in
+  `arguments`. Same settings, same fingerprint, different edges — first write wins,
+  silently. Documented on `SplinkSettings`.
 * **Spurious miss** — config includes something that *doesn't* change the output, so
   work is redone for nothing. `Model._config_key` records `left.name`/`right.name`, but
   input identity already arrives via the parent fingerprints; renaming an upstream step
@@ -458,29 +460,70 @@ The cost is that the key can disagree with the bytes, in both directions:
   invalidates everything below it, because the cascade is keyed on config all the way
   down rather than stopping where the data stops changing.
 
-None of this is a correctness bug in the stored artifacts. `_purge` makes stores
-idempotent (necessary, not cosmetic: `source_leaves`, `model_edges` and `resolution` are
-shared tables written with plain `INSERT`, so without it a second store would duplicate
-rows rather than replace them). The scheme is sound, just more eager to invalidate than
-it needs to be, and it trusts `_config_key` to be honest.
+`_purge` keeps the stored artifacts themselves consistent, and is necessary rather than
+cosmetic: `source_leaves`, `model_edges` and `resolution` are shared tables written with
+plain `INSERT`, so without it a second store would duplicate rows rather than replace
+them.
 
-**TODO(fingerprints)** — split the single key in two, as Bazel does with its action
-cache over the CAS, or Nix with content-addressed derivations:
+**Fixed once already (2026-07-24).** `Source._config_key` hashed only `hashes`, which
+content-addresses rows by their *index fields*. Any other column the extract/transform
+selected — indexed on company and postcode, town riding along for a cleaning expression
+— was invisible to the fingerprint, so changing it in the warehouse produced a cache hit,
+the source never re-stored, and every downstream view kept reading the stale column. The
+extract is now hashed too. Regression test:
+`test_a_change_to_a_non_indexed_column_invalidates_the_source`.
+
+### TODO(fingerprints): action key over content-addressed store
+
+Split the single key in two, as Bazel does with its action cache over the CAS, or Nix
+with content-addressed derivations:
 
 ```
 action key (plan-derived, as now)  →  output digest (content-derived)  →  artifact
 ```
 
 Steps still *look up* by action key, but a child's key is built from its parents'
-**output digests** instead of their action keys. Change a config that doesn't change the
+**output digests** instead of their action keys. Change something that doesn't change the
 output and the parent gets a new action key, runs, produces the same digest, and every
-child hits cache — early cutoff, and the stale-hit class disappears because the key
-cannot contradict the bytes.
+child hits cache.
 
-Cost: an indirection table plus a `digest` column in the adapter contract, hashing every
-artifact on write (cheap next to computing a resolution), and `_fingerprint` reading
-parents' digests rather than `_fp`. It is a change to the adapter contract, not a tweak
-— hence deferred rather than folded into Phase A.
+The honest ledger — an output digest governs **propagation**, never **admission**:
+
+| | |
+|---|---|
+| Early cutoff | **gained** — the actual benefit |
+| Storage dedup for equivalent artifacts | gained |
+| Rename tolerance (re-runs the step, spares the subtree) | gained |
+| Stale hits from dishonest config keys | **unchanged** — a step whose action key hits still never runs, so its digest is never consulted. Seeding Splink stays mandatory. |
+| Work-set knowable before running | **lost** — past the first miss a child's key depends on output that doesn't exist yet, foreclosing a future `.explain()` |
+
+Implementation is smaller than it sounds. Redefine `_fp` to mean *artifact address =
+output digest* and add `_action_key()` alongside; `_fingerprint`'s existing
+`parts.append(parent._fp)` then already reads "build my key from my parents' digests",
+and every `read_*(step._fp)` site keeps working because artifacts move to living at the
+digest. Of the ~22 `_fp` references in `src/`, about three change. `hash_arrow_table` is
+already invariant to row and field order, which is the precondition.
+
+Two hazards:
+
+* `hash_arrow_table` returns the constant `b"empty_table_hash"` for any empty table, so
+  the digest preimage **must** include the kind or every empty artifact collides at one
+  address — the Phase 2 bug returning in a worse form.
+* Early cutoff assumes a step's digest determines everything its descendants observe.
+  `Clean.identifiers()` breaks that: it reads `source.name` off the live step object and
+  that name lands in the resolver's `source` column, while `Clean._compute` drops it
+  before returning. Rename a source in an explicitly-named plan and the resolver would
+  hit cache on a resolution carrying the old name. Fix is principled — a step's digest
+  covers its whole *observable interface*, so `Clean` digests `(frame, identifiers)` —
+  but every other cross-step read needs the same audit, and missing one is silent
+  corruption.
+
+**Verdict (2026-07-24): not now.** With the stale-hit claim withdrawn, the remaining win
+is early cutoff in a narrow band — config changes are mostly normalised away already by
+`json.dumps(sort_keys=True)`, so it comes down to warehouse churn in columns that
+cleaning projects away, and only when cleaning is an explicit projection. Not worth a new
+silent-corruption surface plus the loss of a precomputable work-set until someone has
+felt the re-run cost with a profile behind it.
 
 ---
 

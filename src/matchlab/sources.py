@@ -89,6 +89,8 @@ class Source(Step):
 
         # Memoised warehouse read: (extract, hashes). Populated on first fingerprint.
         self._read: tuple[pl.DataFrame, pl.DataFrame] | None = None
+        # Memoised content hash of the extract, computed alongside the first read.
+        self._extract_hash: bytes | None = None
 
     @staticmethod
     def _check_field_types(
@@ -239,13 +241,26 @@ class Source(Step):
         Including the data hash is what lets a plan detect that the warehouse changed:
         a new `Source` object re-reads and gets a different key, invalidating
         everything downstream of it.
+
+        Both halves of the read are hashed, and both are load-bearing:
+
+        * `hashes` content-addresses rows by their **index fields**, which is what
+          determines leaf identity and therefore what matches.
+        * `extract` is every column the extract/transform selected. Those need not all
+          be indexed — you might index on company and postcode but pull town through
+          for a cleaning expression or for `view_cluster` — and `Clean` reads the
+          stored extract. Hashing only `hashes` would leave a change to a non-indexed
+          column invisible to the fingerprint, so the source would cache-hit, never
+          re-store, and every downstream view would keep reading the stale column.
         """
-        _, hashes = self._read_warehouse()
+        extract, hashes = self._read_warehouse()
+        if self._extract_hash is None:
+            self._extract_hash = hash_arrow_table(extract.to_arrow())
         payload = json.dumps(
             {"config": self.config.model_dump(mode="json"), "name": self.name},
             sort_keys=True,
         ).encode()
-        return payload + hash_arrow_table(hashes.to_arrow())
+        return payload + hash_arrow_table(hashes.to_arrow()) + self._extract_hash
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         extract, _ = self._read_warehouse()

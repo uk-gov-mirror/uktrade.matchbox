@@ -124,7 +124,9 @@ class Step(ABC):
 
         * config omits something that changes the output — a **stale hit**, because
           `_ensure` never runs the step and reads the old artifact. `SplinkLinker`
-          without an explicit seed is a live example.
+          without an explicit seed is a live example. The only defence is that every
+          `_config_key` covers everything its step's output depends on; treat that as
+          the invariant to protect when adding a step or a setting.
         * config includes something that doesn't change the output — a **spurious
           miss**, re-running the step and everything below it. Renaming an upstream
           step does this: identity already arrives via the parent fingerprint, but
@@ -136,9 +138,12 @@ class Step(ABC):
         TODO(fingerprints): split this into an action key (plan-derived, as now)
         mapping to an output digest (content-derived, recorded by the adapter on
         write), and build a child's key from its parents' output digests rather than
-        their action keys. That gives early cutoff and removes the stale-hit class
-        entirely, at the cost of an indirection table in the adapter contract and
-        hashing every artifact as it is stored. See PLAN.md, "Known limitations".
+        their action keys. That buys early cutoff, storage dedup and rename tolerance.
+        It does **not** fix stale hits — an output digest governs propagation, never
+        admission, so a step whose action key is a hit still never runs and its digest
+        is never consulted. Costs an indirection table in the adapter contract, a hash
+        of every artifact on write, and the loss of a work-set knowable before running.
+        See PLAN.md, "Known limitations", for the full ledger.
         """
         parts: list[bytes] = [self.kind.encode(), self._config_key()]
         for parent in self.upstream:

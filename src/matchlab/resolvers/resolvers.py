@@ -83,6 +83,8 @@ class Resolve(Step):
         else:
             self.resolver_settings = settings
 
+        # TODO: we might want to include all inputs in the default name
+
         super().__init__(
             name=name or f"resolve_{self.inputs[0].name}", upstream=self.inputs
         )
