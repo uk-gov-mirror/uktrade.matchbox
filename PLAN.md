@@ -592,6 +592,49 @@ you can re-run; for that, the edges and client-reattachment problems remain.
 
 ---
 
+## Design decisions (settled)
+
+### Record identity is a hash of content, not the key
+
+A leaf ID — a record's identity — is a hash of its **content** (every non-key column),
+computed in `Source._read_warehouse` and turned into an ID by
+`core.resolution.leaf_id`. Not the key. Questioned 2026-07-24 (the server hashed to save
+storage, which is gone locally — so is the hashing still needed?), and re-affirmed for a
+reason independent of storage.
+
+The reason is evaluation. A judgement is a person or model saying *"looking at this,
+these records are the same entity."* The only input to that decision is the content
+shown — a name, a postcode. The key plays no part; the judge never sees it. So a
+judgement must be anchored to the content it was made against:
+
+* **Key-anchored**, a judgement outlives a content change. A match decided on "acme /
+  london" still stands after the row becomes "acme / manchester" — a decision credited
+  to evidence the judge never saw. It reads as inexplicable later, or silently ratifies
+  a match nobody made.
+* **Content-anchored**, the leaf ID changes when the content does, so the old judgement
+  stops applying. Nobody judged the new content; there should be no judgement about it.
+  Judgements decay exactly when their evidence does.
+
+The key's *stability under content change* — which first looked like an argument for
+using it — is precisely why it's the wrong anchor. Same logic settles index-time
+"dedup": identical rows share a leaf because to a judge they are indistinguishable;
+there is no decision to make, and the differing keys don't separate them because a key
+is not evidence.
+
+**Invariant it rests on: what is hashed must equal what is shown.** Hash a column the
+sampler doesn't display and a judgement decays for a reason the judge can't see; display
+one that isn't hashed and a judgement survives a change the judge can see. They line up
+today — `leaf_id` covers every non-key column, `get_samples` shows every non-key column
+— and "the extract is the whole declaration" (a selected column is both hashed and
+shown) is what keeps them lined up. A future change that hashes or displays a strict
+subset of the other breaks evaluation subtly, not loudly.
+
+Consequence, not cause: content-addressing also makes runs reproducible and leaf IDs
+stable across re-collect. Real, but downstream of the above — don't cite it as the
+reason.
+
+---
+
 ## Known limitations
 
 ### Fingerprints are input-addressed, not output-addressed

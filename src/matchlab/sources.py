@@ -194,11 +194,14 @@ class Source(Step):
         """Read the source and content-address every row. Memoised.
 
         Every column except the key contributes to the row hash, so two rows are the
-        same leaf exactly when the extract returns identical values for both.
+        same leaf exactly when the extract returns identical values for both. Identity
+        is content, not the key — see `matchlab.core.resolution.leaf_id` for why that
+        is the correct anchor for evaluation rather than a storage trick.
 
         Returns:
             `(extract, hashes)` — the raw rows, and a `hash → keys` index in which
-            byte-identical rows share a hash (content-addressed dedup at index time).
+            byte-identical rows share a hash, so records a judge cannot tell apart share
+            a leaf.
         """
         if self._read is not None:
             return self._read

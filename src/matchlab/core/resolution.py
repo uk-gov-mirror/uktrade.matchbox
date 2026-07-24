@@ -8,9 +8,9 @@ downstream (`get_matches`, `lookup_key`, models querying through it) just reads 
 
 This module holds the pure functions that produce that resolution:
 
-* `leaf_id` / `root_id` — client-side, content-addressed cluster IDs (the server used
-  to mint these as sequences; locally they are deterministic hashes so runs are
-  reproducible and cacheable).
+* `leaf_id` / `root_id` — client-side, content-addressed cluster IDs. A leaf is a hash
+  of a record's content, which is the correct anchor for evaluation, not merely a
+  reproducibility trick — see `leaf_id` for the full reasoning.
 * `materialise_resolution` — turn the connected-component clusters a resolver computed
   (over query-space IDs, covering only IDs its models formed edges over) plus the
   upstream resolution (every reachable ID → its `(source, key, leaf)` rows) into the
@@ -45,11 +45,41 @@ UPSTREAM_COLUMNS = ("id", "source", "key", "leaf")
 def leaf_id(row_hash: pl.Expr) -> pl.Expr:
     """Map a column of row content hashes to stable 64-bit leaf cluster IDs.
 
-    Replaces the server's per-row sequence assignment. Content-addressed, so identical
-    rows share a leaf and re-runs are stable.
+    A record's identity is a hash of its **content**, not of its key. This is the
+    load-bearing decision, and it is deliberate — not a leftover from the server, which
+    hashed to save storage. The reason is evaluation:
 
-    Vectorised deliberately: this runs once per source row, and a Python function
-    called through `map_elements` dominated collection.
+    A judgement is a person or a model saying "looking at *this*, these records are the
+    same entity." The only input to that decision is the content shown — a name, a
+    postcode. The key plays no part; the judge never sees it. So a judgement must be
+    anchored to the content it was actually made against:
+
+    * Anchor to the **key** and a judgement outlives a content change. "acme / london =
+      acme / london", decided against evidence that has since become "acme /
+      manchester", now silently stands — a decision attributed to evidence the judge
+      never saw. It looks inexplicable later, or quietly validates a match nobody made.
+    * Anchor to the **content** (this) and the leaf ID changes when the content does,
+      so the old judgement stops applying — correctly. Nobody has judged the new
+      content; there should be no judgement about it. Judgements decay exactly when
+      their evidence does.
+
+    The same logic explains why identical rows share a leaf: to any judge they are
+    indistinguishable, so there is no decision to make. Differing keys don't separate
+    them, because a key is not evidence.
+
+    **The invariant this rests on: what is hashed must equal what is shown.** Hash a
+    column the sampler doesn't display and a judgement decays for a reason the judge
+    can't see; display one that isn't hashed and a judgement survives a change the judge
+    can see. They line up today — `leaf_id` covers every non-key column (see
+    `Source._read_warehouse`) and `get_samples` shows every non-key column — and "the
+    extract is the whole declaration" is what keeps them lined up: select a column and
+    it is both hashed and shown.
+
+    Content-addressing also makes runs reproducible and IDs stable across re-collect,
+    but that is a consequence, not the reason.
+
+    Vectorised deliberately: this runs once per source row, and a Python function called
+    through `map_elements` dominated collection.
     """
     return row_hash.bin.slice(0, 8).bin.reinterpret(dtype=pl.UInt64, endianness="big")
 
