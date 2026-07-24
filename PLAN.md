@@ -380,11 +380,15 @@ rest executes for real. Porting `ResolverMatches` caught a **third Phase A regre
   references remain in the Python source.**
 
 **Outstanding in Phase B:**
-* `test/warehouse/test_locations.py` is skipped at module level. It is parametrised
-  across SQLite/Postgres/ADBC because several tests compare *dialect-specific*
-  extract/transform validation, so it needs the warehouse container plus a rebuilt
-  fixture module (the old one mixed warehouse and server fixtures). Retained and
-  marked, not deleted — it covers surviving code.
+* ~~`test/warehouse/test_locations.py` is skipped at module level.~~ **Fixed
+  2026-07-24.** Rebuilt in `test/warehouse/conftest.py`, and it needs no container:
+  `validate_extract_transform` only reads `engine.dialect.name`, and SQLAlchemy builds
+  an engine without connecting, so the dialect-comparison tests get a real
+  Postgres-dialect `Engine` that never opens a socket (`psycopg` added as a dev dep for
+  the driver). The two SQLite clients share one temp file rather than separate
+  `:memory:` databases, so a test can write through SQLAlchemy and read through ADBC.
+  24 tests, no Docker; the now-unused `docker` marker and the `just test warehouse`
+  recipe went with them.
 * The CLI was deleted outright rather than shrunk: every command (including the eval
   TUI) started by loading a saved DAG **by name from the server**, and plan
   serialisation does not exist yet. Rebuilding it is a feature that depends on plan

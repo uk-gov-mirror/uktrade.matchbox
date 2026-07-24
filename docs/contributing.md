@@ -5,8 +5,8 @@ This document describes how to get started developing matchlab.
 * [Python 3.11+](https://www.python.org)
 * [uv](https://docs.astral.sh/uv/)
 * [just](https://just.systems/man/en/)
-* [Docker](https://www.docker.com) — only for the warehouse container used by
-  integration tests
+* [Docker](https://www.docker.com) — optional, only to run a real Postgres warehouse
+  locally. The test suite doesn't need it.
 
 ## Setup
 
@@ -50,20 +50,19 @@ just -l
 
 ## Run tests
 
-Most of the suite needs nothing but Python — it runs against in-memory DuckDB:
+The whole suite runs on Python alone — DuckDB in memory for storage, SQLite in a temp
+file for warehouses:
 
 ```shell
 just test
 ```
 
-Tests marked `warehouse` need a real database to read sources from. The recipe starts
-the container for you:
+No container is needed, including for the tests that compare SQL dialects.
+`validate_extract_transform` only asks a client what dialect it speaks, and SQLAlchemy
+answers that without connecting, so those tests use a Postgres-dialect engine that
+never opens a socket.
 
-```shell
-just test warehouse
-```
-
-To start the warehouse on its own:
+If you want a real Postgres to point matchlab at while developing:
 
 ```shell
 just warehouse -d --wait

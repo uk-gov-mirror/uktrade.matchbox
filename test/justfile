@@ -3,8 +3,3 @@ set working-directory := ".."
 # Run all tests
 default *ARGS:
     uv run pytest {{ARGS}}
-
-# Run tests that need the warehouse container
-warehouse *ARGS:
-    just warehouse -d
-    uv run pytest {{ARGS}} -m "warehouse"

@@ -1,23 +1,16 @@
-# ruff: noqa: E402 - the module-level skip must run before these imports
+"""Location behaviour across warehouse client types.
 
-import pytest as _pytest
+Parametrised over SQLAlchemy and ADBC clients — several tests exist specifically to
+compare dialect-specific extract/transform validation. Fixtures live in `conftest.py`;
+none of them needs Docker.
+"""
 
-# These tests are parametrised across SQLite, Postgres and ADBC warehouses — several
-# exist specifically to compare dialect-specific extract/transform validation, so they
-# need a live Postgres *warehouse*. Phase B deleted `test/fixtures/db.py` (which mixed
-# warehouse fixtures with server fixtures); the warehouse half still needs rebuilding
-# against the warehouse-only docker-compose.
-# TODO(phase-b): restore multi-warehouse fixtures and un-skip.
-_pytest.skip(
-    "multi-warehouse fixtures pending rebuild (see module docstring)",
-    allow_module_level=True,
-)
-
-WarehouseConnectionType = object
+from typing import TypeAlias
 
 import polars as pl
 import pytest
 from adbc_driver_manager import ProgrammingError
+from adbc_driver_manager.dbapi import Connection as AdbcConnection
 from polars.testing import assert_frame_equal
 from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
@@ -32,17 +25,20 @@ from matchlab.core.factories.sources import (
 )
 from matchlab.locations import ClientType, RelationalDBLocation
 
+#: What the `warehouse` fixture hands back — the client types a location accepts.
+WarehouseClient: TypeAlias = Engine | AdbcConnection
+
 
 @pytest.mark.parametrize(
     ("warehouse", "expected_client_type"),
     [
-        pytest.param("sqlite_in_memory", ClientType.SQLALCHEMY, id="sqlalchemy"),
+        pytest.param("sqla_sqlite", ClientType.SQLALCHEMY, id="sqlalchemy"),
         pytest.param("adbc_sqlite", ClientType.ADBC, id="adbc"),
     ],
     indirect=["warehouse"],
 )
 def test_relational_db_location_instantiation(
-    warehouse: WarehouseConnectionType,
+    warehouse: WarehouseClient,
     expected_client_type: ClientType,
 ) -> None:
     """Test that RelationalDBLocation can be instantiated with valid parameters."""
@@ -65,7 +61,7 @@ def test_relational_db_location_instantiation(
     ["sqla_sqlite", "adbc_sqlite"],
     indirect=True,
 )
-def test_relational_db_connect(warehouse: WarehouseConnectionType) -> None:
+def test_relational_db_connect(warehouse: WarehouseClient) -> None:
     """Test connecting to database."""
     location = RelationalDBLocation(name="dbname").set_client(warehouse)
     assert location.connect() is True
@@ -178,14 +174,13 @@ def test_relational_db_extract_transform(
             ).validate_extract_transform(sql)
 
 
-@pytest.mark.docker
 @pytest.mark.parametrize(
     "warehouse",
     ["sqla_sqlite", "adbc_sqlite"],
     indirect=True,
 )
 def test_relational_db_execute(
-    warehouse: WarehouseConnectionType,
+    warehouse: WarehouseClient,
     sqla_sqlite_warehouse: Engine,
 ) -> None:
     """Test executing a query and returning results using a real SQLite database."""
@@ -243,7 +238,7 @@ def test_relational_db_execute(
     ["sqla_sqlite", "adbc_sqlite"],
     indirect=True,
 )
-def test_relational_db_execute_invalid(warehouse: WarehouseConnectionType) -> None:
+def test_relational_db_execute_invalid(warehouse: WarehouseClient) -> None:
     """Test that invalid queries are handled correctly when executing."""
     location = RelationalDBLocation(name="dbname").set_client(warehouse)
 
