@@ -194,7 +194,11 @@ class View(Step):
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
         name: str | None = None,
     ) -> Model:
-        """Link this view to another source or cleaned view."""
+        """Link this view to another source or view.
+
+        `other` is viewed for you if it is a source, so the right-hand side of a link
+        never needs one unless you want to clean or group it.
+        """
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle
 
         right = other if isinstance(other, View) else other.view()

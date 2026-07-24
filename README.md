@@ -31,7 +31,7 @@ Read the [full documentation](https://uktrade.github.io/matchlab/).
 
 ## What it does
 
-* **A lazy plan.** `Source(...).view(...).dedupe(...).resolve()` builds a tree of steps.
+* **A lazy plan.** `Source(...).dedupe(...).resolve()` builds a tree of steps.
   Nothing runs until you `collect()`.
 * **Content-addressed caching.** Re-collecting an unchanged plan does no work. Adding a
   step runs only that step.

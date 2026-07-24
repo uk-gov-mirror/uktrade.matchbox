@@ -61,6 +61,18 @@ Steps chain. Each verb returns a new lazy step:
 | `.resolve(...)` | `Resolver` | Collapse candidate edges into clusters |
 | `.collect()` | (same step) | Run everything the step depends on |
 
+**You don't have to call `.view()`.** Every model needs one, but matchlab inserts it
+for you when you go straight from a source:
+
+```python
+crn.dedupe(model_class=NaiveDeduper, model_settings={...})
+crn.link(dh, model_class=DeterministicLinker, model_settings={...})
+```
+
+Both sides of a link are covered — passing a `Source` where a view is expected views
+it. Reach for `.view()` when you want to do one of the three things only a view can do:
+clean columns, `group`, or read through a resolver.
+
 ### Views
 
 A view says **which records a model matches over, and what shape they're in**. Both
@@ -80,9 +92,9 @@ Only the columns you name survive, plus `id` — the grouping the model matches 
 is how fields are named once a view is built.
 
 !!! note
-    `view(None)` means "no cleaning" and passes every column through. `view({})` is a
-    real projection that selects nothing, leaving only `id`. They are deliberately
-    different.
+    `view()` means "no cleaning" and passes every column through. `view(cleaning={})`
+    is a real projection that selects nothing, leaving only `id`. They are deliberately
+    different — "I didn't ask for a projection" and "I asked for an empty one".
 
 #### What `id` is, and when to group
 

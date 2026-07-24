@@ -289,10 +289,33 @@ class Source(Step):
         """
         return View(self, cleaning=cleaning, **kwargs)
 
-    def dedupe(self, *args: Any, **kwargs: Any) -> Model:
-        """Deduplicate this source. Shorthand for `self.view().dedupe(...)`."""
-        return self.view().dedupe(*args, **kwargs)
+    def dedupe(
+        self,
+        model_class: Any,  # noqa: ANN401 - a Deduper subclass
+        model_settings: Any,  # noqa: ANN401 - its settings model or a dict
+        name: str | None = None,
+    ) -> Model:
+        """Deduplicate this source's records.
 
-    def link(self, other: Source | View, *args: Any, **kwargs: Any) -> Model:
-        """Link this source to another source or cleaned view."""
-        return self.view().link(other, *args, **kwargs)
+        Shorthand for `self.view().dedupe(...)` — a view is only worth naming when you
+        want to clean, group, or read through a resolver.
+        """
+        return self.view().dedupe(
+            model_class=model_class, model_settings=model_settings, name=name
+        )
+
+    def link(
+        self,
+        other: Source | View,
+        model_class: Any,  # noqa: ANN401 - a Linker subclass
+        model_settings: Any,  # noqa: ANN401 - its settings model or a dict
+        name: str | None = None,
+    ) -> Model:
+        """Link this source to another source or view.
+
+        Shorthand for `self.view().link(...)`. `other` is viewed too if it is a
+        source, so neither side needs one.
+        """
+        return self.view().link(
+            other, model_class=model_class, model_settings=model_settings, name=name
+        )
