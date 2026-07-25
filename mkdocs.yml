@@ -6,6 +6,7 @@ repo_name: "uktrade/matchlab"
 nav:
 - Home:
   - Welcome: index.md
+  - Why matchlab: why-matchlab.md
   - Use cases: use-cases.md
 - Guide:
   - Install: guide/install.md
