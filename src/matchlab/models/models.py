@@ -82,6 +82,10 @@ class Model(Step):
 
     # -- Step contract ----------------------------------------------------------------
 
+    def __str__(self) -> str:
+        """A model is drawn with the class implementing it."""
+        return f"{self.kind}({self.model_class.__name__})"
+
     @property
     def config(self) -> ModelConfig:
         """The serialisable configuration for this model."""

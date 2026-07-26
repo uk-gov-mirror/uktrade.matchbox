@@ -614,6 +614,9 @@ def test_a_drawing_is_the_key_to_the_log(warehouse: Engine) -> None:
         assert f"[{position}] " in drawing
     # A source is drawn with its name, because a source has one.
     assert f"source '{crn.name}'" in drawing
+    assert "model(DeterministicLinker)" in drawing
+    assert "model(NaiveDeduper)" in drawing
+    assert "resolver(Components)" in drawing
 
 
 def test_publishing_points_a_label_at_a_resolution(

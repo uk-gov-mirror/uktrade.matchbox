@@ -90,7 +90,7 @@ class Step(ABC):
         return f"<{type(self).__name__} {'collected' if self.is_collected else 'lazy'}>"
 
     def __str__(self) -> str:
-        """How this step appears in a drawing. `Source` adds its name."""
+        """How this step appears in a drawing."""
         return self.kind
 
     @property

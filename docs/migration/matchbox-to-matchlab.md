@@ -89,19 +89,20 @@ a label belongs to a store.
 ### Everything else goes by position
 
 A step is referred to by where it falls in the plan — the order `collect` runs it in.
-So comparing two methodologies over one view needs no names and cannot collide:
+So trying two settings of a methodology over one view needs no names and cannot collide
+— where before, each needed a name you'd never use again:
 
 ```python
 view = crn.view(cleaning={...})
-naive = view.dedupe(NaiveDeduper, {...})
-splink = view.dedupe(SplinkLinker, {...})
-entities = naive.resolve(splink).collect().publish("entities")
+strict = view.dedupe(NaiveDeduper, {"unique_fields": ["name", "town"]})
+loose = view.dedupe(NaiveDeduper, {"unique_fields": ["name"]})
+entities = strict.resolve(loose).collect().publish("entities")
 ```
 
 Logs quote the position:
 
 ```
-[crn] Reading from the warehouse
+[step 0] Reading from the warehouse
 [step 0] Ran in 0.004s
 [step 2] Ran in 0.041s
 [step 3] Ran in 0.012s
@@ -111,17 +112,18 @@ Logs quote the position:
 and `draw()` numbers the same walk:
 
 ```
-● [4] resolver
-    ├── ● [3] model
+● [4] resolver(Components)
+    ├── ● [3] model(NaiveDeduper)
     │   └── ● [1] view
     │       └── ● [0] source 'crn'
-    └── ● [2] model
-        └── ● [1] view
-            └── ● [0] source 'crn'
+    └── ● [2] model(NaiveDeduper)
+        └── ● [1] view ↑
 ```
 
 The shared view appears as `[1]` under both models, because it *is* one node read twice
-rather than two identical ones.
+rather than two identical ones — drawn in full where you first meet it, and marked `↑`
+after. Step 1 has no line of its own in the log: a view feeding models is fused into
+them rather than materialised.
 
 ### Per-model thresholds take the model, not its name
 

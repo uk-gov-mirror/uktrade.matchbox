@@ -121,6 +121,10 @@ class Resolver(Step):
 
     # -- Step contract ----------------------------------------------------------------
 
+    def __str__(self) -> str:
+        """A resolver is drawn with the methodology implementing it."""
+        return f"{self.kind}({self.resolver_class.__name__})"
+
     @property
     def config(self) -> ResolverConfig:
         """The serialisable configuration for this resolver."""

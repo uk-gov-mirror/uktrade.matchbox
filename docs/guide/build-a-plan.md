@@ -80,7 +80,7 @@ halves matter, and the first is the one that's easy to miss.
 
 ```python
 cleaned = crn.view(
-    {
+    cleaning={
         "name": f"lower({crn.f('company')})",
         "town": crn.f("town"),
     }
@@ -267,22 +267,26 @@ At a terminal, `collect()` draws the plan as a tree and redraws it in place as e
 step settles — one frame, not one tree per step:
 
 ```
-○ [7] resolver
-    ├── ○ [6] resolver
-    │   └── ◐ [5] model running 2.6s
-    │       └── ◌ [3] view fused
-    │           └── ● [2] source 'crn' 0.3s
-    └── ● [4] model 0.5s
+○ [6] resolver(Components)
+    ├── ◐ [5] model(NaiveDeduper) running 2.6s
+    │   └── ◌ [3] view fused
+    │       └── ● [2] source 'crn' 0.3s
+    └── ● [4] model(DeterministicLinker) 0.5s
         ├── ◌ [3] view fused ↑
         └── ◌ [1] view fused
             └── ● [0] source 'dh' 0.2s
-○ waiting   ◐ running   ● ran   ◍ cached   ◌ fused
+○ waiting   ◐ running   ● ran   ◌ fused
 ```
 
 The number in brackets is the step's **position**, and it is the same number
 everywhere: `[5]` here is `[step 5]` in the log and `steps[5]` in a
 [document](../api/steps.md). Since steps have no names, that cross-reference is how
 you know which node a line is about — which is why every mode puts the tree somewhere.
+
+Next to it is what the step *is*. A model and a resolver name the class implementing
+them in parentheses, so `[5]` reads as the naive dedupe rather than as another
+anonymous `model` line; a source names itself in quotes, since a source is the one step
+with a name. A view is just a view.
 
 The legend lists only what's on screen. A node feeding two branches is one node, so it
 is drawn in full where you first meet it and marked `↑` after: `[3]` above feeds both
@@ -298,21 +302,26 @@ Where nothing is drawn — a scheduler, CI, a redirected stream — the same tre
 **once**, up front, with each step reporting beneath it:
 
 ```
-INFO  Collecting 8 steps:
-○ [7] resolver
-    ├── ○ [6] resolver
-    │   └── ○ [5] model
-    │       └── ○ [3] view
-    │           └── ○ [2] source 'crn'
-    └── ○ [4] model
+INFO  Collecting 7 steps:
+○ [6] resolver(Components)
+    ├── ○ [5] model(NaiveDeduper)
+    │   └── ○ [3] view
+    │       └── ○ [2] source 'crn'
+    └── ○ [4] model(DeterministicLinker)
         ├── ○ [3] view ↑
         └── ○ [1] view
             └── ○ [0] source 'dh'
+INFO  [step 0] Reading from the warehouse
 INFO  [step 0] Ran in 0.160s
 DEBUG [step 1] Fused into its consumer
+INFO  [step 2] Reading from the warehouse
 INFO  [step 2] Ran in 0.255s
+DEBUG [step 3] Fused into its consumer
+INFO  [step 4] Round 1: Found 2 matches
 INFO  [step 4] Ran in 0.515s
-INFO  Collected 8 steps (6 ran, 0 cached, 2 fused) in 1.864s
+INFO  [step 5] Ran in 0.284s
+INFO  [step 6] Ran in 0.104s
+INFO  Collected 7 steps (5 ran, 0 cached, 2 fused) in 1.402s
 ```
 
 Work done is `INFO`; skipping — cached, fused — is `DEBUG`, and the closing summary
@@ -342,14 +351,15 @@ rows around the running step and says how many are hidden either side, following
 run down the tree. The last frame is the whole thing.
 
 ```
-⋮ 1 more above · 11 more below
-    ├── ○ [12] resolver
-    │   ├── ○ [11] resolver
-    │   │   ├── ○ [10] resolver
-    │   │   │   ├── ◐ [9] resolver running 0.0s
-    │   │   │   │   ├── ○ [8] model
-    │   │   │   │   │   └── ◍ [7] view cached
-    │   │   │   │   │       └── ◍ [0] source 'dh' cached
+⋮ 4 more above · 27 more below
+    │   │   └── ○ [12] resolver(Components)
+    │   │       ├── ○ [11] model(NaiveDeduper)
+    │   │       │   └── ○ [10] view
+    │   │       │       └── ○ [9] source 'crn' ↑
+    │   │       ├── ◐ [8] model(NaiveDeduper) running 0.4s
+    │   │       │   └── ◍ [7] view cached
+    │   │       │       └── ◍ [6] source 'dh' cached
+    │   │       ├── ◍ [5] model(NaiveDeduper) cached
 ○ waiting   ◐ running   ◍ cached
 ```
 
@@ -407,13 +417,13 @@ logs quote and what `draw()` shows in brackets.
 print(entities.draw())
 ```
 ```
-○ [4] resolver 'entities'
-    ├── ○ [3] model
-    │   └── ○ [1] view
-    │       └── ○ [0] source 'crn'
-    └── ○ [2] model
-        └── ○ [1] view
-            └── ○ [0] source 'crn'
+● [6] resolver(Components)
+    ├── ● [5] model(NaiveDeduper)
+    │   └── ● [4] view
+    │       └── ● [3] source 'crn'
+    └── ● [2] model(NaiveDeduper)
+        └── ● [1] view
+            └── ● [0] source 'dh'
 ```
 
 Positions are relative to the apex you collected or drew from, so a plan and a
