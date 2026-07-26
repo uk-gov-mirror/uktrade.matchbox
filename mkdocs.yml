@@ -19,6 +19,7 @@ nav:
   - Plan:
     - Steps: api/steps.md
     - Lineage: api/lineage.md
+    - Progress: api/progress.md
     - Sources: api/sources.md
     - Views: api/views.md
     - Models: api/models.md

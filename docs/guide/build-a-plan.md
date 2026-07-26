@@ -261,6 +261,75 @@ To collect somewhere other than the default store:
 entities.collect(adapter=DuckDBAdapter("./run.duckdb"))
 ```
 
+### Watching it run
+
+At a terminal, `collect()` draws the plan as a tree and redraws it in place as each
+step settles — one frame, not one tree per step:
+
+```
+○ [7] resolver
+    ├── ○ [6] resolver
+    │   └── ◐ [5] model running 2.6s
+    │       └── ◌ [3] clean fused
+    │           └── ● [2] source 'crn' 0.3s
+    └── ● [4] model 0.5s
+        ├── ◌ [3] clean fused ↑
+        └── ◌ [1] clean fused
+            └── ● [0] source 'dh' 0.2s
+○ waiting   ◐ running   ● ran   ◍ cached   ◌ fused
+```
+
+The number in brackets is the step's **position**, and it is the same number
+everywhere: `[5]` here is `[step 5]` in the log and `steps[5]` in a
+[document](../api/steps.md). Since steps have no names, that cross-reference is how
+you know which node a line is about — which is why every mode puts the tree somewhere.
+
+The legend lists only what's on screen. A node feeding two branches is one node, so it
+is drawn in full where you first meet it and marked `↑` after: `[3]` above feeds both
+models but runs once, and its inputs are listed under its first appearance rather than
+repeated. On plans with a shared base that is the difference between a readable tree
+and a few hundred lines.
+
+`cached` is the one to watch: it is the plan telling you your edit didn't invalidate
+that step, so nothing was recomputed. `fused` marks a view that was folded into its
+consumer rather than materialised.
+
+Away from a terminal — a scheduler, CI, a redirected log — there is nothing to redraw,
+so the same tree is logged **once**, up front, and each step reports beneath it:
+
+```
+INFO  Collecting 8 steps:
+○ [7] resolver
+    ├── ○ [6] resolver
+    │   └── ○ [5] model
+    │       └── ○ [3] clean
+    │           └── ○ [2] source 'crn'
+    └── ○ [4] model
+        ├── ○ [3] clean ↑
+        └── ○ [1] clean
+            └── ○ [0] source 'dh'
+INFO  [step 0] Ran in 0.160s
+DEBUG [step 1] Fused into its consumer
+INFO  [step 2] Ran in 0.255s
+INFO  [step 4] Ran in 0.515s
+INFO  Collected 8 steps (6 ran, 0 cached, 2 fused) in 1.864s
+```
+
+Work done is `INFO`; skipping — cached, fused — is `DEBUG`, and the closing summary
+totals both so an `INFO` reader still sees what the run avoided. Like any library
+logger it is silent until you configure logging:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+```
+
+A plan taller than your terminal uses the logged form too, since a tree that can't be
+redrawn in place can't be a live frame — and cropping it would lose the very positions
+the lines quote. Force a channel with `collect(progress=True)` or
+`collect(progress=False)`.
+
 ## Inspecting
 
 ```python

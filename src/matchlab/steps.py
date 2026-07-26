@@ -20,7 +20,6 @@ refresh), while an existing `Source` object memoises its read.
 from __future__ import annotations
 
 import json
-import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Self
 from weakref import WeakSet
@@ -31,7 +30,8 @@ from pydantic import BaseModel
 from matchlab import lineage
 from matchlab.adapters import Adapter, DuckDBAdapter, Fingerprint
 from matchlab.core.hash import HASH_FUNC
-from matchlab.core.logging import logger
+from matchlab.lineage import StepStatus
+from matchlab.progress import report
 
 if TYPE_CHECKING:
     import polars as pl
@@ -97,7 +97,7 @@ class Step(ABC):
         A position is not stored here, because it is not a property of the step: it
         belongs to the walk it came from, and the same step numbers differently in
         `walk(deduped)` and `walk(companies)`. Whoever does the walking passes it to
-        whoever needs it — `collect` to `_ensure`, `draw` to its own renderer.
+        whoever needs it — `collect` to its reporter, `draw` to its own renderer.
 
         Finding a result later is a separate matter, and a separate act:
         `Resolver.publish` points a **label** at a resolution. `Source` is the one step
@@ -202,38 +202,43 @@ class Step(ABC):
         """Compute this step and persist its artifact under `fp`."""
         ...
 
-    def _ensure(self, adapter: Adapter, position: int) -> None:
+    def _ensure(self, adapter: Adapter) -> StepStatus:
         """Materialise this step unless its artifact is already stored.
 
-        Logging lives here rather than in `_execute` because this is the level that
-        knows the step's position, and the position is what a log line has to quote to
-        be findable in the plan `collect` printed. It keeps `_execute` to the work.
+        This classifies the outcome but reports none of it. `collect` holds the walk,
+        and therefore each step's position — the thing a log line has to quote to be
+        findable in the plan it printed — so reporting belongs there, with the single
+        `matchlab.progress.Progress` that owns both channels. That is also what keeps
+        the live tree and the log from ever disagreeing. This keeps to the work.
+
+        Returns:
+            What it took: `DONE` if this call computed the step, `CACHED` if the
+            artifact was already stored, `FUSED` if this kind stores nothing.
         """
         self._adapter = adapter
-        prefix = f"step {position}"
 
         if self._fp is not None and (not self.stores or adapter.has(self._fp)):
-            return
+            return StepStatus.FUSED if not self.stores else StepStatus.CACHED
 
         fp = self._fingerprint()
 
         if not self.stores:
             self._fp = fp
-            return
+            return StepStatus.FUSED
 
         if adapter.has(fp):  # cache hit — skip the work entirely
-            logger.debug("Cached", prefix=prefix)
             self._fp = fp
-            return
+            return StepStatus.CACHED
 
-        start = time.perf_counter()
         self._execute(adapter, fp)
-        logger.info(f"Ran in {time.perf_counter() - start:.3f}s", prefix=prefix)
         self._fp = fp
+        return StepStatus.DONE
 
     # -- public API -------------------------------------------------------------------
 
-    def collect(self, adapter: Adapter | None = None) -> Self:
+    def collect(
+        self, adapter: Adapter | None = None, progress: bool | None = None
+    ) -> Self:
         """Materialise this step and everything it depends on.
 
         Steps whose artifact is already stored are skipped without being run, so
@@ -242,15 +247,26 @@ class Step(ABC):
         Args:
             adapter: Where to read and write artifacts. Defaults to the module-level
                 adapter (a DuckDB store in the user cache directory).
+            progress: Whether to draw the plan as a live tree, redrawn in place. `None`
+                — the default — draws it at a terminal and logs the same tree plus a
+                record per step anywhere else. See `matchlab.progress`.
 
         Returns:
             This step, now collected.
         """
         adapter = adapter or default_adapter()
-        # The position each step is logged under. `draw()` numbers the same walk, so a
-        # `step 7` in the output is the node drawn as `[7]`.
-        for position, step in enumerate(lineage.walk(self)):
-            step._ensure(adapter, position)
+        # One walk, used for both. It fixes each step's position, so a `step 7` the
+        # reporter logs is the node it drew as `[7]`.
+        steps = lineage.walk(self)
+        with report(self, steps, progress) as reporter:
+            for step in steps:
+                reporter.begin(step)
+                try:
+                    status = step._ensure(adapter)
+                except Exception:
+                    reporter.end(step, StepStatus.FAILED)
+                    raise
+                reporter.end(step, status)
         return self
 
     def lineage(self) -> list[Step]:

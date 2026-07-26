@@ -86,10 +86,12 @@ class View(Step):
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         adapter.store_clean(fp, self._compute(adapter))
 
-    def collect(self, adapter: Adapter | None = None) -> Self:
+    def collect(
+        self, adapter: Adapter | None = None, progress: bool | None = None
+    ) -> Self:
         """Materialise this cleaned view (and its inputs) rather than fusing it."""
         self.stores = True
-        return super().collect(adapter)
+        return super().collect(adapter, progress)
 
     # -- data -------------------------------------------------------------------------
 

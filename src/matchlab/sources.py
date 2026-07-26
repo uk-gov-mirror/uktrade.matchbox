@@ -29,7 +29,7 @@ from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.config import SourceConfig
 from matchlab.core.db import QueryReturnClass, QueryReturnType
 from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
-from matchlab.core.logging import logger, profile_time
+from matchlab.core.logging import logger
 from matchlab.core.resolution import leaf_id
 from matchlab.steps import Step
 from matchlab.views import View
@@ -198,7 +198,6 @@ class Source(Step):
         """Peek at the first `n` rows without collecting."""
         return next(self.fetch(batch_size=n, return_type=return_type))
 
-    @profile_time(attr="name")
     def _read_warehouse(self) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Read the source and content-address every row. Memoised.
 

@@ -8,14 +8,98 @@ every graph operation is a pure function of a root node.
 Nodes are deduplicated by **object identity**, not by name or config: a node feeding
 two branches is one object and is visited once (structural sharing), while two
 structurally identical but distinct nodes are two plan entries.
+
+`draw` also owns the vocabulary for *how a step is doing* — `StepStatus` and
+`StepState` — because the tree is where that vocabulary is read. `matchlab.progress`
+drives it during a collection; nothing here executes anything.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from matchlab.steps import Step
+
+
+class StepStatus(StrEnum):
+    """Where a step has got to in a collection.
+
+    `CACHED` and `DONE` both mean the artifact is available; they differ in whether
+    this collection paid for it. That distinction is the whole point of showing
+    progress for a content-addressed plan — it is how you see what your edit
+    invalidated.
+    """
+
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    CACHED = "cached"
+    FUSED = "fused"
+    FAILED = "failed"
+
+    @property
+    def marker(self) -> str:
+        """A single-width glyph for this status.
+
+        Deliberately geometric rather than emoji: emoji are double-width in some
+        terminals and single in others, which knocks a tree's guide lines out of
+        alignment line by line.
+        """
+        return _MARKERS[self]
+
+    @property
+    def style(self) -> str:
+        """A Rich style for this status, used when drawing with markup."""
+        return _STYLES[self]
+
+
+_MARKERS: dict[StepStatus, str] = {
+    StepStatus.PENDING: "○",
+    StepStatus.RUNNING: "◐",
+    StepStatus.DONE: "●",
+    StepStatus.CACHED: "◍",
+    StepStatus.FUSED: "◌",
+    StepStatus.FAILED: "✗",
+}
+
+_STYLES: dict[StepStatus, str] = {
+    StepStatus.PENDING: "dim",
+    StepStatus.RUNNING: "bold yellow",
+    StepStatus.DONE: "bold green",
+    StepStatus.CACHED: "cyan",
+    StepStatus.FUSED: "dim",
+    StepStatus.FAILED: "bold red",
+}
+
+
+#: Statuses where an elapsed time is worth showing — the ones that spent any.
+_TIMED = (StepStatus.RUNNING, StepStatus.DONE, StepStatus.FAILED)
+
+
+@dataclass(frozen=True)
+class StepState:
+    """A step's status, and how long it has been in it."""
+
+    status: StepStatus
+    elapsed: float | None = None
+
+    def annotation(self) -> str:
+        """The trailing detail shown after a step in a drawing, possibly empty.
+
+        A time is shown only where it was spent: a cached or fused step reads
+        `cached` / `fused` alone, because `0.0s` next to it says nothing.
+        """
+        parts: list[str] = []
+        if self.status not in (StepStatus.PENDING, StepStatus.DONE):
+            parts.append(self.status.value)
+        if self.elapsed is not None and self.status in _TIMED:
+            parts.append(f"{self.elapsed:.1f}s")
+        return " ".join(parts)
 
 
 def walk(root: Step) -> list[Step]:
@@ -53,8 +137,8 @@ def number(root: Step) -> dict[int, int]:
     A step is referred to by position — in logs, in `draw()`, and in a document.
     The position belongs to the walk rather than to the step: the
     same node numbers differently in `walk(deduped)` and `walk(companies)`, so nothing
-    is written back onto the steps. Callers that need one hold this mapping, or are
-    handed the number directly, as `collect` hands it to `_ensure`.
+    is written back onto the steps. Callers that need one hold this mapping, as
+    `draw` does and as `matchlab.progress.Progress` does for the walk `collect` gave it.
 
     Returns:
         Step identity to position, in walk order.
@@ -62,7 +146,12 @@ def number(root: Step) -> dict[int, int]:
     return {id(step): position for position, step in enumerate(walk(root))}
 
 
-def draw(root: Step) -> str:
+def draw(
+    root: Step,
+    state: Mapping[int, StepState] | None = None,
+    *,
+    markup: bool = False,
+) -> str:
     """Render `root`'s sub-plan as an indented tree, inputs nested beneath consumers.
 
     Each node carries its **position** — the index `collect` runs it at, and the index
@@ -70,13 +159,57 @@ def draw(root: Step) -> str:
     `step 7` is the node drawn as `[7]`. Positions come from `walk`, not from the order
     these lines happen to be printed in, since a tree nests consumers above their
     inputs while a walk lists inputs first.
+
+    Args:
+        root: The step to draw, along with everything upstream of it.
+        state: Per-step status, keyed by `id(step)` as `number` is. Steps missing from
+            the mapping are drawn as `PENDING`. When omitted, each step is drawn from
+            its own `is_collected` flag instead — a static view of a plan you hold.
+        markup: Emit Rich markup, styling each marker and annotation by status. Off by
+            default, so the return value stays printable anywhere.
+
+    Returns:
+        The tree, one line per node plus one per repeat reference.
+
+    A node feeding several branches is expanded where it is first met and marked `↑`
+    everywhere after, rather than having its whole subtree redrawn each time. Positions
+    are what make that readable — `↑ [12]` names the node you already have — and
+    without it the drawing contradicts the structural sharing it is meant to show: the
+    24-step plan in `examples/companies` draws 187 lines expanded, and 39 like this.
     """
     position = number(root)
     lines: list[str] = []
+    expanded: set[int] = set()
 
     def render(step: Step, prefix: str, connector: str) -> None:
-        marker = "●" if step.is_collected else "○"
-        lines.append(f"{prefix}{connector}{marker} [{position[id(step)]}] {step}")
+        if state is None:
+            marker = "●" if step.is_collected else "○"
+            style, annotation = "", ""
+        else:
+            step_state = state.get(id(step), StepState(StepStatus.PENDING))
+            marker = step_state.status.marker
+            style = step_state.status.style
+            annotation = step_state.annotation()
+
+        repeat = id(step) in expanded
+        expanded.add(id(step))
+
+        label = f"[{position[id(step)]}] {step}"
+        if annotation:
+            label = f"{label} {annotation}"
+        if repeat:
+            label = f"{label} ↑"
+
+        # Escape the whole label, not just the step: `[7]` would itself parse as a
+        # style tag.
+        row = (
+            f"[{style}]{marker}[/] {_escape(label)}" if markup else f"{marker} {label}"
+        )
+
+        lines.append(f"{prefix}{connector}{row}")
+        if repeat:  # already drawn in full above; the reference is the whole line
+            return
+
         child_prefix = prefix + ("    " if connector in ("└── ", "") else "│   ")
         parents = step.upstream
         for index, parent in enumerate(parents):
@@ -85,3 +218,8 @@ def draw(root: Step) -> str:
 
     render(root, "", "")
     return "\n".join(lines)
+
+
+def _escape(text: str) -> str:
+    """Escape Rich markup, so a `[7]` isn't read as a style tag."""
+    return text.replace("[", r"\[")

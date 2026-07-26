@@ -637,10 +637,10 @@ source cannot be fingerprinted without first reading its warehouse.
 **A position is not stored on the step.** It belongs to the walk it came from — the
 same node numbers differently in `walk(deduped)` and `walk(companies)` — so writing one
 back would make it a lie as soon as anything walked from elsewhere. Whoever walks passes
-it to whoever needs it: `collect` hands it to `_ensure`, `draw` keeps its own mapping
-from `lineage.number`, which is a pure function. That is also why all per-step run
-logging lives in `_ensure` rather than in `_execute`: `_ensure` is the level that has
-the number, and it keeps `_execute` to the work.
+it to whoever needs it: `collect` hands its walk to a reporter, `draw` keeps its own
+mapping from `lineage.number`, which is a pure function. That is also why no per-step
+run logging lives in `_ensure` or `_execute`: neither has the number. `_ensure`
+classifies the outcome and returns it; `collect` — which does have the walk — reports.
 
 A log line is `[step 2] Ran in 0.041s`, and `draw()` numbers the same walk, so the
 drawing is the key to the output:
@@ -657,8 +657,8 @@ drawing is the key to the output:
 
 An earlier cut had each step describe itself in prose as it ran (`NaiveDeduper deduping
 crn`). Dropped: the plan says the same thing structurally, and a per-step sentence is a
-second, drifting description of what the code already states. Whether and how `collect`
-surfaces the plan itself is being worked out separately; it does not print one today.
+second, drifting description of what the code already states. How `collect` surfaces
+the plan itself is settled two sections down.
 
 That reverses the default. Comparing two methodologies over one view, or cleaning a
 source several ways, now needs no names at all; before, the plan refused to collect
@@ -723,6 +723,54 @@ a proxy for the thing that actually collides, which is labels in a store, across
 resolution later (mitigated because a miss lists the known labels). And a transferred
 plan no longer carries an intended label, so the receiving environment publishes under
 whatever it wants.
+
+#### `collect` surfaces the plan (2026-07-26)
+
+Which settles the question "Names are publications" left open. Because a position means
+nothing without the drawing that numbers it, `collect` has to put the plan on screen —
+that is no longer decoration, it is the key to its own output. `matchlab.progress` owns
+two deliveries of one renderer:
+
+* at a terminal, a `rich.Live` frame redrawn at 8/s, so the row that lights up is the
+  row numbered `[7]`;
+* anywhere else, the same tree logged **once** as a single multi-line record — the way
+  a traceback is logged, so nothing can interleave it apart — then one record per step
+  prefixed `[step N]`.
+
+A plan taller than the console takes the logged form whatever `progress=` says: a tree
+that cannot be redrawn in place cannot be a live frame, and Rich's default crop would
+eat all but the apex — the least informative slice early in a run, and the positions
+with it. An earlier cut collapsed to a one-line counter instead; dropped, because a
+counter with no tree loses the cross-reference entirely, and falling back to the log
+channel is one mechanism rather than a third.
+
+Three consequences worth recording. **Reporting moved out of `_ensure`**, reversing the
+note above: one object owning both channels is what stops them disagreeing, and what
+lets it drop its own records to `DEBUG` while a live frame is up, since a
+`StreamHandler` on the same terminal would smear the frame between redraws. **Levels
+split by what happened** — `Ran in 0.041s` at `INFO`, `Cached` / `Fused` at `DEBUG`,
+`Failed` at `ERROR` — with the closing summary totalling them so an `INFO` reader still
+learns what the run skipped. **A nested collection prints no tree and drops everything
+to `DEBUG`**: `Model.results()` can collect, and Rich permits one live display per
+console anyway, but the deciding reason is that an inner run's positions come from a
+different walk, so numbering them against the tree on screen would be a lie.
+
+`StepStatus` and `StepState` live in `lineage` beside `draw`, because the tree is where
+that vocabulary is read, and it keeps the import graph acyclic: `lineage` imports
+nothing, `progress` imports `lineage`, `steps` imports both.
+
+**`draw` collapses repeat branches**, found while pointing this at `examples/companies`:
+that plan is 24 steps and drew **187 lines**, because a shared node had its whole
+subtree redrawn under every consumer — cost exponential in the depth of the sharing,
+on a plan shape (one resolver feeding every pairwise link) the library actively
+encourages. A node is now expanded where first met and marked `↑` after, taking it to
+39 lines. Positions are what make that legible: `↑ [12]` names a node you already have,
+where an unnamed back-reference would just be a dead end. The drawing had been
+contradicting the structural sharing it exists to show.
+
+*Caveat, accepted:* third-party `INFO` logging on the same terminal can still smear a
+live frame. Only matchlab's own records are demoted, and the frame self-heals on the
+next redraw.
 
 ### Loose ends closed
 

@@ -74,6 +74,27 @@ def test_walk_from_a_leaf_is_just_the_leaf() -> None:
     assert [step.label for step in lineage.walk(leaf)] == ["leaf"]
 
 
+def test_draw_expands_a_shared_node_once_and_refers_back_after() -> None:
+    """Otherwise the drawing contradicts the sharing it exists to show.
+
+    Redrawing a shared subtree per branch is exponential in the depth of the sharing —
+    the `examples/companies` plan is 24 steps and 187 expanded lines. A position makes
+    the back-reference readable: `↑ [0]` names a node you have already seen.
+    """
+    shared = FakeStep("shared")
+    left = FakeStep("left", upstream=(shared,))
+    right = FakeStep("right", upstream=(shared,))
+    root = FakeStep("root", upstream=(left, right))
+
+    drawing = lineage.draw(root)
+
+    assert drawing.count("shared") == 2  # once expanded, once referred to
+    assert drawing.count("shared ↑") == 1
+    # Every node is still named at its own position, which is what the log quotes.
+    for position in lineage.number(root).values():
+        assert f"[{position}] " in drawing
+
+
 def test_draw_nests_inputs_under_consumers() -> None:
     source = FakeStep("source")
     apex = FakeStep("apex", upstream=(source,))

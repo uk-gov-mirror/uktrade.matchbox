@@ -1,28 +1,22 @@
-"""Logging utilities."""
+"""The logger and console everything in matchlab reports through.
 
-import functools
-import importlib.metadata
+Two objects, one each for the two ways output leaves the library:
+
+* `logger` — the `matchlab` logger, wrapped so any call can take a `prefix=`. Like any
+  library logger it has no handler of its own, and is silent until the application
+  configures logging.
+* `console` — the Rich console. `matchlab.progress` draws the collection tree on it,
+  and tests swap it for a quiet one.
+
+Both are module attributes rather than values passed around, which is why
+`matchlab.progress` reads them through the module (`mlog.console`): that is what lets a
+test patch one and have the library pick it up.
+"""
+
 import logging
-import os
-import time
-from collections.abc import Callable
-from typing import Any, Final, Literal, ParamSpec, TypeVar
+from typing import Any, Final
 
-import psutil
 from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
-
-_PLUGINS = None
-
-LogLevelType = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-"""Type for all Python log levels."""
 
 
 class PrefixedLoggerAdapter(logging.LoggerAdapter):
@@ -61,156 +55,17 @@ logger: Final[PrefixedLoggerAdapter] = PrefixedLoggerAdapter(
 
 Used for all logging in the matchlab library.
 
-Allows passing a prefix to any logging call.
+Allows passing a prefix to any logging call. A collection prefixes each record with the
+step's position, which is what ties the record to the plan `collect` drew.
 
 Examples:
     ```python
-    log_prefix = f"Model {name}"
-    logger.debug("Inserting metadata", prefix=log_prefix)
-    logger.debug("Inserting data", prefix=log_prefix)
-    logger.info("Insert successful", prefix=log_prefix)
+    logger.info("Ran in 0.041s", prefix="step 2")
     ```
 """
 
 console: Final[Console] = Console()
 """Console for matchlab.
 
-Used for any CLI utilities in the matchlab library.
+Where `matchlab.progress` draws a collection's plan, and where any CLI utility writes.
 """
-
-
-def build_progress_bar(console_: Console | None = None) -> Progress:
-    """Create a progress bar."""
-    if console_ is None:
-        console_ = console
-
-    return Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        console=console_,
-    )
-
-
-T = TypeVar("T")
-P = ParamSpec("P")
-
-
-def profile_time(
-    logger: PrefixedLoggerAdapter = logger,
-    level: int = logging.INFO,
-    prefix: str | None = "Profiling",
-    attr: str | None = None,
-    kwarg: str | None = None,
-) -> Callable[[Callable[P, T]], Callable[P, T]]:
-    """Decorator to profile running time of functions and methods using logger.
-
-    Args:
-        logger: The logger to use.
-        level: The level to use to log the profiling information. It defaults to INFO.
-        prefix: Prefix to pass to the logged message.
-        attr: Attribute name to extract from instantiated class.
-        kwarg: Argument name to extract from function call.
-
-    `attr` should be used when we want to include some class atribute in the log, e.g.
-    node name in Source.
-    `kwarg` should be used when we want to include the value passed to some function
-    argument, e.g. path in `set_data`. This will only work if the argument is passed
-    to the function as a kwarg, and not a positional argument.
-    """
-
-    def decorator(func: Callable[P, T]) -> Callable[P, T]:
-        @functools.wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            # If attr, will try to get its value from class instance
-            if attr is not None:
-                # If class, first argument will be self
-                self = args[0] if args else None
-                node = getattr(self, attr) if self and hasattr(self, attr) else None
-            # If kwarg, will try to get value passed to function
-            if kwarg is not None:
-                value = kwargs.get(kwarg)
-
-            start = time.perf_counter()
-            try:
-                return func(*args, **kwargs)
-            finally:
-                duration = time.perf_counter() - start
-
-                if attr:
-                    msg = f"`{func.__name__}` in node `{node}` took {duration:.3f}s"
-                elif kwarg:
-                    msg = (
-                        f"`{func.__name__}` with {kwarg} `{value}` took {duration:.3f}s"
-                    )
-                else:
-                    msg = f"`{func.__name__}` took {duration:.3f}s"
-
-                logger.log(level, msg, prefix=prefix)
-
-        return wrapper
-
-    return decorator
-
-
-def log_mem_usage(
-    logger: PrefixedLoggerAdapter = logger,
-    level: int = logging.INFO,
-    prefix: str | None = "Profiling",
-) -> None:
-    """Log current memory usage for this process."""
-    proc = psutil.Process(os.getpid())
-    usage = proc.memory_info().rss / (1024**2)
-    msg = f"Current memory used by process (MiB): {usage}"
-    logger.log(level, msg, prefix=prefix)
-
-
-def get_formatter() -> logging.Formatter:
-    """Retrieve plugin registered in 'matchlab.logging' entry point, or fallback."""
-    global _PLUGINS
-    if _PLUGINS is None:
-        _PLUGINS = []
-        for ep in importlib.metadata.entry_points(group="matchlab.logging"):
-            try:
-                _PLUGINS.append(ep.load()())
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Failed to load logging plugin: {e}")
-
-    if _PLUGINS:
-        return _PLUGINS[0]
-
-    return logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-
-def configure_celery_logging(level: int = logging.INFO) -> None:
-    """Configure root and celery loggers to use matchlab formatting.
-
-    This should also get logging from matchlab code running in forked processes.
-    """
-    root = logging.getLogger()
-    root.setLevel(level)
-
-    # Create handler
-    handler = logging.StreamHandler()
-    handler.setLevel(level)
-    handler.setFormatter(get_formatter())
-
-    # Clear handlers and add our formatted handler to root
-    root.handlers.clear()
-    root.addHandler(handler)
-
-    # Propagate celery loggers to root so they use our handler/formatter
-    for name in ("celery", "celery.app.trace", "celery.worker", "celery.task"):
-        log = logging.getLogger(name)
-        log.handlers.clear()
-        log.propagate = True
-        log.setLevel(level)
-
-    # Propagate matchlab loggers to root too
-    mb = logging.getLogger("matchlab")
-    mb.handlers.clear()
-    mb.propagate = True
-    mb.setLevel(level)

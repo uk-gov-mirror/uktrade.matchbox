@@ -5,7 +5,6 @@ from unittest.mock import patch
 
 import pytest
 from rich.console import Console
-from rich.progress import Progress
 from sqlalchemy import Engine, create_engine
 
 TEST_ROOT = Path(__file__).resolve().parent
@@ -32,14 +31,10 @@ def test_root_dir() -> Path:
 
 @pytest.fixture(scope="session", autouse=True)
 def patch_rich_console() -> Iterator[None]:
-    """Patch Rich console for quiet output in tests."""
-    quiet_console = Console(quiet=True)
+    """Patch Rich console for quiet output in tests.
 
-    console_patch = patch("matchlab.core.logging.console", new=quiet_console)
-    progress_patch = patch(
-        "matchlab.core.logging.build_progress_bar",
-        return_value=Progress(console=quiet_console),
-    )
-
-    with console_patch, progress_patch:
+    A quiet console also keeps `collect`'s progress tree out of the test output;
+    `test_progress` swaps in a recording console where it wants to read what was drawn.
+    """
+    with patch("matchlab.core.logging.console", new=Console(quiet=True)):
         yield
