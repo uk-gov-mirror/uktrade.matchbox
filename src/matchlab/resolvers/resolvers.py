@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.config import ResolverConfig
 from matchlab.core.exceptions import StepNotFound
-from matchlab.core.logging import logger, profile_time
 from matchlab.core.resolution import materialise_resolution
 from matchlab.models import Model
 from matchlab.resolvers.base import ResolverMethod, ResolverSettings
@@ -45,7 +44,6 @@ class Resolver(Step):
         *models: Model,
         resolver_class: type[ResolverMethod] | str = "Components",
         resolver_settings: ResolverSettings | dict[str, Any] | None = None,
-        name: str | None = None,
     ) -> None:
         """Define a resolver.
 
@@ -54,7 +52,6 @@ class Resolver(Step):
             resolver_class: A `ResolverMethod` subclass or its registered name.
                 Defaults to connected components.
             resolver_settings: Settings for that methodology.
-            name: Optional plan name; derived from the first input when omitted.
         """
         deduped: list[Model] = []
         for model in models:
@@ -73,18 +70,54 @@ class Resolver(Step):
             else resolver_class
         )
         settings = resolver_settings if resolver_settings is not None else {}
-        self.resolver_instance = self.resolver_class(settings=settings)
         if isinstance(settings, dict):
-            settings_class = self.resolver_instance.__annotations__["settings"]
-            self.resolver_settings = settings_class(**settings)
+            settings_class = self.resolver_class.__annotations__["settings"]
+            self.resolver_settings = settings_class(
+                **{
+                    field: self._positions(field, value)
+                    for field, value in settings.items()
+                }
+            )
         else:
             self.resolver_settings = settings
+        self.resolver_instance = self.resolver_class(settings=self.resolver_settings)
 
-        # TODO: we might want to include all inputs in the default name
+        super().__init__(upstream=self.inputs)
 
-        super().__init__(
-            name=name or f"resolve_{self.inputs[0].name}", upstream=self.inputs
-        )
+    def _positions(self, field: str, value: Any) -> Any:  # noqa: ANN401 - any setting
+        """Replace `Model` keys in a setting with the position of that input.
+
+        A setting that points at one of this resolver's inputs — per-model thresholds,
+        say — is written as `{model: 0.9}`, holding the object you already have rather
+        than retyping its name. Here is the only place that can be translated, because
+        here is where both the models and the order they were given in are known.
+
+        Positions rather than names because a name is not identity: renaming a model
+        would otherwise move this resolver's fingerprint without changing a byte of its
+        output. Reordering the inputs *does* reassign thresholds, but reordering already
+        changes the fingerprint — parents are folded in order — so that is a different
+        resolver, not one behaving inconsistently.
+
+        Raises:
+            ValueError: If a setting names a model that is not an input.
+        """
+        if not isinstance(value, dict):
+            return value
+
+        position = {id(model): index for index, model in enumerate(self.inputs)}
+        translated: dict[Any, Any] = {}
+        for key, setting in value.items():
+            if not isinstance(key, Model):
+                translated[key] = setting
+                continue
+            if id(key) not in position:
+                raise ValueError(
+                    f"'{field}' has an entry for a model this resolver does not read. "
+                    f"It resolves {len(self.inputs)} model(s), and a setting may only "
+                    "point at one of those."
+                )
+            translated[position[id(key)]] = setting
+        return translated
 
     # -- Step contract ----------------------------------------------------------------
 
@@ -94,13 +127,57 @@ class Resolver(Step):
         return ResolverConfig(
             resolver_class=self.resolver_class.__name__,
             resolver_settings=self.resolver_settings.model_dump(mode="json"),
-            inputs=tuple(model.name for model in self.inputs),
         )
 
-    @profile_time(attr="name")
+    # -- publishing -------------------------------------------------------------------
+
+    def publish(self, label: str, overwrite: bool = False) -> Self:
+        """Point a label at this resolution, so it can be found without the plan.
+
+        Publishing is an act, not a property of the plan: a label changes nothing about
+        what gets computed, and there is nothing to point at until the resolution
+        exists. So it happens after collection — `resolver.collect().publish("x")` —
+        and a plan that is never published is still perfectly runnable, just unlabelled.
+
+        A *label* rather than a name, because a name is something else here: a source's
+        name is part of its output, prefixing every column it contributes. A label
+        belongs to the store, and points at whichever resolution you last aimed it at.
+
+        Re-publishing the same label for the same resolution is a no-op, so re-running
+        an unchanged pipeline is safe. Aiming an existing label at a *different*
+        resolution needs `overwrite=True`, because that is how you lose track of what a
+        label used to mean.
+
+        Args:
+            label: The label to publish under.
+            overwrite: Move the label if it already points somewhere else.
+
+        Returns:
+            This resolver, so it chains off `collect()`.
+
+        Raises:
+            RuntimeError: If this resolver has not been collected.
+            ValueError: If `label` already points at a different resolution and
+                `overwrite` is not set.
+        """
+        adapter, fp = self._collected()
+        existing = adapter.find(label)
+        if existing is not None and existing != fp and not overwrite:
+            raise ValueError(
+                f"The label '{label}' already points at a different resolution "
+                f"({existing.hex()[:8]}). Pass overwrite=True to move it, or publish "
+                "under another label."
+            )
+        adapter.publish(label, fp)
+        return self
+
+    # -- Step contract ----------------------------------------------------------------
+
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
-        logger.info("Computing clusters", prefix=f"Run {self.name}")
-        edges = {model.name: adapter.read_model(model._fp) for model in self.inputs}
+        edges = {
+            position: adapter.read_model(model._fp)
+            for position, model in enumerate(self.inputs)
+        }
         clusters = self.resolver_instance.compute_clusters(model_edges=edges)
 
         # Every leaf reachable through this resolver's inputs — including records no
@@ -117,10 +194,11 @@ class Resolver(Step):
 
         # Record which source artifacts this resolution covers. A resolution names
         # its sources, but a store can hold several generations of a name — this is
-        # what lets it be read back without the plan that built it.
+        # what lets it be read back without the plan that built it. Those names are
+        # data, tagging which source each row came from; they are nothing to do with
+        # publishing, which is `publish()` and happens after this.
         adapter.store_resolver(
             fp=fp,
-            name=self.name,
             resolution=materialise_resolution(clusters, upstream),
             sources={source.name: source._fp for source in self.sources},
         )
@@ -136,7 +214,8 @@ class Resolver(Step):
         """Return `(root, leaf, key, source)`. Collects the plan first if needed."""
         if not self.is_collected:
             self.collect()
-        return self._require_adapter().read_resolver(self._fp)
+        adapter, fp = self._collected()
+        return adapter.read_resolver(fp)
 
     def results_eval(self) -> pl.DataFrame:
         """Return `(root, leaf)` for evaluation."""

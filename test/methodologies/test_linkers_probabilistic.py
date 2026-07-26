@@ -231,7 +231,6 @@ def test_scored_model_scores_generation(
 
     # Configure and run the linker
     linker = Model(
-        name="score_test_linker",
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
         left=left_source.view(),

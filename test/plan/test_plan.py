@@ -165,7 +165,7 @@ def test_lookup_key_rejects_an_unknown_key(warehouse: Engine) -> None:
 
 def _sabotage(step) -> None:  # noqa: ANN001 - any Step
     def boom(*_a: object, **_k: object) -> None:
-        raise AssertionError(f"{step.name} re-ran instead of being read from cache")
+        raise AssertionError(f"{step!r} re-ran instead of being read from cache")
 
     step._execute = boom
 
@@ -373,7 +373,7 @@ def test_draw_shows_only_the_sub_plan(warehouse: Engine) -> None:
 
     assert "crn" in apex.draw()
     assert "dh" in apex.draw()
-    assert apex.name not in crn.draw()
+    assert "resolver" not in crn.draw()  # a source's sub-plan is just itself
 
 
 def test_resolver_exposes_its_sources(warehouse: Engine) -> None:
@@ -560,23 +560,166 @@ def test_a_config_carries_no_upstream_settings(warehouse: Engine) -> None:
 
     resolver_config = apex.config.model_dump(mode="json")
     assert "extract_transform" not in json.dumps(resolver_config)
-    # Upstream names appear where they are load-bearing — per-model thresholds are
-    # keyed by them — but the parents' own settings do not.
-    assert set(resolver_config["inputs"]) == {model.name for model in apex.inputs}
+    # No upstream reference at all: inputs arrive as parent fingerprints, and a
+    # setting that points at one uses its position.
+    assert set(resolver_config) == {"resolver_class", "resolver_settings"}
 
 
-def test_a_derived_name_distinguishes_reading_through_a_resolver(
-    warehouse: Engine,
-) -> None:
+def test_a_view_through_a_resolver_is_a_different_step(warehouse: Engine) -> None:
     """Reading a source directly and through a resolver are different views.
 
-    Two steps in one plan may not share a name, so the derived name has to say
-    which it is — and stay usable as an identifier while doing so.
+    The edge is what distinguishes them: it is on `upstream`, and folded into the
+    fingerprint in order.
     """
     crn = _source(warehouse, "crn")
-    direct = crn.view()
-    through = _dedupe_crn(crn).view(crn)
+    settings = {"unique_fields": [crn.f("company")]}
 
-    assert direct.name != through.name
-    assert through.config.sources == ("crn",)
-    lineage.validate(through)  # duplicate-name detection must pass
+    first = crn.view().dedupe(model_class=NaiveDeduper, model_settings=settings)
+    deduped = first.resolve()
+    through = deduped.view(crn)
+    second = through.dedupe(model_class=NaiveDeduper, model_settings=settings)
+
+    assert through.upstream == (crn, deduped)
+    assert crn.view().upstream == (crn,)
+
+    second.resolve().collect()
+    assert first._fp != second._fp  # a second pass is not the first one
+
+
+# -- identity: positions, and published names -----------------------------------------
+
+
+def test_steps_have_no_names_only_positions(warehouse: Engine) -> None:
+    """Nothing in a plan is named. Cleaning one source two ways, or comparing two
+    methodologies over it, needs no names and cannot collide."""
+    crn = _source(warehouse, "crn")
+    strict = crn.view(cleaning={"name": f"upper({crn.f('company')})"})
+    loose = crn.view(cleaning={"name": f"lower({crn.f('company')})"})
+    first = strict.dedupe(NaiveDeduper, {"unique_fields": ["name"]})
+    second = loose.dedupe(NaiveDeduper, {"unique_fields": ["name", "id"]})
+
+    apex = first.resolve(second)
+    apex.collect()
+
+    assert not hasattr(first, "name")
+    positions = lineage.number(apex)
+    assert positions[id(first)] != positions[id(second)]
+    assert apex.resolution().height > 0
+
+
+def test_a_drawing_is_the_key_to_the_log(warehouse: Engine) -> None:
+    """A log line saying `step 4` has to be findable in the plan's drawing."""
+    apex, crn, _dh = _apex(warehouse)
+    apex.collect()
+
+    drawing = apex.draw()
+    for step, position in lineage.number(apex).items():
+        del step
+        assert f"[{position}] " in drawing
+    # A source is drawn with its name, because a source has one.
+    assert f"source '{crn.name}'" in drawing
+
+
+def test_publishing_points_a_label_at_a_resolution(
+    warehouse: Engine, adapter: DuckDBAdapter
+) -> None:
+    """Publishing is an act on a result, not a property of the plan."""
+    apex, _crn, _dh = _apex(warehouse)
+    apex.collect(adapter)
+
+    assert adapter.labels() == []  # collecting publishes nothing
+    apex.publish("entities")
+
+    assert adapter.labels() == ["entities"]
+    assert adapter.find("entities") == apex._fp
+
+
+def test_publishing_is_idempotent_but_will_not_silently_move_a_label(
+    warehouse: Engine, adapter: DuckDBAdapter
+) -> None:
+    """Re-running an unchanged pipeline must not fail; repointing must be deliberate."""
+    apex, crn, _dh = _apex(warehouse)
+    apex.collect(adapter).publish("entities")
+    apex.publish("entities")  # same resolution, same name — a no-op
+
+    other = _dedupe_crn(crn).collect(adapter)
+    with pytest.raises(ValueError, match="already points at a different resolution"):
+        other.publish("entities")
+
+    other.publish("entities", overwrite=True)
+    assert adapter.find("entities") == other._fp
+
+
+def test_publishing_needs_a_collected_resolution(warehouse: Engine) -> None:
+    """There is nothing to point a name at until the resolution exists."""
+    apex, _crn, _dh = _apex(warehouse)
+    with pytest.raises(RuntimeError, match="has not been collected"):
+        apex.publish("entities")
+
+
+# -- resolver settings that point at inputs -------------------------------------------
+
+
+def test_a_threshold_names_a_model_and_is_stored_as_a_position(
+    warehouse: Engine,
+) -> None:
+    """You hold the model; the plan works out where it sits.
+
+    Positions rather than names are what let inputs be referred to without a naming
+    scheme, and what keep the resolver's fingerprint out of it.
+    """
+    crn = _source(warehouse, "crn")
+    dh = _source(warehouse, "dh")
+    first = crn.dedupe(NaiveDeduper, {"unique_fields": [crn.f("company")]})
+    second = dh.dedupe(NaiveDeduper, {"unique_fields": [dh.f("company")]})
+
+    resolver = first.resolve(
+        second, resolver_settings={"thresholds": {second: 0.8, first: 0.5}}
+    )
+
+    assert resolver.resolver_settings.thresholds == {0: 0.5, 1: 0.8}
+
+
+def test_a_threshold_must_name_an_input(warehouse: Engine) -> None:
+    """Caught while the model object is still in hand, not deep inside collect."""
+    crn = _source(warehouse, "crn")
+    settings = {"unique_fields": [crn.f("company")]}
+    used = crn.dedupe(NaiveDeduper, settings)
+    unused = crn.dedupe(NaiveDeduper, settings)
+
+    with pytest.raises(ValueError, match="a model this resolver does not read"):
+        used.resolve(resolver_settings={"thresholds": {unused: 0.8}})
+
+
+def test_edges_reach_the_methodology_keyed_by_the_same_positions(
+    warehouse: Engine,
+) -> None:
+    """The translated thresholds are only useful if the edges arrive aligned to them."""
+    crn = _source(warehouse, "crn")
+    dh = _source(warehouse, "dh")
+    first = crn.dedupe(NaiveDeduper, {"unique_fields": [crn.f("company")]})
+    second = dh.dedupe(NaiveDeduper, {"unique_fields": [dh.f("company")]})
+
+    resolver = first.resolve(second, resolver_settings={"thresholds": {second: 0.8}})
+
+    seen: dict[int, int] = {}
+
+    class Spy:
+        """`ResolverMethod` is a pydantic model and rejects undeclared attributes,
+        so wrap the methodology rather than patching it."""
+
+        def __init__(self, wrapped: object) -> None:
+            self.wrapped = wrapped
+
+        def compute_clusters(
+            self, model_edges: dict[int, pl.DataFrame]
+        ) -> pl.DataFrame:
+            seen.update({position: len(df) for position, df in model_edges.items()})
+            return self.wrapped.compute_clusters(model_edges=model_edges)
+
+    resolver.resolver_instance = Spy(resolver.resolver_instance)
+    resolver.collect()
+
+    assert set(seen) == {0, 1}
+    assert resolver.resolver_settings.thresholds == {1: 0.8}
+    assert seen[1] == len(second.edges())

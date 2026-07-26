@@ -1,7 +1,7 @@
 """Factory helpers for resolver testkits."""
 
-from collections.abc import Iterable, Mapping
-from typing import Annotated, Any, ClassVar
+from collections.abc import Hashable, Iterable, Mapping
+from typing import Annotated, Any, ClassVar, TypeVar
 
 import polars as pl
 from faker import Faker
@@ -22,34 +22,36 @@ from matchlab.resolvers import (
     ResolverSettings,
     add_resolver_class,
 )
+from matchlab.sources import Source
 from matchlab.views import View
+
+K = TypeVar("K", bound=Hashable)
 
 
 class MockResolverSettings(ResolverSettings):
     """Settings type for MockResolver."""
 
-    thresholds: dict[str, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
+    thresholds: dict[int, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
         default_factory=dict
     )
 
-    def validate_inputs(self, model_names: Iterable[str]) -> None:
-        """Validate all model names are present in thresholds."""
-        if missing := set(model_names) - set(self.thresholds.keys()):
-            raise RuntimeError(f"Missing thresholds for models: {missing}")
-
 
 def _connected_components_from_edges(
-    model_edges: Mapping[str, pl.DataFrame],
-    thresholds: Mapping[str, float],
+    model_edges: Mapping[K, pl.DataFrame],
+    thresholds: Mapping[K, float],
 ) -> pl.DataFrame:
-    """Generate clusters from model edge tables and per-model thresholds."""
+    """Generate clusters from model edge tables and per-model thresholds.
+
+    Keyed by whatever identifies an input to the caller: positions in a plan, names in
+    the factory's own bookkeeping.
+    """
     djs = DisjointSet[int]()
 
-    for model_name, edges in model_edges.items():
+    for key, edges in model_edges.items():
         if edges.height == 0:
             continue
 
-        threshold = thresholds[model_name]
+        threshold = thresholds[key]
         filtered_edges = edges.filter(pl.col("score") >= threshold)
         for left_id, right_id in filtered_edges.select(
             "left_id", "right_id"
@@ -73,12 +75,14 @@ class MockResolver(ResolverMethod):
     resolver_type: ClassVar[ResolverType] = ResolverType.COMPONENTS
     settings: MockResolverSettings
 
-    def compute_clusters(self, model_edges: Mapping[str, pl.DataFrame]) -> pl.DataFrame:
+    def compute_clusters(self, model_edges: Mapping[int, pl.DataFrame]) -> pl.DataFrame:
         """Compute mock clusters with connected components."""
-        self.settings.validate_inputs(model_edges.keys())
         return _connected_components_from_edges(
             model_edges=model_edges,
-            thresholds=self.settings.thresholds,
+            thresholds={
+                position: self.settings.thresholds.get(position, 0.0)
+                for position in model_edges
+            },
         )
 
 
@@ -91,13 +95,10 @@ class ResolverTestkit(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     resolver: Resolver
+    #: The testkit's own name, for bookkeeping between fixtures — not a published one.
+    name: str
     assignments: pl.DataFrame
     entities: tuple[ClusterEntity, ...]
-
-    @property
-    def name(self) -> str:
-        """Return resolver name."""
-        return self.resolver.name
 
     def view(self, *args: Any, **kwargs: Any) -> View:
         """Thin wrapper to build a cleaned view through this testkit's Resolve."""
@@ -124,8 +125,8 @@ def resolver_factory(
         true_entities: Ground truth SourceEntity objects used to generate the
             expected cluster assignments. If None, the resolver testkit will have
             no expected entities.
-        name: Name of the resolver. Defaults to a randomly generated word suffixed
-            with '_resolver'.
+        name: Name for the testkit, used to refer to it between fixtures. Defaults to
+            a randomly generated word suffixed with '_resolver'.
         thresholds: Per-model score thresholds in [0.0, 1.0]. If omitted,
             defaults to 0.0 for all resolver inputs.
         seed: Random seed for reproducibility.
@@ -153,9 +154,9 @@ def resolver_factory(
             if not isinstance(testkit, ModelTestkit):
                 raise TypeError("resolver_factory inputs must be ModelTestkit.")
             source_names.update(
-                source.name
-                for source in testkit.model.lineage()
-                if type(source).__name__ == "Source"
+                step.name
+                for step in testkit.model.lineage()
+                if isinstance(step, Source)
             )
 
     input_map: dict[str, ModelTestkit] = {}
@@ -175,15 +176,19 @@ def resolver_factory(
     if set(thresholds) != expected_model_names:
         raise ValueError("Threshold keys must exactly match resolver input models.")
 
-    resolver_settings = MockResolverSettings(
-        thresholds=thresholds,
-    )
+    # Hand `Resolver` the model objects and let it work out the positions, so the
+    # factory exercises the same translation every hand-written plan goes through.
+    resolver_settings = {
+        "thresholds": {
+            input_map[model_name].model: threshold
+            for model_name, threshold in thresholds.items()
+        }
+    }
 
     generator = Faker()
     generator.seed_instance(seed)
     resolver = Resolver(
         *resolver_inputs,
-        name=name or f"{generator.unique.word()}_resolver",
         resolver_class=MockResolver,
         resolver_settings=resolver_settings,
     )
@@ -201,6 +206,7 @@ def resolver_factory(
 
     return ResolverTestkit(
         resolver=resolver,
+        name=name or f"{generator.unique.word()}_resolver",
         assignments=assignments,
         entities=entities,
     )

@@ -48,10 +48,13 @@ references on each node.
 
 ```python
 class Step(ABC):
-    name: str
     upstream: tuple[Step, ...]  # direct inputs ONLY — no downstream, no registry
     _fp: bytes | None  # memoised: set once collected
 ```
+
+Steps carry no name. They are identified by **position** in `lineage.walk`; a name is
+a pointer from the store to a resolution, set by `Resolver.publish`. `Source` is the
+exception, since its name prefixes its columns and so is part of its output.
 
 | Node | `upstream` |
 |---|---|
@@ -63,8 +66,8 @@ class Step(ABC):
 Everything the old `DAG` did becomes a **derived walk from a root node**:
 `node.lineage()`, `node.draw()`, `node.collect(adapter=None)`.
 The `DAG` class disappears; what survives is `lineage.py` — **pure functions over a root
-node** (topo sort via Kahn's, ancestor walk, cycle + name-collision validation,
-drawing), deduplicating shared nodes by object identity.
+node** (`walk`, `number`, `draw`), deduplicating shared nodes by object identity.
+Cycles need no validating: a step's inputs must exist before it does.
 
 ### Why the registry had to go
 
@@ -118,6 +121,7 @@ matchlab/
   steps.py                     # Step ABC + node types' shared behaviour
   lineage.py                   # pure functions over a root node (topo, walk, draw)
   sources.py                   # Source — a leaf; imports no plan machinery
+  document.py                  # dump/load — a plan as a portable, derived document
   views.py  models.py  resolvers.py  results.py  locations.py
   adapters/                    # base.py (ABC) + duckdb.py — storage only
   core/                        # was matchbox.common (survivors)
@@ -134,8 +138,15 @@ Deleted wholesale: `matchbox/server/**`, `client/_handler/**`, `client/_settings
 
 **DTO split:** `dtos.py` mixes *transport* objects (`Collection`, `Run`, `UploadStage`,
 `StepPath`, permissions → **deleted**) with *config* models (`SourceConfig`,
-`ModelConfig`, `QueryConfig`, `ResolverConfig`, `Step`). The config models **are the
-serialisable DAG** we want, and survive in `core/config.py` without HTTP baggage.
+`ModelConfig`, `QueryConfig`, `ResolverConfig`, `Step`). The config models survive in
+`core/config.py` without HTTP baggage.
+
+They are not, though, "the serialisable DAG" — that was the original framing and it
+was half right. A config is what a fingerprint hashes, so it must carry a step's
+settings and *not* its edges; a serialisable DAG needs the edges. `document.py` holds
+the other half: `PlanDocument` carries the nodes and the edges between them, each node
+holding the config unchanged. See "Configs describe settings; documents describe
+plans" below.
 
 ## Adapter contract (storage, not an engine)
 
@@ -500,7 +511,8 @@ output depends on, and nothing else.** That rule explains the one asymmetry —
 `SourceConfig` records its own name because a source's name prefixes its columns and
 tags its rows, while no other step's name reaches its own output. Where a name is
 load-bearing to a consumer it lives in the *consumer's* config, which is why
-`ResolverConfig.inputs` stays: thresholds are keyed by model name.
+`ResolverConfig.inputs` stays: thresholds are keyed by model name. (Superseded — those
+thresholds key by input position now, and `ResolverConfig.inputs` is gone with them.)
 
 `SourceConfig` also lost six methods that predated the split — `parents` and
 `dependencies` had zero callers, and `prefix`/`qualify_field`/`f` never touched `self`
@@ -520,6 +532,197 @@ produced. Reserved words need no handling — the name is only ever a prefix.
 
 Also deleted `Step.get_step` / `lineage.find` (no callers; hold a variable) and the
 write-only `description` field on every step.
+
+#### Abandoned (2026-07-25 → 26): making derived names carry uniqueness
+
+Recorded because it is a tempting dead end. Porting a real pipeline hit a derived-name
+clash, and the first two attempts to fix it both kept the premise that a step should be
+given an invented, human-readable name:
+
+1. **Split names by kind** — views got `Step.named = False` so only "handles" (sources,
+   models, resolvers) were checked for uniqueness. Right instinct, wrong seam: what
+   decides is not the *kind* of step, it is whether the author named it.
+2. **Make derivation injective** — `"_".join` over source names was ambiguous (source
+   `a_b` and the pair `(a, b)` both gave `a_b`), so the parts joined on separators a
+   source name cannot contain (`+`, `@`, `~`), a model's stem came from its views rather
+   than their sources, and `shorten_stem` bounded the compounding with a digest, because
+   four sources linked pairwise derived a name several hundred characters long.
+
+All of it was machinery to make a *generated* string unique enough to be trusted — and
+a generated string is never worth trusting, because it cannot encode settings. Two
+models differing only in `model_settings` derive the same name no matter how clever the
+scheme. Deleted in favour of positions; see below.
+
+#### Configs describe settings; documents describe plans (2026-07-25)
+
+`ModelConfig.left`/`right` existed for serialisation, and were simultaneously a
+spurious miss in the fingerprint. That contradiction was not a bug in either — it was
+one model being asked to do two incompatible jobs:
+
+* **identity**, hashed into a fingerprint, which must carry everything affecting the
+  step's output and *nothing else* — edges included, because `_fingerprint` already
+  folds in the parents';
+* **description**, which must carry enough to rebuild the step, edges very much
+  included.
+
+Split, rather than compromised. `matchlab.document` holds the second job:
+
+```
+PlanDocument.steps: (StepNode, ...)   # lineage.walk order
+StepNode: kind, config, inputs: (int, ...), name: str | None
+```
+
+Nodes refer to each other by **position**, which settles a question the naming work
+had left open: a document that referenced steps by name would make every name
+load-bearing for serialisation, and stable naming would become a hard requirement.
+Positions are legitimate here because the document is a *derived view* — humans write
+Python, and this is a dump target for executing a plan in another environment — so
+nothing needs to be hand-authored. Positions also preserve structural sharing, where
+nesting each step's inputs inside it would inline a shared view once per consumer.
+
+Consequences:
+
+* Configs are now settings-only, so the spurious-miss column empties. `ViewConfig`
+  lost `sources` and `resolver` (no runtime consumers at all — they fed the
+  fingerprint and described edges), `ModelConfig` lost `left`/`right`. `ResolverConfig`
+  lost `inputs` a step later, when thresholds moved to input positions — after which
+  the column is empty.
+* `StepNode.name` records the name the *author published under*, null otherwise —
+  there being nothing else to record, since a step is otherwise referred to by its
+  position and its position is its index in `steps`. (Dropped entirely a step later,
+  when publishing became an operation on the result rather than part of the plan. What
+  survived is the reason: the document and the rest of the system share one notion of
+  reference.)
+* A document carries no client, no credentials and no data. Source content hashes are
+  derived on load from the target warehouse, so same rows means same fingerprints and
+  the target store hits cache; different rows means it re-runs. Both are tested.
+* It cannot carry code: `model_class` is a registry name, so the target environment
+  needs the same classes registered. Portable across environments, not codebases.
+
+The acceptance criterion is the round trip, in `test/plan/test_document.py`: dump →
+JSON → load → collect, and every step fingerprints identically, with a sabotaged
+`_execute` proving nothing re-ran. The flagship four-source example dumps to 24 nodes
+and 5.5 KB of JSON, rebuilds from the JSON alone, and hits cache on every step.
+
+#### Names are publications, and references are objects (2026-07-26)
+
+The end of the thread. Two changes retire the last of the naming machinery.
+
+**Settings point at inputs by object, serialised as position.** `thresholds={model:
+0.9}` — you already hold the model, so there is nothing to retype and a typo is a
+`NameError` rather than a failure at collect time. `Resolver._positions` translates to
+an index at construction, the only place that knows both the models and their order.
+Positions rather than names because a name is not identity: `ResolverConfig.inputs`
+existed solely to make a rename move the resolver's fingerprint, and with it gone
+**no config anywhere records a name but its own** (`SourceConfig`, which is semantic).
+The spurious-miss column is empty.
+
+The methodology layer keys by position too, so `resolvers/components.py` imports no
+plan object — which also avoids the import cycle `models.py` already dodges lazily.
+Reordering inputs reassigns thresholds, but reordering already changes the fingerprint
+(parents are folded in order), so that is a different resolver, not an inconsistent one.
+
+**Steps have no names; publishing is an operation.** `Resolver.publish(name)` points a
+name at a collected resolution, and that is the only name in the system apart from a
+source's. See "Publishing is an operation, not a property" below for why it ended up
+that way; the steps here are what got it there.
+
+Positions were already the reference type for `PlanDocument`, so this is one answer
+everywhere rather than three for three contexts: `step 7` in a run's log is `[7]` in
+that plan's `draw()` and `steps[7]` in its document. Unlike a fingerprint — the other
+candidate — a position exists before anything is collected, which matters because
+`draw()` on a plan you are still building is when you most want to read it, and a
+source cannot be fingerprinted without first reading its warehouse.
+
+**A position is not stored on the step.** It belongs to the walk it came from — the
+same node numbers differently in `walk(deduped)` and `walk(companies)` — so writing one
+back would make it a lie as soon as anything walked from elsewhere. Whoever walks passes
+it to whoever needs it: `collect` hands it to `_ensure`, `draw` keeps its own mapping
+from `lineage.number`, which is a pure function. That is also why all per-step run
+logging lives in `_ensure` rather than in `_execute`: `_ensure` is the level that has
+the number, and it keeps `_execute` to the work.
+
+A log line is `[step 2] Ran in 0.041s`, and `draw()` numbers the same walk, so the
+drawing is the key to the output:
+
+```
+○ [4] resolver 'entities'
+    ├── ○ [3] model
+    │   └── ○ [1] clean
+    │       └── ○ [0] source 'crn'
+    └── ○ [2] model
+        └── ○ [1] clean
+            └── ○ [0] source 'crn'
+```
+
+An earlier cut had each step describe itself in prose as it ran (`NaiveDeduper deduping
+crn`). Dropped: the plan says the same thing structurally, and a per-step sentence is a
+second, drifting description of what the code already states. Whether and how `collect`
+surfaces the plan itself is being worked out separately; it does not print one today.
+
+That reverses the default. Comparing two methodologies over one view, or cleaning a
+source several ways, now needs no names at all; before, the plan refused to collect
+until you invented one for work you never meant to publish.
+
+`lineage.validate` shrank with it — the config diff it used to produce only made sense
+when neither colliding name had been chosen — and then went entirely, one section down,
+when names left the plan.
+
+*Caveats, both accepted:* a plan and a sub-plan of it number differently, so a run and
+that run's drawing agree but two different roots need not. And an unnamed step is not
+findable by name in a store, so a workflow that reads a resolution back must name that
+resolver.
+
+#### Publishing is an operation, not a property (2026-07-26)
+
+`Source(name=...)` and `Resolver(name=...)` were unrelated operations wearing the same
+keyword. A source's name is semantic — it prefixes every column that source contributes
+and tags its rows in a resolution, so it changes the output. A resolver's was a storage
+handle that touched nothing about the plan. That asymmetry was the tell.
+
+The two are now different words as well as different mechanisms. A **name** belongs to
+a source and is part of its output; a **label** belongs to the store and points at a
+resolution. `name` is therefore unambiguous everywhere it still appears.
+
+A label does not affect the output, the fingerprint, or the plan, so it has no business
+in the plan's definition. It became an act on the result instead:
+
+```python
+entities = crn_dedupe.resolve(dh_dedupe).collect().publish("entities")
+```
+
+Which killed rather more than the keyword:
+
+* **`lineage.validate` is gone.** Its only remaining job was the published-label check.
+  Cycles cannot be constructed, so with names gone it had nothing left to do; `collect`
+  no longer calls it, and `_clash_message` went with it.
+* **`Step.name` and `given_name` are gone.** `Source.name` is the source's own
+  attribute, stated in the type rather than papered over by a shared base.
+* **`store_model(fp, name)` / `store_resolver(fp, name, …)` lost their name argument,**
+  and `artifacts` lost its `name` column. Writing an artifact and labelling one were
+  always two acts; now they are two methods.
+* **`PlanDocument` sheds `StepNode.name`.** Publishing is done to a result, so it is
+  not part of the plan a document describes. The only names left in a document are
+  sources', in the only sense the word still has.
+
+The alias table arrived as part of it rather than as separate work: `labels(label PK,
+fp, published_at)`, with `publish` as an explicit `INSERT OR REPLACE`. That fixes what
+`find` used to be — a `fetchone` over however many generations shared a name, returning
+an arbitrary one — and moves the overwrite decision to the caller, where
+`Resolver.publish` raises unless `overwrite=True`. Republishing a label for the same
+fingerprint is a no-op, so re-running an unchanged pipeline does not fail on the second
+run. Purging an artifact drops any label pointing at it, so a label never resolves to
+something that is gone.
+
+The check also got *more* correct rather than merely relocated: in-plan uniqueness was
+a proxy for the thing that actually collides, which is labels in a store, across runs.
+`publish` checks the real namespace.
+
+*Costs, both accepted:* publishing is now forgettable — a script that used to declare
+`name=` needs a call you can omit, and you find out when something cannot locate your
+resolution later (mitigated because a miss lists the known labels). And a transferred
+plan no longer carries an intended label, so the receiving environment publishes under
+whatever it wants.
 
 ### Loose ends closed
 
@@ -663,9 +866,12 @@ The cost is that the key can disagree with the bytes, in both directions:
   `arguments`. Same settings, same fingerprint, different edges — first write wins,
   silently. Documented on `SplinkSettings`.
 * **Spurious miss** — config includes something that *doesn't* change the output, so
-  work is redone for nothing. `Model._config_key` records `left.name`/`right.name`, but
-  input identity already arrives via the parent fingerprints; renaming an upstream step
-  therefore invalidates the subtree beneath it without changing a byte.
+  work is redone for nothing. **There is currently no instance of this.** Every field
+  in every config either changes the step's output or is the step's own semantic name
+  (`SourceConfig.name`, which prefixes its columns). No config records an input's name,
+  and settings that point at an input use its position, which does change the output —
+  it decides which model a threshold applies to. Worth protecting: the way this
+  reappears is somebody recording a *description of an input* rather than a setting.
 * **No early cutoff** — a `View` whose SQL is reformatted but semantically unchanged
   invalidates everything below it, because the cascade is keyed on config all the way
   down rather than stopping where the data stops changing.

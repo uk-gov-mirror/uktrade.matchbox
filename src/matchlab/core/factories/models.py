@@ -711,6 +711,9 @@ class ModelTestkit(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
     model: Model
+    #: The testkit's own name, for bookkeeping between fixtures. Steps have no names;
+    #: only a published resolution does, and that is `Resolver.publish`.
+    name: str
     left_data: pa.Table
     left: View
     left_clusters: dict[int, ClusterEntity]
@@ -721,11 +724,6 @@ class ModelTestkit(BaseModel):
 
     _entities: tuple[ClusterEntity, ...]
     _query_lookup: pa.Table
-
-    @property
-    def name(self) -> str:
-        """Return the full name of the Model."""
-        return self.model.name
 
     @property
     def data(self) -> pa.Table:
@@ -812,7 +810,8 @@ def model_factory(
     testkit objects, or generate a standalone model with random data.
 
     Args:
-        name: Name of the model. Defaults to a randomly generated word suffixed
+        name: Name for the testkit, used to refer to it between fixtures. Defaults to
+            a randomly generated word suffixed
             with '_model'.
         left_testkit: A SourceTestkit or ResolverTestkit for the left source
         right_testkit: If creating a linker, a SourceTestkit or ResolverTestkit for the
@@ -1007,7 +1006,6 @@ def model_factory(
         model_settings = ScriptedDeduperSettings(truth_id=truth_id)
 
     model = Model(
-        name=name or f"{generator.unique.word()}_model",
         model_class=model_class,
         model_settings=model_settings,
         left=left,
@@ -1016,6 +1014,7 @@ def model_factory(
 
     return ModelTestkit(
         model=model,
+        name=name or f"{generator.unique.word()}_model",
         left_data=left_data,
         left=left,
         left_clusters={entity.id: entity for entity in left_entities},

@@ -324,7 +324,7 @@ def test_model_factory_basic_creation(
     )
 
     # Basic metadata checks
-    assert model.model.name == name
+    assert model.name == name
     assert str(model.model.model_type) == expected_checks["type"]
 
     # Structure checks
@@ -460,13 +460,13 @@ def test_model_factory_seed_behavior(
     dummy2 = model_factory(seed=seed2)
 
     if should_be_equal:
-        assert dummy1.model.name == dummy2.model.name
+        assert dummy1.name == dummy2.name
         assert dummy1.left_data.equals(dummy2.left_data)
         assert set(dummy1.left_clusters) == set(dummy2.left_clusters)
         assert set(dummy1.entities) == set(dummy2.entities)
         assert dummy1.scores.equals(dummy2.scores)
     else:
-        assert dummy1.model.name != dummy2.model.name
+        assert dummy1.name != dummy2.name
         assert not dummy1.left_data.equals(dummy2.left_data)
         assert set(dummy1.left_clusters) != set(dummy2.left_clusters)
         assert set(dummy1.entities) != set(dummy2.entities)

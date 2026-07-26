@@ -6,7 +6,6 @@ graph semantics are pinned independently of sources, adapters, or warehouses.
 
 from typing import ClassVar
 
-import pytest
 from pydantic import BaseModel
 
 from matchlab import lineage
@@ -21,14 +20,25 @@ class _FakeConfig(BaseModel):
 
 
 class FakeStep(Step):
-    """A plan node that computes nothing."""
+    """A plan node that computes nothing.
+
+    Carries a `label` purely so these tests can tell nodes apart. Real steps have no
+    such thing — they are identified by position.
+    """
 
     kind: ClassVar[str] = "fake"
     stores: ClassVar[bool] = False
 
+    def __init__(self, label: str = "fake", upstream: tuple[Step, ...] = ()) -> None:
+        self.label = label
+        super().__init__(upstream=upstream)
+
+    def __str__(self) -> str:
+        return self.label
+
     @property
     def config(self) -> BaseModel:
-        return _FakeConfig(name=self.name)
+        return _FakeConfig(name=self.label)
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:  # pragma: no cover
         raise AssertionError("FakeStep never executes")
@@ -39,7 +49,7 @@ def test_walk_returns_inputs_before_consumers() -> None:
     b = FakeStep("b", upstream=(a,))
     c = FakeStep("c", upstream=(b,))
 
-    order = [step.name for step in lineage.walk(c)]
+    order = [step.label for step in lineage.walk(c)]
     assert order == ["a", "b", "c"]
 
 
@@ -50,7 +60,7 @@ def test_walk_visits_a_shared_input_once() -> None:
     right = FakeStep("right", upstream=(shared,))
     root = FakeStep("root", upstream=(left, right))
 
-    order = [step.name for step in lineage.walk(root)]
+    order = [step.label for step in lineage.walk(root)]
     assert order.count("shared") == 1
     # Still topologically valid: the shared input precedes both consumers.
     assert order.index("shared") < order.index("left")
@@ -61,24 +71,7 @@ def test_walk_visits_a_shared_input_once() -> None:
 def test_walk_from_a_leaf_is_just_the_leaf() -> None:
     leaf = FakeStep("leaf")
     FakeStep("downstream", upstream=(leaf,))  # never reachable from the leaf
-    assert [step.name for step in lineage.walk(leaf)] == ["leaf"]
-
-
-def test_validate_rejects_duplicate_names() -> None:
-    a = FakeStep("dup")
-    b = FakeStep("dup")  # distinct object, same name
-    root = FakeStep("root", upstream=(a, b))
-
-    with pytest.raises(ValueError, match="Duplicate step name"):
-        lineage.validate(root)
-
-
-def test_validate_accepts_the_same_node_reached_twice() -> None:
-    """Sharing one node across branches is legal; only distinct clashes are not."""
-    shared = FakeStep("shared")
-    left = FakeStep("left", upstream=(shared,))
-    right = FakeStep("right", upstream=(shared,))
-    lineage.validate(FakeStep("root", upstream=(left, right)))
+    assert [step.label for step in lineage.walk(leaf)] == ["leaf"]
 
 
 def test_draw_nests_inputs_under_consumers() -> None:
@@ -91,6 +84,37 @@ def test_draw_nests_inputs_under_consumers() -> None:
     # The input is indented beneath its consumer.
     assert drawing.index("apex") < drawing.index("source")
     assert "└── " in drawing
+
+
+def test_draw_numbers_nodes_by_walk_position_not_by_line() -> None:
+    """The drawing is the key to the log: `step 7` in a run is `[7]` here.
+
+    A tree prints consumers above their inputs while a walk lists inputs first, so the
+    numbers deliberately do not ascend down the page.
+    """
+    source = FakeStep("source")
+    apex = FakeStep("apex", upstream=(source,))
+
+    drawing = lineage.draw(apex)
+    assert "[1] apex" in drawing  # apex is walked last
+    assert "[0] source" in drawing
+    assert drawing.index("[1]") < drawing.index("[0]")
+
+
+def test_numbering_writes_nothing_back_onto_the_steps() -> None:
+    """A position belongs to the walk, not to the step.
+
+    The same node numbers differently depending on the apex, so storing one on the step
+    would make it a lie as soon as anything walked from somewhere else. Callers that
+    need a position are handed it.
+    """
+    source = FakeStep()
+    apex = FakeStep(upstream=(source,))
+
+    assert lineage.number(apex) == {id(source): 0, id(apex): 1}
+    assert lineage.number(source) == {id(source): 0}
+    assert not hasattr(source, "_position")
+    assert not hasattr(source, "name")  # steps have no names at all
 
 
 def test_steps_have_no_downstream_reference() -> None:

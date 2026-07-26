@@ -27,8 +27,8 @@ def test_resolver_factory_can_autobuild() -> None:
     assert not testkit.resolver.is_collected
 
     assert len(testkit.resolver.inputs) == 1
-    input_name = testkit.resolver.inputs[0].name
-    assert testkit.resolver.resolver_settings.thresholds == {input_name: 0.0}
+    # Thresholds key by input position
+    assert testkit.resolver.resolver_settings.thresholds == {0: 0.0}
 
 
 def test_resolver_inputs_become_plan_upstream() -> None:
@@ -47,12 +47,14 @@ def test_resolver_inputs_become_plan_upstream() -> None:
 
     testkit = resolver_factory(inputs=[crn, dh])
 
-    assert {step.name for step in testkit.resolver.upstream} == {
-        "dedupe_crn",
-        "dedupe_dh",
-    }
+    # Steps have no names, so identity is the comparison — which is also how the
+    # plan itself deduplicates nodes.
+    assert set(testkit.resolver.upstream) == {crn.model, dh.model}
     # Both models' sources are reachable through the resolver's lineage.
-    assert {"crn", "dh"} <= {step.name for step in testkit.resolver.lineage()}
+    sources = {
+        step.name for step in testkit.resolver.lineage() if hasattr(step, "name")
+    }
+    assert {"crn", "dh"} <= sources
 
 
 def test_resolver_factory_requires_testkit_inputs() -> None:

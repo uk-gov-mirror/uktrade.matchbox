@@ -66,11 +66,10 @@ def build() -> "Source":
         view.dedupe(
             model_class=NaiveDeduper,
             model_settings={"unique_fields": ["name", "postcode"]},
-            name=f"dedupe_{name}",
         )
-        for name, view in views.items()
+        for view in views.values()
     ]
-    deduped = dedupes[0].resolve(*dedupes[1:], name="deduped")
+    deduped = dedupes[0].resolve(*dedupes[1:])
 
     # Read each source *through* the dedupe, so `id` is an entity rather than a
     # record. Build each view once — they're the same view, reused by every link.
@@ -87,18 +86,18 @@ def build() -> "Source":
             entity_views[right],
             model_class=DeterministicLinker,
             model_settings={"comparisons": comparison},
-            name=f"link_{left}_{right}",
         )
         for left, right in combinations(entity_views, 2)
     ]
 
-    return links[0].resolve(*links[1:], name="companies")
+    return links[0].resolve(*links[1:])
 
 
 if __name__ == "__main__":
     from warehouse import truth
 
-    companies = build().collect(DuckDBAdapter(":memory:"))
+    # Publishing is what makes a resolution findable later, without this script.
+    companies = build().collect(DuckDBAdapter(":memory:")).publish("companies")
 
     resolution = companies.resolution()
     groups: dict[int, set[str]] = {}

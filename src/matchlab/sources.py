@@ -84,7 +84,12 @@ class Source(Step):
                 "underscore and contain only letters, digits and underscores."
             )
 
-        super().__init__(name=name)
+        # A source's name is not a way of finding it later, the way a published
+        # resolution's is. It prefixes every column this source contributes and tags
+        # its rows in a resolution, so it is part of the output — which is why it is
+        # required, lives on the source itself, and is hashed into the fingerprint.
+        self.name = name
+        super().__init__()
 
         if not isinstance(key_field, str):
             raise ValueError(
@@ -102,6 +107,10 @@ class Source(Step):
         self._read: tuple[pl.DataFrame, pl.DataFrame] | None = None
 
     # -- configuration ----------------------------------------------------------------
+
+    def __str__(self) -> str:
+        """A source is drawn with its name, since it has one."""
+        return f"{self.kind} '{self.name}'"
 
     @property
     def config(self) -> SourceConfig:
@@ -206,7 +215,7 @@ class Source(Step):
         if self._read is not None:
             return self._read
 
-        logger.info("Reading source data", prefix=f"Read {self.name}")
+        logger.info("Reading from the warehouse", prefix=self.name)
         key = self.key_field
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -279,7 +288,6 @@ class Source(Step):
         extract, _ = self._read_warehouse()
         adapter.store_source(
             fp=fp,
-            name=self.name,
             key_field=self.key_field,
             extract=extract,
             leaves=self.leaves(),
@@ -300,15 +308,14 @@ class Source(Step):
         self,
         model_class: Any,  # noqa: ANN401 - a Deduper subclass
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-        name: str | None = None,
     ) -> Model:
         """Deduplicate this source's records.
 
-        Shorthand for `self.view().dedupe(...)` — a view is only worth naming when you
-        want to clean, group, or read through a resolver.
+        Shorthand for `self.view().dedupe(...)` — a view is only worth building
+        explicitly when you want to clean, group, or read through a resolver.
         """
         return self.view().dedupe(
-            model_class=model_class, model_settings=model_settings, name=name
+            model_class=model_class, model_settings=model_settings
         )
 
     def link(
@@ -316,7 +323,6 @@ class Source(Step):
         other: Source | View,
         model_class: Any,  # noqa: ANN401 - a Linker subclass
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-        name: str | None = None,
     ) -> Model:
         """Link this source to another source or view.
 
@@ -324,5 +330,5 @@ class Source(Step):
         source, so neither side needs one.
         """
         return self.view().link(
-            other, model_class=model_class, model_settings=model_settings, name=name
+            other, model_class=model_class, model_settings=model_settings
         )

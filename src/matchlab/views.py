@@ -39,7 +39,6 @@ class View(Step):
         resolver: Resolver | None = None,
         cleaning: dict[str, str] | None = None,
         group: bool = False,
-        name: str | None = None,
     ) -> None:
         """Define a view.
 
@@ -54,7 +53,6 @@ class View(Step):
                 then be an aggregate — `any_value(crn_company)` where records agree,
                 `list(distinct crn_town)` where they don't. Useful when reading
                 through a resolver, where several records share an `id`.
-            name: Optional plan name; derived from the sources when omitted.
 
         Raises:
             ValueError: If no sources are given, or `group` is set without cleaning
@@ -75,25 +73,15 @@ class View(Step):
         self.cleaning = cleaning
         self.group = group
 
-        # The resolver is part of the derived name: reading a source directly and
-        # reading it *through* a resolver are different views, and two steps in one
-        # plan may not share a name.
-        stem = "_".join(source.name for source in sources)
-        suffix = f".{resolver.name}" if resolver else ""
         upstream: tuple[Step, ...] = (*sources, *((resolver,) if resolver else ()))
-        super().__init__(name=name or f"clean_{stem}{suffix}", upstream=upstream)
+        super().__init__(upstream=upstream)
 
     # -- Step contract ----------------------------------------------------------------
 
     @property
     def config(self) -> ViewConfig:
         """The serialisable configuration for this view."""
-        return ViewConfig(
-            sources=tuple(source.name for source in self.sources),
-            resolver=self.resolver.name if self.resolver else None,
-            cleaning=self.cleaning,
-            group=self.group,
-        )
+        return ViewConfig(cleaning=self.cleaning, group=self.group)
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         adapter.store_clean(fp, self._compute(adapter))
@@ -175,24 +163,17 @@ class View(Step):
         self,
         model_class: Any,  # noqa: ANN401 - a Deduper subclass
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-        name: str | None = None,
     ) -> Model:
         """Deduplicate this view."""
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle
 
-        return Model(
-            left=self,
-            model_class=model_class,
-            model_settings=model_settings,
-            name=name,
-        )
+        return Model(left=self, model_class=model_class, model_settings=model_settings)
 
     def link(
         self,
         other: Source | View,
         model_class: Any,  # noqa: ANN401 - a Linker subclass
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-        name: str | None = None,
     ) -> Model:
         """Link this view to another source or view.
 
@@ -207,7 +188,6 @@ class View(Step):
             right=right,
             model_class=model_class,
             model_settings=model_settings,
-            name=name,
         )
 
 

@@ -195,13 +195,20 @@ entities = deduped.resolve()
 ```
 
 `resolve()` defaults to connected components. Pass `resolver_class` and
-`resolver_settings` for something else — for example per-model score thresholds.
+`resolver_settings` for something else.
 
-A resolver takes several models, so you can resolve multiple methodologies together:
+A resolver takes several models, so you can resolve multiple methodologies together —
+and trust a strict one further than a loose one by giving each a score threshold:
 
 ```python
-entities = crn_dedupe.resolve(dh_dedupe, crn_dh_link, name="entities")
+entities = crn_dedupe.resolve(
+    dh_dedupe,
+    crn_dh_link,
+    resolver_settings={"thresholds": {crn_dh_link: 0.9}},
+)
 ```
+
+Thresholds take the model itself, not its name — you're already holding it. Any model with no threshold will contribute every edge.
 
 ## Layering
 
@@ -274,8 +281,45 @@ entities = cleaned.dedupe(...).resolve().collect()
 cleaned.data()  # still yours to inspect
 ```
 
-Names are for telling steps apart — in `draw()`, in error messages, and in settings
-that refer to a step without holding it, such as a resolver's per-model thresholds.
+That goes for settings too: a resolver's per-model thresholds take the model itself,
+not its name.
+
+Steps have no names at all. To find a resolution later, **publish** it under a label —
+an operation on the collected result, not a property of the plan:
+
+```python
+entities = crn_dedupe.resolve(dh_dedupe).collect().publish("entities")
+```
+
+Republishing the same label for the same resolution is a no-op; aiming it at a
+different one needs `overwrite=True`. A plan you never publish still runs — it is just
+unlabelled.
+
+A label is not a name. A *name* belongs to a source and is part of its output; a label
+belongs to the store, and points at whichever resolution you last aimed it at.
+
+Everything else goes by **position**: the order `collect` runs it in, which is what
+logs quote and what `draw()` shows in brackets.
+
+```
+[step 2] Ran in 0.041s
+```
+
+```python
+print(entities.draw())
+```
+```
+○ [4] resolver 'entities'
+    ├── ○ [3] model
+    │   └── ○ [1] clean
+    │       └── ○ [0] source 'crn'
+    └── ○ [2] model
+        └── ○ [1] clean
+            └── ○ [0] source 'crn'
+```
+
+Positions are relative to the apex you collected or drew from, so a plan and a
+sub-plan of it number differently — but a run and that run's drawing always agree.
 
 ## Reclaiming storage
 

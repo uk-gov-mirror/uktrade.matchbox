@@ -92,7 +92,6 @@ def test_no_deduplication(
 
     # Configure and run the deduper
     deduper = Model(
-        name="exact_deduper",
         model_class=Deduper,
         model_settings=configure_deduper(source_testkit),
         left=source_testkit.source.view(),
@@ -145,7 +144,6 @@ def test_exact_duplicate_deduplication(
 
     # Configure and run the deduper
     deduper = Model(
-        name="exact_deduper",
         model_class=Deduper,
         model_settings=configure_deduper(source),
         left=source.source.view(),

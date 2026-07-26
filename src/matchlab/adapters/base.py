@@ -51,7 +51,6 @@ class Adapter(ABC):
     def store_source(
         self,
         fp: Fingerprint,
-        name: str,
         key_field: str,
         extract: pl.DataFrame,
         leaves: pl.DataFrame,
@@ -60,7 +59,6 @@ class Adapter(ABC):
 
         Args:
             fp: The source step's fingerprint.
-            name: The source's name (used to tag its rows in resolutions).
             key_field: Which column of `extract` holds the key. Stored so the extract
                 can be read back and joined to a resolution without the plan.
             extract: The warehouse extract (arbitrary schema) to cache.
@@ -81,7 +79,7 @@ class Adapter(ABC):
     # -- models -----------------------------------------------------------------------
 
     @abstractmethod
-    def store_model(self, fp: Fingerprint, name: str, edges: pl.DataFrame) -> None:
+    def store_model(self, fp: Fingerprint, edges: pl.DataFrame) -> None:
         """Store a model's edge list (`SCHEMA_MODEL_EDGES`)."""
         ...
 
@@ -112,7 +110,6 @@ class Adapter(ABC):
     def store_resolver(
         self,
         fp: Fingerprint,
-        name: str,
         resolution: pl.DataFrame,
         sources: Mapping[str, Fingerprint] | None = None,
     ) -> None:
@@ -120,7 +117,6 @@ class Adapter(ABC):
 
         Args:
             fp: The resolver step's fingerprint.
-            name: The resolver's name, so a store can be browsed without the plan.
             resolution: `SCHEMA_EVAL_SAMPLES` columns `(root, leaf, key, source)`,
                 already merged forward over all upstream leaves. The adapter does not
                 verify the merge — that is the client's contract — but it does validate
@@ -131,19 +127,33 @@ class Adapter(ABC):
         """
         ...
 
-    # -- lookups ----------------------------------------------------------------------
+    # -- labels -----------------------------------------------------------------------
     #
-    # Enough to read a stored resolution back without the plan that built it, which is
-    # what lets evaluation run against a store alone.
+    # A **label** is a pointer, kept here, from a string you chose to a resolution you
+    # want to find again. It is deliberately not called a name: a *name* belongs to a
+    # source and is part of its output, while a label belongs to the store and is part
+    # of finding things in it. Storing an artifact and labelling one are separate acts —
+    # `Resolver.publish` does the second, after the first.
+    #
+    # This is what lets evaluation run against a store alone, with no plan.
 
     @abstractmethod
-    def find(self, kind: str, name: str) -> Fingerprint | None:
-        """Return the fingerprint of a stored artifact by kind and name."""
+    def publish(self, label: str, fp: Fingerprint) -> None:
+        """Point `label` at `fp`, replacing whatever it pointed at before.
+
+        The adapter moves the pointer without arguing; whether overwriting is allowed
+        is decided by the caller, which knows what the user asked for.
+        """
         ...
 
     @abstractmethod
-    def names(self, kind: str) -> list[str]:
-        """Return the names of stored artifacts of a kind, sorted."""
+    def find(self, label: str) -> Fingerprint | None:
+        """Return the fingerprint a label points at, if any."""
+        ...
+
+    @abstractmethod
+    def labels(self) -> list[str]:
+        """Return every label in this store, sorted."""
         ...
 
     @abstractmethod

@@ -79,13 +79,12 @@ def dedupe_scenario(
     scenario = _linked(n_true_entities, seed, engine)
 
     model = model_factory(
-        name="dedupe_crn",
         left_testkit=scenario.sources["crn"],
         true_entities=scenario.true_entities,
         seed=seed,
     )
     scenario.models["dedupe_crn"] = model
-    scenario.apex = model.resolve(name="resolve_crn")
+    scenario.apex = model.resolve()
     return scenario
 
 
@@ -102,12 +101,11 @@ def link_scenario(
     crn, cdms = scenario.sources["crn"], scenario.sources["cdms"]
 
     dedupe = model_factory(
-        name="dedupe_crn",
         left_testkit=crn,
         true_entities=scenario.true_entities,
         seed=seed,
     )
-    resolved_crn = dedupe.resolve(name="resolve_crn")
+    resolved_crn = dedupe.resolve()
 
     truth_id = register_truth(
         truth_from_testkits(
@@ -117,7 +115,6 @@ def link_scenario(
         )
     )
     link = Model(
-        name="link_crn_cdms",
         left=resolved_crn.view(crn.source),
         right=cdms.source.view(),
         model_class=ScriptedLinker,
@@ -125,5 +122,5 @@ def link_scenario(
     )
 
     scenario.models["dedupe_crn"] = dedupe
-    scenario.apex = link.resolve(name="apex")
+    scenario.apex = link.resolve()
     return scenario

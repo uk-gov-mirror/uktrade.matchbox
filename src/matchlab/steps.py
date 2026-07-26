@@ -20,6 +20,7 @@ refresh), while an existing `Source` object memoises its read.
 from __future__ import annotations
 
 import json
+import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Self
 from weakref import WeakSet
@@ -30,6 +31,7 @@ from pydantic import BaseModel
 from matchlab import lineage
 from matchlab.adapters import Adapter, DuckDBAdapter, Fingerprint
 from matchlab.core.hash import HASH_FUNC
+from matchlab.core.logging import logger
 
 if TYPE_CHECKING:
     import polars as pl
@@ -84,18 +86,36 @@ class Step(ABC):
     #: it is collected directly.
     stores: ClassVar[bool] = True
 
-    def __init__(self, name: str, upstream: tuple[Step, ...] = ()) -> None:
-        """Initialise a plan node with its name and direct inputs."""
-        self.name = name
+    def __init__(self, upstream: tuple[Step, ...] = ()) -> None:
+        """Initialise a plan node with its direct inputs.
+
+        Steps have no names. They are identified by **position** — where they fall in
+        `lineage.walk`, which is the order `collect` runs them in and the order
+        `PlanDocument` lists them in. So `step 7` in a log, `[7]` in `draw()`, and
+        `steps[7]` in a document are the same node.
+
+        A position is not stored here, because it is not a property of the step: it
+        belongs to the walk it came from, and the same step numbers differently in
+        `walk(deduped)` and `walk(companies)`. Whoever does the walking passes it to
+        whoever needs it — `collect` to `_ensure`, `draw` to its own renderer.
+
+        Finding a result later is a separate matter, and a separate act:
+        `Resolver.publish` points a **label** at a resolution. `Source` is the one step
+        with a name, and it means something else again — a source's name is part of its
+        output, prefixing every column it contributes and tagging its rows.
+        """
         self.upstream = tuple(upstream)
         self._fp: Fingerprint | None = None
         self._adapter: Adapter | None = None
         _LIVE_STEPS.add(self)
 
     def __repr__(self) -> str:
-        """Return a short representation showing kind, name and collection state."""
-        state = "collected" if self.is_collected else "lazy"
-        return f"<{type(self).__name__} {self.name!r} {state}>"
+        """Return a short representation showing kind and collection state."""
+        return f"<{type(self).__name__} {'collected' if self.is_collected else 'lazy'}>"
+
+    def __str__(self) -> str:
+        """How this step appears in a drawing. `Source` adds its name."""
+        return self.kind
 
     @property
     def is_collected(self) -> bool:
@@ -146,9 +166,12 @@ class Step(ABC):
           `_config_key` covers everything its step's output depends on; treat that as
           the invariant to protect when adding a step or a setting.
         * config includes something that doesn't change the output — a **spurious
-          miss**, re-running the step and everything below it. Renaming an upstream
-          step does this: identity already arrives via the parent fingerprint, but
-          `Model._config_key` also records the input's name.
+          miss**, re-running the step and everything below it. No config does this
+          today, and the way to keep it that way is to record settings only: a config
+          that described an *input* would, since identity already arrives via the
+          parent fingerprint. A setting that must point at an input points at its
+          position, which is not redundant — it decides which input the setting
+          applies to.
 
         There is also no early cutoff. A `Clean` whose SQL is reformatted but
         semantically unchanged invalidates the whole subtree beneath it.
@@ -167,7 +190,7 @@ class Step(ABC):
         for parent in self.upstream:
             if parent._fp is None:  # pragma: no cover - collect orders upstream first
                 raise RuntimeError(
-                    f"Input '{parent.name}' of '{self.name}' has no fingerprint yet."
+                    f"A {parent.kind} input of this {self.kind} has no fingerprint yet."
                 )
             parts.append(parent._fp)
         return HASH_FUNC(b"|".join(parts)).digest()
@@ -179,9 +202,15 @@ class Step(ABC):
         """Compute this step and persist its artifact under `fp`."""
         ...
 
-    def _ensure(self, adapter: Adapter) -> None:
-        """Materialise this step unless its artifact is already stored."""
+    def _ensure(self, adapter: Adapter, position: int) -> None:
+        """Materialise this step unless its artifact is already stored.
+
+        Logging lives here rather than in `_execute` because this is the level that
+        knows the step's position, and the position is what a log line has to quote to
+        be findable in the plan `collect` printed. It keeps `_execute` to the work.
+        """
         self._adapter = adapter
+        prefix = f"step {position}"
 
         if self._fp is not None and (not self.stores or adapter.has(self._fp)):
             return
@@ -193,10 +222,13 @@ class Step(ABC):
             return
 
         if adapter.has(fp):  # cache hit — skip the work entirely
+            logger.debug("Cached", prefix=prefix)
             self._fp = fp
             return
 
+        start = time.perf_counter()
         self._execute(adapter, fp)
+        logger.info(f"Ran in {time.perf_counter() - start:.3f}s", prefix=prefix)
         self._fp = fp
 
     # -- public API -------------------------------------------------------------------
@@ -215,9 +247,10 @@ class Step(ABC):
             This step, now collected.
         """
         adapter = adapter or default_adapter()
-        lineage.validate(self)
-        for step in lineage.walk(self):
-            step._ensure(adapter)
+        # The position each step is logged under. `draw()` numbers the same walk, so a
+        # `step 7` in the output is the node drawn as `[7]`.
+        for position, step in enumerate(lineage.walk(self)):
+            step._ensure(adapter, position)
         return self
 
     def lineage(self) -> list[Step]:
@@ -230,13 +263,22 @@ class Step(ABC):
 
     # -- helpers for subclasses -------------------------------------------------------
 
-    def _require_adapter(self) -> Adapter:
-        """Return the adapter this step was collected into."""
+    def _collected(self) -> tuple[Adapter, Fingerprint]:
+        """Return the adapter this step was collected into, and its fingerprint.
+
+        Both together, because everything that reads a stored artifact needs both and
+        neither exists before collection — returning the pair is what lets a caller
+        use the fingerprint without re-checking that it is there.
+        """
         if self._adapter is None or self._fp is None:
             raise RuntimeError(
-                f"Step '{self.name}' has not been collected. Call collect() first."
+                f"This {self.kind} has not been collected. Call collect() first."
             )
-        return self._adapter
+        return self._adapter, self._fp
+
+    def _require_adapter(self) -> Adapter:
+        """Return the adapter this step was collected into."""
+        return self._collected()[0]
 
     def _frame(self, adapter: Adapter) -> pl.DataFrame:
         """Return this step's data. Overridden by kinds that feed other steps."""

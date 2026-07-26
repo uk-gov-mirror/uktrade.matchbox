@@ -58,7 +58,84 @@ its own inputs, so the step you're holding is the pipeline.
     lookup = entities.collect().get_matches().as_lookup()
     ```
 
-Names are now optional — they're derived from the operation unless you pass one.
+## Publishing replaced naming
+
+Steps have no names. In Matchbox every step took one; now a name is not part of a plan
+at all, because it changes nothing about what gets computed. **Publishing a resolution
+under a label is an operation you perform on the result:**
+
+```python
+entities = crn_dedupe.resolve(dh_dedupe).collect().publish("entities")
+```
+
+That label is what `matchlab review <label>` and `get_samples(resolution=...)` find. A
+plan you never publish still runs perfectly well — it is just unlabelled, addressed by
+fingerprint like everything else.
+
+Republishing the same label for the same resolution is a no-op, so re-running an
+unchanged pipeline is safe. Aiming an existing label somewhere new is deliberate:
+
+```python
+entities.publish("entities", overwrite=True)
+```
+
+**Sources keep their name**, and it is a different thing entirely: it prefixes every
+column that source contributes (`crn_company`) and tags its rows in a resolution, so it
+is part of the output rather than a way of finding it. That two things called `name` did
+such different jobs is exactly why the other one became an operation, and why what it
+produces is called a *label* — the word is now unambiguous. A name belongs to a source;
+a label belongs to a store.
+
+### Everything else goes by position
+
+A step is referred to by where it falls in the plan — the order `collect` runs it in.
+So comparing two methodologies over one view needs no names and cannot collide:
+
+```python
+view = crn.view(cleaning={...})
+naive = view.dedupe(NaiveDeduper, {...})
+splink = view.dedupe(SplinkLinker, {...})
+entities = naive.resolve(splink).collect().publish("entities")
+```
+
+Logs quote the position:
+
+```
+[crn] Reading from the warehouse
+[step 0] Ran in 0.004s
+[step 2] Ran in 0.041s
+[step 3] Ran in 0.012s
+[step 4] Ran in 0.005s
+```
+
+and `draw()` numbers the same walk:
+
+```
+● [4] resolver
+    ├── ● [3] model
+    │   └── ● [1] clean
+    │       └── ● [0] source 'crn'
+    └── ● [2] model
+        └── ● [1] clean
+            └── ● [0] source 'crn'
+```
+
+The shared view appears as `[1]` under both models, because it *is* one node read twice
+rather than two identical ones.
+
+### Per-model thresholds take the model, not its name
+
+```python
+# Matchbox
+resolver_settings = {"thresholds": {"d_crn": 0.9}}
+
+# matchlab
+resolver_settings = {"thresholds": {d_crn: 0.9}}
+```
+
+You already hold the model, so there's nothing to retype and nothing to keep in sync —
+a typo is a `NameError` where it used to be a runtime failure at collect time. It is
+stored by input position, which is also why models need no names for this to work.
 
 ## Sources declare less
 

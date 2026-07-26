@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def review(
-    resolver: "Resolver | str",
+    resolution: "Resolver | str",
     n: int = 5,
     adapter: "Adapter | None" = None,
     tag: str | None = None,
@@ -37,8 +37,8 @@ def review(
     ```
 
     Args:
-        resolver: The resolver whose clusters to review, or the name of a stored
-            resolution.
+        resolution: The resolver whose clusters to review, or the name one was
+            published under.
         n: How many clusters to hold in the queue at once.
         adapter: Where judgements are stored, and where samples are drawn from.
             Defaults to the module-level adapter.
@@ -60,13 +60,8 @@ def review(
             "Install it with `pip install matchlab[tui]`."
         ) from exc
 
-    named = isinstance(resolver, str)
-    if not named and not resolver.is_collected:
-        resolver.collect(adapter)
-
     EntityResolutionApp(
-        resolver=None if named else resolver,
-        resolver_name=resolver if named else None,
+        resolution=resolution,
         num_samples=n,
         adapter=adapter,
         session_tag=tag,

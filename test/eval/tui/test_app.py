@@ -60,12 +60,9 @@ def resolver(warehouse: Engine) -> Resolver:
 
 def _app(resolver: Resolver, **kwargs: object) -> EntityResolutionApp:
     # Debouncing is a UI nicety that only makes tests wait.
-    return EntityResolutionApp(resolver=resolver, scroll_debounce_delay=None, **kwargs)
-
-
-def test_a_resolver_is_required() -> None:
-    with pytest.raises(ValueError, match="resolver is required"):
-        EntityResolutionApp(resolver=None)
+    return EntityResolutionApp(
+        resolution=resolver, scroll_debounce_delay=None, **kwargs
+    )
 
 
 async def test_the_app_loads_clusters_from_a_collected_resolver(
@@ -171,9 +168,8 @@ async def test_a_store_can_be_reviewed_without_the_plan(
     plan = source.dedupe(
         model_class=NaiveDeduper,
         model_settings={"unique_fields": [source.f("company")]},
-        name="d_crn",
-    ).resolve(name="entities")
-    plan.collect(store)
+    ).resolve()
+    plan.collect(store).publish("entities")
 
     del plan, source, location
 
@@ -181,10 +177,10 @@ async def test_a_store_can_be_reviewed_without_the_plan(
     warehouse.dispose()
     (tmp_path / "wh.sqlite").unlink()
 
-    assert store.names("resolver") == ["entities"]
+    assert store.labels() == ["entities"]
 
     app = EntityResolutionApp(
-        resolver_name="entities", adapter=store, scroll_debounce_delay=None
+        resolution="entities", adapter=store, scroll_debounce_delay=None
     )
     async with app.run_test():
         assert app.current_item is not None
@@ -194,12 +190,30 @@ async def test_a_store_can_be_reviewed_without_the_plan(
     store.close()
 
 
-async def test_an_unknown_resolution_name_lists_what_is_there(
+def test_a_resolver_and_its_label_reach_the_same_resolution(
+    resolver: Resolver, adapter: DuckDBAdapter
+) -> None:
+    """One parameter, two ways of saying which resolution — and they agree.
+
+    The object and the label differ only in how the fingerprint is found, so nothing
+    downstream needs to know which was given.
+    """
+    from matchlab.eval import get_samples  # noqa: PLC0415
+
+    resolver.collect(adapter).publish("entities")
+
+    # Sampling is random per call, so compare the whole population rather than a draw.
+    by_object = get_samples(n=999, resolution=resolver, adapter=adapter)
+    by_label = get_samples(n=999, resolution="entities", adapter=adapter)
+    assert by_object and set(by_object) == set(by_label)
+
+
+async def test_an_unknown_label_lists_what_is_there(
     resolver: Resolver, adapter: DuckDBAdapter
 ) -> None:
     from matchlab.core.exceptions import SourceTableError  # noqa: PLC0415
     from matchlab.eval import get_samples  # noqa: PLC0415
 
     resolver.collect()
-    with pytest.raises(SourceTableError, match="No stored resolution named 'nope'"):
-        get_samples(n=1, resolver_name="nope", adapter=adapter)
+    with pytest.raises(SourceTableError, match="under the label 'nope'"):
+        get_samples(n=1, resolution="nope", adapter=adapter)

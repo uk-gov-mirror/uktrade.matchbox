@@ -1,7 +1,7 @@
 """Base classes for resolver methodologies."""
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from typing import ClassVar
 
 import polars as pl
@@ -11,24 +11,15 @@ from matchlab.core.config import ResolverType
 
 
 class ResolverSettings(BaseModel, ABC):
-    """Base settings type for resolver methodologies."""
+    """Base settings type for resolver methodologies.
+
+    Settings that point at one of the resolver's inputs refer to it by **position**.
+    Resolver` accepts the `Model` object at the API and translates it,
+    so nothing here holds a plan node: a methodology stays a pure function of edges
+    and numbers.
+    """
 
     model_config = ConfigDict(extra="forbid")
-
-    @abstractmethod
-    def validate_inputs(self, model_names: Iterable[str]) -> None:
-        """Validates whether the models' clusters can be computed with this object.
-
-        Should be used in conjunction with ResolverMethod.compute_clusters().
-
-        Args:
-            model_names: A list of model names that will be processed using
-                these settings
-
-        Raises:
-            RuntimeError: if supplied model names don't match the settings
-        """
-        ...
 
 
 class ResolverMethod(BaseModel, ABC):
@@ -38,17 +29,15 @@ class ResolverMethod(BaseModel, ABC):
     settings: ResolverSettings
 
     @abstractmethod
-    def compute_clusters(self, model_edges: Mapping[str, pl.DataFrame]) -> pl.DataFrame:
+    def compute_clusters(self, model_edges: Mapping[int, pl.DataFrame]) -> pl.DataFrame:
         """Compute cluster assignments from model edges.
 
         Args:
-            model_edges: A mapping of model names to model edges which conform
-                to SCHEMA_MODEL_EDGES
+            model_edges: Input position to that model's edges, conforming to
+                SCHEMA_MODEL_EDGES. Positions index the resolver's inputs, in the
+                order they were given, and are what per-model settings key by.
 
         Returns:
             A Polars DataFrame which conforms to SCHEMA_CLUSTERS
-
-        Raises:
-            RuntimeError: if supplied model names don't match the Resolver's settings
         """
         ...

@@ -9,7 +9,6 @@ import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.config import ModelConfig, ModelType
-from matchlab.core.logging import logger, profile_time
 from matchlab.models import dedupers, linkers
 from matchlab.models.dedupers.base import Deduper, DeduperSettings
 from matchlab.models.linkers.base import Linker, LinkerSettings
@@ -45,7 +44,6 @@ class Model(Step):
         model_class: type[Deduper] | type[Linker] | str,
         model_settings: DeduperSettings | LinkerSettings | dict,
         right: View | None = None,
-        name: str | None = None,
     ) -> None:
         """Define a model.
 
@@ -54,7 +52,6 @@ class Model(Step):
             model_class: A `Deduper`/`Linker` subclass, or its registered name.
             model_settings: The settings object for that class, or a dict.
             right: The right side of a link. Omit for a deduper.
-            name: Optional plan name; derived from the inputs when omitted.
         """
         self.left = left
         self.right = right
@@ -80,12 +77,8 @@ class Model(Step):
                 "A linker requires a right input; a deduper must not have one."
             )
 
-        verb = "link" if right is not None else "dedupe"
-        sources = "_".join(
-            source.name for view in (left, right) if view for source in view.sources
-        )
         upstream: tuple[Step, ...] = (left,) if right is None else (left, right)
-        super().__init__(name=name or f"{verb}_{sources}", upstream=upstream)
+        super().__init__(upstream=upstream)
 
     # -- Step contract ----------------------------------------------------------------
 
@@ -96,17 +89,12 @@ class Model(Step):
             model_type=self.model_type,
             model_class=self.model_class.__name__,
             model_settings=self.model_settings.model_dump(mode="json"),
-            left=self.left.name,
-            right=self.right.name if self.right else None,
         )
 
-    @profile_time(attr="name")
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
-        logger.info("Building inputs", prefix=f"Run {self.name}")
         left = self.left._frame(adapter)
         right = self.right._frame(adapter) if self.right else None
 
-        logger.info("Running model logic", prefix=f"Run {self.name}")
         if self.model_type == ModelType.LINKER:
             self.model_instance.prepare(left, right)
             scores = self.model_instance.link(left=left, right=right)
@@ -114,7 +102,7 @@ class Model(Step):
             self.model_instance.prepare(left)
             scores = self.model_instance.dedupe(data=left)
 
-        adapter.store_model(fp, self.name, normalise_model_scores(scores))
+        adapter.store_model(fp, normalise_model_scores(scores))
 
     # -- data -------------------------------------------------------------------------
 
@@ -122,7 +110,8 @@ class Model(Step):
         """Return this model's scored edges. Collects the plan first if needed."""
         if not self.is_collected:
             self.collect()
-        return self._require_adapter().read_model(self._fp)
+        adapter, fp = self._collected()
+        return adapter.read_model(fp)
 
     @property
     def inputs(self) -> tuple[View, ...]:
@@ -136,7 +125,6 @@ class Model(Step):
         *other_models: Model,
         resolver_class: type[ResolverMethod] | str = "Components",
         resolver_settings: ResolverSettings | dict[str, Any] | None = None,
-        name: str | None = None,
     ) -> Resolver:
         """Resolve this model (and any others) into clusters."""
         from matchlab.resolvers import Resolver  # noqa: PLC0415 - avoids a cycle
@@ -146,5 +134,4 @@ class Model(Step):
             *other_models,
             resolver_class=resolver_class,
             resolver_settings=resolver_settings,
-            name=name,
         )

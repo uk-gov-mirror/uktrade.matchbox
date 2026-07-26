@@ -7,13 +7,20 @@ everything the step's output depends on, and nothing else.**
 That rule explains the one asymmetry. `SourceConfig` carries its own `name`, because a
 source's name prefixes every column it contributes and tags its rows in a resolution —
 rename it and the output changes. No other step's name reaches its own output, so no
-other config records it. Where a name *is* load-bearing to a consumer it appears in the
-consumer's config: `ResolverConfig.inputs` records model names because per-model
-thresholds are keyed by them.
+other config records one, its own or an input's. A setting that has to point at an
+input points at its **position** (`ComponentsSettings.thresholds`), which is identity
+rather than nomenclature: renaming a step moves no fingerprint anywhere.
 
-Configs are flat. They describe a step's own settings, never its inputs' — the plan's
-edges live on `Step.upstream`, and a step's fingerprint already folds in its parents'.
-Nesting a parent's config inside a child's would duplicate that.
+Configs describe **settings, not edges**. A config is a step's own configuration and
+never a description of its inputs — the plan's edges live on `Step.upstream`, and a
+step's fingerprint already folds in its parents'. Recording an input here would be
+recorded twice, and a rename would then invalidate a subtree that produces identical
+bytes.
+
+That is also why a config is *not* the serialisation format. Serialising a plan needs
+the edges; identifying a step must exclude them. `matchlab.document` keeps the two
+apart: `PlanDocument` carries the nodes and the edges between them, and each node's
+config stays exactly what the fingerprint hashes.
 """
 
 import textwrap
@@ -106,20 +113,16 @@ class SourceConfig(BaseModel):
 
 
 class ViewConfig(BaseModel):
-    """Configuration of a view: which records a model matches over, and their shape."""
+    """Configuration of a view: the shape it gives the records a model matches over.
+
+    *Which* records it reads is not here — that is an edge, and edges live on
+    `Step.upstream` and in `PlanDocument`. A view over one source and a view over
+    another are told apart by their inputs' fingerprints, which `_fingerprint` already
+    folds in, in order.
+    """
 
     model_config = ConfigDict(frozen=True)
 
-    sources: tuple[str, ...] = Field(
-        description="Names of the sources this view reads, in lineage order."
-    )
-    resolver: str | None = Field(
-        default=None,
-        description=(
-            "The resolver whose clusters this view reads through, if any. Without "
-            "one, records are grouped by their source leaves."
-        ),
-    )
     cleaning: dict[str, str] | None = Field(
         default=None,
         description=(
@@ -148,10 +151,6 @@ class ModelConfig(BaseModel):
     model_settings: dict[str, Any] = Field(
         description="That class's settings, dumped to JSON."
     )
-    left: str = Field(description="Name of the view being matched.")
-    right: str | None = Field(
-        default=None, description="Name of the right view, for linkers."
-    )
 
 
 class ResolverConfig(BaseModel):
@@ -163,11 +162,8 @@ class ResolverConfig(BaseModel):
         description="The registered name of the ResolverMethod subclass."
     )
     resolver_settings: dict[str, Any] = Field(
-        description="That class's settings, dumped to JSON."
-    )
-    inputs: tuple[str, ...] = Field(
         description=(
-            "Names of the models whose edges are resolved. Load-bearing: per-model "
-            "settings such as score thresholds are keyed by these names."
+            "That class's settings, dumped to JSON. Settings that point at one of the "
+            "resolver's inputs key by the input's position, so no name appears here."
         )
     )

@@ -1,6 +1,6 @@
 """Connected-components resolver methodology."""
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from typing import Annotated, ClassVar
 
 import polars as pl
@@ -15,13 +15,14 @@ from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 class ComponentsSettings(ResolverSettings):
     """Settings for the Components resolver methodology."""
 
-    thresholds: dict[str, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
-        default_factory=dict
+    thresholds: dict[int, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
+        default_factory=dict,
+        description=(
+            "Minimum score for an edge to count, per input, keyed by the input's "
+            "position. Write these as `{model: 0.9}` — `Resolver` takes the model "
+            "object and works out the position."
+        ),
     )
-
-    def validate_inputs(self, model_names: Iterable[str]) -> None:  # noqa: D102
-        if invalid := set(self.thresholds.keys()) - set(model_names):
-            raise RuntimeError(f"Unknown models in thresholds: {invalid}")
 
 
 class Components(ResolverMethod):
@@ -34,17 +35,15 @@ class Components(ResolverMethod):
     settings: ComponentsSettings
 
     def compute_clusters(  # noqa: D102
-        self, model_edges: Mapping[str, pl.DataFrame]
+        self, model_edges: Mapping[int, pl.DataFrame]
     ) -> pl.DataFrame:
-        self.settings.validate_inputs(model_edges.keys())
-
         djs = DisjointSet[int]()
 
-        for model_name, edges in model_edges.items():
+        for position, edges in model_edges.items():
             if edges.height == 0:
                 continue
 
-            threshold = self.settings.thresholds.get(model_name, 0.0)
+            threshold = self.settings.thresholds.get(position, 0.0)
             filtered_edges = edges.filter(pl.col("score") >= threshold)
 
             for left_id, right_id in filtered_edges.select(

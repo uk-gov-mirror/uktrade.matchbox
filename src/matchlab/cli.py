@@ -8,8 +8,8 @@ had to be fetched by name; here the pipeline *is* Python, and `python pipeline.p
 it.
 
 `review` takes either a `module:attribute` naming a resolver in your code — the shape
-uvicorn and celery use — or, with `--store`, just the name of a resolution already
-collected. The second needs no plan and no warehouse: a stored resolution knows which
+uvicorn and celery use — or, with `--store`, just the label of a resolution already
+published. The second needs no plan and no warehouse: a stored resolution knows which
 source artifacts it covers, and their extracts hold the values.
 """
 
@@ -101,7 +101,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "'module:attribute' — 'pipeline:entities' for a resolver assigned to "
             "`entities` in pipeline.py — or a function returning one, if building "
             "the plan needs a connection you'd rather open on demand. "
-            "With --store, TARGET is instead the name of a resolution already in "
+            "With --store, TARGET is instead the label of a resolution published in "
             "that store, and no Python is imported: the values shown come from the "
             "extracts cached when the sources were collected, so no warehouse "
             "connection is needed."
@@ -110,7 +110,7 @@ def _build_parser() -> argparse.ArgumentParser:
     review.add_argument(
         "target",
         metavar="TARGET",
-        help="module:attribute, or a stored resolution's name when --store is given",
+        help="module:attribute, or a resolution's label when --store is given",
     )
     review.add_argument(
         "-n", "--samples", type=int, default=5, help="Clusters to queue (default: 5)."
@@ -154,14 +154,14 @@ def main(argv: list[str] | None = None) -> None:
 
     adapter = DuckDBAdapter(args.store) if args.store else None
 
-    # With a store, a bare name is a stored resolution — no plan to import.
+    # With a store, a bare word is a label on a stored resolution — no plan to import.
     target = args.target
     if adapter is not None and ":" not in target:
-        known = adapter.names("resolver")
+        known = adapter.labels()
         if target not in known:
             raise SystemExit(
-                f"No resolution named '{target}' in {args.store}. "
-                f"Found: {', '.join(known) or 'none'}."
+                f"No resolution is labelled '{target}' in {args.store}. "
+                f"Known labels: {', '.join(known) or 'none'}."
             )
     else:
         target = _load_target(target)

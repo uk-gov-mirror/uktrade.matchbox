@@ -11,8 +11,12 @@ matchlab treats that as a first-class job rather than something you bolt on afte
 ```python
 from matchlab.eval import get_samples
 
-samples = get_samples(n=20, resolver=entities)
+samples = get_samples(n=20, resolution=entities)
 ```
+
+`resolution` takes either a resolver you are holding or the label one was
+[published](./build-a-plan.md) under — the same either/or that `review()` takes. The
+label form needs no plan at all, which is what the rest of this page builds on.
 
 Each sample is an `EvaluationItem`: the records in one cluster, with their fields laid
 out so a human can see what was grouped and decide whether it should have been.
@@ -68,8 +72,9 @@ You don't need the plan, or the warehouse, to review what it produced:
 matchlab review entities --store ./run.duckdb
 ```
 
-With `--store`, the target is the name of a resolution already in that store rather
-than Python to import. This works because collecting a source caches its extract, and
+With `--store`, the target is the label a resolution was **published** under —
+`entities.collect().publish("entities")` — rather than Python to import. This works
+because collecting a source caches its extract, and
 a stored resolution records which source artifacts it covers — so the values on screen
 come out of the store.
 
@@ -146,13 +151,18 @@ The plan structure makes this cheap: build several resolvers over the same sourc
 collect them, and score each against the same judgements.
 
 ```python
-naive = crn.dedupe(model_class=NaiveDeduper, ...).resolve(name="naive")
-splink = crn.dedupe(model_class=SplinkLinker, ...).resolve(name="splink")
+candidates = {
+    "naive": crn.dedupe(model_class=NaiveDeduper, ...).resolve(),
+    "splink": crn.dedupe(model_class=SplinkLinker, ...).resolve(),
+}
 
-for candidate in (naive, splink):
-    candidate.collect()
-    print(candidate.name, evaluation.precision_recall(candidate.results_eval()))
+for name, candidate in candidates.items():
+    candidate.collect().publish(name)
+    print(name, evaluation.precision_recall(candidate.results_eval()))
 ```
+
+Publishing each one is what lets you come back to it later with
+`matchlab review naive` — a candidate you only wanted to score once needs no label.
 
 Because steps are content-addressed, the shared source is read once and both resolvers
 reuse it.

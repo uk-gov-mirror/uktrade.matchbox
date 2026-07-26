@@ -47,36 +47,36 @@ def walk(root: Step) -> list[Step]:
     return ordered
 
 
-def validate(root: Step) -> None:
-    """Check a plan is well-formed before it is executed.
+def number(root: Step) -> dict[int, int]:
+    """Map each step in `root`'s plan to the position it is known by.
 
-    Cycles cannot be constructed (a step's inputs must exist before it does), so the
-    only real hazard is two distinct steps sharing a name. Names are how a setting
-    refers to a step without holding it — `ComponentsSettings.thresholds` is keyed by
-    model name — so a duplicate makes that reference, and any serialised form of the
-    plan, ambiguous. Pass `name=` to disambiguate steps a derived name would collide.
+    A step is referred to by position — in logs, in `draw()`, and in a document.
+    The position belongs to the walk rather than to the step: the
+    same node numbers differently in `walk(deduped)` and `walk(companies)`, so nothing
+    is written back onto the steps. Callers that need one hold this mapping, or are
+    handed the number directly, as `collect` hands it to `_ensure`.
 
-    Raises:
-        ValueError: If two distinct steps in the lineage share a name.
+    Returns:
+        Step identity to position, in walk order.
     """
-    by_name: dict[str, Step] = {}
-    for step in walk(root):
-        existing = by_name.get(step.name)
-        if existing is not None and existing is not step:
-            raise ValueError(
-                f"Duplicate step name '{step.name}' in the lineage of '{root.name}'. "
-                "Names must be unique within a plan."
-            )
-        by_name[step.name] = step
+    return {id(step): position for position, step in enumerate(walk(root))}
 
 
 def draw(root: Step) -> str:
-    """Render `root`'s sub-plan as an indented tree, inputs nested beneath consumers."""
+    """Render `root`'s sub-plan as an indented tree, inputs nested beneath consumers.
+
+    Each node carries its **position** — the index `collect` runs it at, and the index
+    it occupies in this plan's document. That is the cross-reference: a log line saying
+    `step 7` is the node drawn as `[7]`. Positions come from `walk`, not from the order
+    these lines happen to be printed in, since a tree nests consumers above their
+    inputs while a walk lists inputs first.
+    """
+    position = number(root)
     lines: list[str] = []
 
     def render(step: Step, prefix: str, connector: str) -> None:
         marker = "●" if step.is_collected else "○"
-        lines.append(f"{prefix}{connector}{marker} {step.name} [{step.kind}]")
+        lines.append(f"{prefix}{connector}{marker} [{position[id(step)]}] {step}")
         child_prefix = prefix + ("    " if connector in ("└── ", "") else "│   ")
         parents = step.upstream
         for index, parent in enumerate(parents):

@@ -108,8 +108,7 @@ class EntityResolutionApp(App):
     current_assignments: reactive[dict[int, str]] = reactive({}, init=False)
 
     sample_limit: int
-    resolver: "Resolver | None"
-    resolver_name: str | None
+    resolution: "Resolver | str"
     adapter: "Adapter | None"
     session_tag: str | None
     sample_file: str | None
@@ -120,8 +119,7 @@ class EntityResolutionApp(App):
 
     def __init__(
         self,
-        resolver: "Resolver | None" = None,
-        resolver_name: str | None = None,
+        resolution: "Resolver | str",
         num_samples: int = 5,
         adapter: "Adapter | None" = None,
         session_tag: str | None = None,
@@ -132,9 +130,9 @@ class EntityResolutionApp(App):
         """Initialise the entity resolution app.
 
         Args:
-            resolver: The resolver whose clusters are reviewed.
-            resolver_name: Name a stored resolution instead, for reviewing a store
-                without the plan that built it.
+            resolution: The resolver whose clusters are reviewed, or the name one was
+                published under — the second form reviews a store without the plan
+                that built it.
             num_samples: Number of clusters to sample for evaluation
             adapter: Where judgements are stored. Defaults to the module default.
             session_tag: String to use for tagging judgements
@@ -146,11 +144,7 @@ class EntityResolutionApp(App):
         """
         super().__init__()
 
-        if resolver is None and resolver_name is None:
-            raise ValueError("A resolver is required, by object or by name")
-
-        self.resolver = resolver
-        self.resolver_name = resolver_name
+        self.resolution = resolution
         self.sample_limit = num_samples
         self.adapter = adapter
         self.session_tag = session_tag
@@ -158,8 +152,6 @@ class EntityResolutionApp(App):
 
         self.show_help = show_help
         self._scroll_debounce_delay = scroll_debounce_delay
-
-        self._label = resolver.name if resolver is not None else resolver_name
         self.queue = EvaluationQueue()
 
     # Lifecycle methods
@@ -280,7 +272,7 @@ class EntityResolutionApp(App):
     async def _handle_no_samples(self) -> None:
         """Handle empty queue state."""
         self._update_status("◯ No data", "yellow")
-        logger.warning(f"No samples available for '{self._label}'.")
+        logger.warning("No samples available for this resolution.")
         await self.action_show_no_samples()
 
     def _update_status(
@@ -325,8 +317,7 @@ class EntityResolutionApp(App):
         try:
             new_samples_dict = get_samples(
                 n=needed,
-                resolver=self.resolver,
-                resolver_name=self.resolver_name,
+                resolution=self.resolution,
                 adapter=self.adapter,
                 sample_file=self.sample_file,
             )

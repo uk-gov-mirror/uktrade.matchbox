@@ -173,12 +173,42 @@ def _stored_records(
     return rows.with_columns(pl.col(qualified_key).cast(pl.Utf8)), qualified_key, values
 
 
+def _locate(
+    resolution: "Resolver | str", adapter: "Adapter | None"
+) -> tuple["Adapter", bytes]:
+    """Turn a resolver or a label into the store and fingerprint to read.
+
+    The two forms differ only in how the fingerprint is found — a live resolver knows
+    its own; a label is looked up in a store. Everything downstream wants the same pair,
+    so this is the only place the distinction exists.
+
+    Raises:
+        SourceTableError: If nothing is published under that label.
+    """
+    from matchlab.steps import default_adapter  # noqa: PLC0415 - avoids a cycle
+
+    if isinstance(resolution, str):
+        adapter = adapter or default_adapter()
+        fingerprint = adapter.find(resolution)
+        if fingerprint is None:
+            known = ", ".join(adapter.labels()) or "none"
+            raise SourceTableError(
+                f"No resolution is published under the label '{resolution}'. "
+                f"Known labels: {known}."
+            )
+        return adapter, fingerprint
+
+    if not resolution.is_collected:
+        resolution.collect(adapter)
+    collected_in, fingerprint = resolution._collected()
+    return adapter or collected_in, fingerprint
+
+
 def get_samples(
     n: int,
-    resolver: "Resolver | None" = None,
+    resolution: "Resolver | str",
     sample_file: str | None = None,
     adapter: "Adapter | None" = None,
-    resolver_name: str | None = None,
 ) -> dict[int, EvaluationItem]:
     """Retrieve samples enriched with source data as EvaluationItems.
 
@@ -186,45 +216,24 @@ def get_samples(
     from a fresh warehouse read — so this works offline, and shows the data the
     matching actually saw.
 
-    Name a resolution either by passing the live `resolver`, or by `resolver_name`
-    against an `adapter`. The second form needs no plan: a stored resolution records
-    which source artifacts it covers.
-
     Args:
         n: Number of clusters to sample.
-        resolver: The resolver to sample from. Collected first if it isn't already.
+        resolution: The resolver to sample from — collected first if it isn't
+            already — or the label one was published under, which needs no plan: a
+            stored resolution records which source artifacts it covers.
         sample_file: A parquet file written by `ResolverMatches.as_dump()`. Samples
             come from it rather than from the stored resolution.
         adapter: Where to read from. Defaults to the resolver's, else the module
             default.
-        resolver_name: Name a stored resolution instead of passing a resolver.
 
     Returns:
         Dictionary of cluster ID to EvaluationItems describing the cluster.
 
     Raises:
-        ValueError: If neither a resolver nor a resolver name is given.
-        SourceTableError: If a source the resolution names isn't in the store.
+        SourceTableError: If nothing is published under `resolution`, or if a source
+            the resolution covers isn't in the store.
     """
-    from matchlab.steps import default_adapter  # noqa: PLC0415 - avoids a cycle
-
-    if resolver is not None:
-        if not resolver.is_collected:
-            resolver.collect(adapter)
-        adapter = adapter or resolver._require_adapter()
-        resolver_fp = resolver._fp
-        label = resolver.name
-    elif resolver_name is not None:
-        adapter = adapter or default_adapter()
-        resolver_fp = adapter.find("resolver", resolver_name)
-        if resolver_fp is None:
-            known = ", ".join(adapter.names("resolver")) or "none"
-            raise SourceTableError(
-                f"No stored resolution named '{resolver_name}'. Found: {known}."
-            )
-        label = resolver_name
-    else:
-        raise ValueError("Pass either a resolver or a resolver_name")
+    adapter, resolver_fp = _locate(resolution, adapter)
 
     if sample_file:
         samples = _read_sample_file(sample_file=sample_file, n=n)
@@ -242,8 +251,8 @@ def get_samples(
         source_fp = sources.get(source_step)
         if source_fp is None:
             raise SourceTableError(
-                f"Resolution '{label}' references source '{source_step}', which is "
-                "not in the store. Re-collect the plan to repopulate it."
+                f"This resolution references source '{source_step}', which is not "
+                "in the store. Re-collect the plan to repopulate it."
             )
 
         samples_by_source = samples.filter(pl.col("source") == source_step)
