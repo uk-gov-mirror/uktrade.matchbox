@@ -9,6 +9,7 @@ Resolvers materialise their complete, merge-forward resolution at collect time (
 Artifacts, by step kind (schemas from `matchlab.core.arrow`):
 
 * Source   → warehouse extract (arbitrary schema) + leaf assignment `(key, leaf)`.
+* View     → the materialised view (arbitrary schema), only when collected directly.
 * Model    → edge list, `SCHEMA_MODEL_EDGES` `(left_id, right_id, score)`.
 * Resolver → complete flat resolution, `SCHEMA_EVAL_SAMPLES` `(root, leaf, key, src)`.
              This is `merge(upstream complete resolution, own clusters)` — the Phase 0
@@ -92,20 +93,20 @@ class Adapter(ABC):
         """Return a stored model's edge list."""
         ...
 
-    # -- cleaned views ----------------------------------------------------------------
+    # -- views ------------------------------------------------------------------------
 
     @abstractmethod
-    def store_clean(self, fp: Fingerprint, table: pl.DataFrame) -> None:
-        """Store a materialised cleaned view (arbitrary schema).
+    def store_view(self, fp: Fingerprint, table: pl.DataFrame) -> None:
+        """Store a materialised view (arbitrary schema).
 
-        Cleaned views are fused by default; this is only called when one is collected
+        Views are fused by default; this is only called when one is collected
         directly, so downstream steps read it instead of recomputing.
         """
         ...
 
     @abstractmethod
-    def read_clean(self, fp: Fingerprint) -> pl.DataFrame:
-        """Return a stored cleaned view."""
+    def read_view(self, fp: Fingerprint) -> pl.DataFrame:
+        """Return a stored view."""
         ...
 
     # -- resolvers --------------------------------------------------------------------

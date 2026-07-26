@@ -59,7 +59,7 @@ class Step(ABC):
     """A node in a lazy plan."""
 
     kind: ClassVar[str]
-    #: Whether this kind of step persists an artifact. `Clean` is fused (False) unless
+    #: Whether this kind of step persists an artifact. `View` is fused (False) unless
     #: it is collected directly.
     stores: ClassVar[bool] = True
 
@@ -149,7 +149,7 @@ class Step(ABC):
           position, which is not redundant — it decides which input the setting
           applies to.
 
-        There is also no early cutoff. A `Clean` whose SQL is reformatted but
+        There is also no early cutoff. A `View` whose SQL is reformatted but
         semantically unchanged invalidates the whole subtree beneath it.
 
         TODO(fingerprints): split this into an action key (plan-derived, as now)

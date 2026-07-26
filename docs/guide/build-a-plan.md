@@ -270,11 +270,11 @@ step settles — one frame, not one tree per step:
 ○ [7] resolver
     ├── ○ [6] resolver
     │   └── ◐ [5] model running 2.6s
-    │       └── ◌ [3] clean fused
+    │       └── ◌ [3] view fused
     │           └── ● [2] source 'crn' 0.3s
     └── ● [4] model 0.5s
-        ├── ◌ [3] clean fused ↑
-        └── ◌ [1] clean fused
+        ├── ◌ [3] view fused ↑
+        └── ◌ [1] view fused
             └── ● [0] source 'dh' 0.2s
 ○ waiting   ◐ running   ● ran   ◍ cached   ◌ fused
 ```
@@ -302,11 +302,11 @@ INFO  Collecting 8 steps:
 ○ [7] resolver
     ├── ○ [6] resolver
     │   └── ○ [5] model
-    │       └── ○ [3] clean
+    │       └── ○ [3] view
     │           └── ○ [2] source 'crn'
     └── ○ [4] model
-        ├── ○ [3] clean ↑
-        └── ○ [1] clean
+        ├── ○ [3] view ↑
+        └── ○ [1] view
             └── ○ [0] source 'dh'
 INFO  [step 0] Ran in 0.160s
 DEBUG [step 1] Fused into its consumer
@@ -380,10 +380,10 @@ print(entities.draw())
 ```
 ○ [4] resolver 'entities'
     ├── ○ [3] model
-    │   └── ○ [1] clean
+    │   └── ○ [1] view
     │       └── ○ [0] source 'crn'
     └── ○ [2] model
-        └── ○ [1] clean
+        └── ○ [1] view
             └── ○ [0] source 'crn'
 ```
 

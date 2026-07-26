@@ -63,7 +63,7 @@ class StoringStep(Step):
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         self.executions += 1
-        adapter.store_clean(fp, pl.DataFrame({"x": [1]}))
+        adapter.store_view(fp, pl.DataFrame({"x": [1]}))
 
 
 class FusedStep(StoringStep):

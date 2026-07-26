@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 class View(Step):
     """A cleaned view over sources, optionally resolved through a resolver."""
 
-    kind: ClassVar[str] = "clean"
+    kind: ClassVar[str] = "view"
     stores: ClassVar[bool] = False  # fused unless collected directly
 
     def __init__(
@@ -84,7 +84,7 @@ class View(Step):
         return ViewConfig(cleaning=self.cleaning, group=self.group)
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
-        adapter.store_clean(fp, self._compute(adapter))
+        adapter.store_view(fp, self._compute(adapter))
 
     def collect(
         self, adapter: Adapter | None = None, progress: bool | None = None
@@ -148,7 +148,7 @@ class View(Step):
     def _frame(self, adapter: Adapter) -> pl.DataFrame:
         """Return the cleaned data, reading the stored table when materialised."""
         if self.stores and self._fp is not None and adapter.has(self._fp):
-            return adapter.read_clean(self._fp)
+            return adapter.read_view(self._fp)
         return self._compute(adapter)
 
     def data(

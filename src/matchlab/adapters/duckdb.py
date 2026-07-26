@@ -27,7 +27,7 @@ from matchlab.core.resolution import root_id_of
 
 #: Bumped whenever the stored shape changes. A store written by an older matchlab is
 #: recreated rather than half-read, which is the honest failure for a cache.
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 _SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -127,9 +127,9 @@ class DuckDBAdapter(Adapter):
         return f"extract_{fp.hex()}"
 
     @staticmethod
-    def _clean_table(fp: Fingerprint) -> str:
-        """Name of the per-view cleaned table (arbitrary-schema, so its own table)."""
-        return f"clean_{fp.hex()}"
+    def _view_table(fp: Fingerprint) -> str:
+        """Name of the per-view materialised table (arbitrary-schema, so its own)."""
+        return f"view_{fp.hex()}"
 
     def _register(self, name: str, df: pl.DataFrame) -> None:
         self.conn.register(name, df.to_arrow())
@@ -159,8 +159,8 @@ class DuckDBAdapter(Adapter):
             self.conn.execute(f'DROP TABLE IF EXISTS "{self._extract_table(fp)}"')
             self.conn.execute("DELETE FROM source_leaves WHERE fp = ?", [fp])
             self.conn.execute("DELETE FROM source_meta WHERE fp = ?", [fp])
-        elif kind == "clean":
-            self.conn.execute(f'DROP TABLE IF EXISTS "{self._clean_table(fp)}"')
+        elif kind == "view":
+            self.conn.execute(f'DROP TABLE IF EXISTS "{self._view_table(fp)}"')
         elif kind == "model":
             self.conn.execute("DELETE FROM model_edges WHERE fp = ?", [fp])
         elif kind == "resolver":
@@ -245,22 +245,22 @@ class DuckDBAdapter(Adapter):
             "SELECT left_id, right_id, score FROM model_edges WHERE fp = ?", [fp]
         ).pl()
 
-    # -- cleaned views ----------------------------------------------------------------
+    # -- views ------------------------------------------------------------------------
 
-    def store_clean(self, fp: Fingerprint, table: pl.DataFrame) -> None:  # noqa: D102
+    def store_view(self, fp: Fingerprint, table: pl.DataFrame) -> None:  # noqa: D102
         self._purge(fp)
-        self._register("_reg_clean", table)
+        self._register("_reg_view", table)
         self.conn.execute(
-            f'CREATE OR REPLACE TABLE "{self._clean_table(fp)}" '
-            "AS SELECT * FROM _reg_clean"
+            f'CREATE OR REPLACE TABLE "{self._view_table(fp)}" '
+            "AS SELECT * FROM _reg_view"
         )
-        self.conn.unregister("_reg_clean")
-        self._register_artifact(fp, "clean")
+        self.conn.unregister("_reg_view")
+        self._register_artifact(fp, "view")
 
-    def read_clean(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
-        if self._kind(fp) != "clean":
-            raise KeyError(f"No stored cleaned view for fingerprint {fp.hex()}")
-        return self.conn.execute(f'SELECT * FROM "{self._clean_table(fp)}"').pl()
+    def read_view(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
+        if self._kind(fp) != "view":
+            raise KeyError(f"No stored view for fingerprint {fp.hex()}")
+        return self.conn.execute(f'SELECT * FROM "{self._view_table(fp)}"').pl()
 
     # -- resolvers --------------------------------------------------------------------
 

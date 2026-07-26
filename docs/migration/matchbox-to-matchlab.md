@@ -113,10 +113,10 @@ and `draw()` numbers the same walk:
 ```
 ● [4] resolver
     ├── ● [3] model
-    │   └── ● [1] clean
+    │   └── ● [1] view
     │       └── ● [0] source 'crn'
     └── ● [2] model
-        └── ● [1] clean
+        └── ● [1] view
             └── ● [0] source 'crn'
 ```
 

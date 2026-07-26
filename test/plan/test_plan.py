@@ -1,7 +1,7 @@
 """End-to-end tests for the plan API, over a real SQLite warehouse.
 
 Covers the whole Phase A surface: building a plan with no DAG, laziness, collect with
-plan-fingerprint caching, `Clean` fusion, lineage navigation, GC, and the terminal
+plan-fingerprint caching, `View` fusion, lineage navigation, GC, and the terminal
 reads (`get_matches`, `lookup_key`).
 
 Scenario — a dedupe feeding a cross-source link:
@@ -123,7 +123,7 @@ def test_nothing_runs_until_collect(warehouse: Engine) -> None:
 
     assert all(not step.is_collected for step in deduped.lineage())
     deduped.collect()
-    # Clean is fused, so it carries a fingerprint but stores nothing.
+    # The view is fused, so it carries a fingerprint but stores nothing.
     assert all(step.is_collected for step in deduped.lineage())
 
 
@@ -200,7 +200,7 @@ def test_building_downstream_only_runs_the_new_steps(warehouse: Engine) -> None:
         )
         .resolve()
     )
-    apex.collect()  # only dh + the new clean/model/resolver run
+    apex.collect()  # only dh + the new view/model/resolver run
 
     assert apex.get_matches().as_lookup().height > 0
 
@@ -328,10 +328,10 @@ def test_a_source_memoises_its_read(warehouse: Engine) -> None:
     crn.collect()  # memoised fingerprint short-circuits
 
 
-# -- Clean fusion ---------------------------------------------------------------------
+# -- View fusion ----------------------------------------------------------------------
 
 
-def test_clean_is_fused_by_default(warehouse: Engine, adapter: DuckDBAdapter) -> None:
+def test_view_is_fused_by_default(warehouse: Engine, adapter: DuckDBAdapter) -> None:
     crn = _source(warehouse, "crn")
     view = crn.view(cleaning={"name": "crn_company"})
     deduped = view.dedupe(
@@ -344,7 +344,7 @@ def test_clean_is_fused_by_default(warehouse: Engine, adapter: DuckDBAdapter) ->
     assert not adapter.has(view._fp)
 
 
-def test_collecting_a_clean_directly_materialises_it(
+def test_collecting_a_view_directly_materialises_it(
     warehouse: Engine, adapter: DuckDBAdapter
 ) -> None:
     crn = _source(warehouse, "crn")
@@ -547,7 +547,7 @@ def test_every_step_has_a_serialisable_config(warehouse: Engine) -> None:
         assert step._config_key() == step._config_key()
         kinds.add(step.kind)
 
-    assert kinds == {"source", "clean", "model", "resolver"}
+    assert kinds == {"source", "view", "model", "resolver"}
 
 
 def test_a_config_carries_no_upstream_settings(warehouse: Engine) -> None:

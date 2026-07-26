@@ -239,7 +239,7 @@ def test_a_config_describes_settings_and_never_edges(warehouse: Engine) -> None:
 
     for node in document.steps:
         config = node.config.model_dump(mode="json")
-        if node.kind == "clean":
+        if node.kind == "view":
             assert set(config) == {"cleaning", "group"}
         if node.kind == "model":
             assert set(config) == {"model_type", "model_class", "model_settings"}
@@ -273,8 +273,8 @@ def test_a_document_rejects_an_edge_that_points_forwards() -> None:
         PlanDocument.model_validate(
             {
                 "steps": [
-                    {"kind": "clean", "config": {}, "inputs": [1]},
-                    {"kind": "clean", "config": {}, "inputs": []},
+                    {"kind": "view", "config": {}, "inputs": [1]},
+                    {"kind": "view", "config": {}, "inputs": []},
                 ]
             }
         )

@@ -58,7 +58,7 @@ if TYPE_CHECKING:
 
     from matchlab.steps import Step
 
-StepKind = Literal["source", "clean", "model", "resolver"]
+StepKind = Literal["source", "view", "model", "resolver"]
 StepConfig = SourceConfig | ViewConfig | ModelConfig | ResolverConfig
 
 ConfigT = TypeVar("ConfigT", bound=BaseModel)
@@ -66,7 +66,7 @@ StepT = TypeVar("StepT", bound="Step")
 
 _CONFIG_TYPES: dict[str, type[BaseModel]] = {
     "source": SourceConfig,
-    "clean": ViewConfig,
+    "view": ViewConfig,
     "model": ModelConfig,
     "resolver": ResolverConfig,
 }
@@ -216,13 +216,13 @@ def _rebuild(
                 key_field=config.key_field,
             )
 
-        case "clean":
+        case "view":
             config = _expect(node, position, ViewConfig)
             sources = tuple(step for step in inputs if isinstance(step, Source))
             resolvers = [step for step in inputs if isinstance(step, Resolver)]
             if len(sources) + len(resolvers) != len(inputs) or len(resolvers) > 1:
                 raise ValueError(
-                    f"Step {position} (clean) must read sources and at most one "
+                    f"Step {position} (view) must read sources and at most one "
                     f"resolver, got {[step.kind for step in inputs]}."
                 )
             return View(
