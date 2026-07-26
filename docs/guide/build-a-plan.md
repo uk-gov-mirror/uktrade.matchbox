@@ -294,8 +294,8 @@ and a few hundred lines.
 that step, so nothing was recomputed. `fused` marks a view that was folded into its
 consumer rather than materialised.
 
-Away from a terminal — a scheduler, CI, a redirected log — there is nothing to redraw,
-so the same tree is logged **once**, up front, and each step reports beneath it:
+Where nothing is drawn — a scheduler, CI, a redirected stream — the same tree is logged
+**once**, up front, with each step reporting beneath it:
 
 ```
 INFO  Collecting 8 steps:
@@ -316,8 +316,10 @@ INFO  Collected 8 steps (6 ran, 0 cached, 2 fused) in 1.864s
 ```
 
 Work done is `INFO`; skipping — cached, fused — is `DEBUG`, and the closing summary
-totals both so an `INFO` reader still sees what the run avoided. Like any library
-logger it is silent until you configure logging:
+totals both so an `INFO` reader still sees what the run avoided. Anything a step logs
+while it runs is prefixed the same way, so a linker reporting its rounds lands under
+the position it belongs to. Like any library logger it is silent until you configure
+logging:
 
 ```python
 import logging
@@ -325,10 +327,37 @@ import logging
 logging.basicConfig(level=logging.INFO)
 ```
 
-A plan taller than your terminal uses the logged form too, since a tree that can't be
-redrawn in place can't be a live frame — and cropping it would lose the very positions
-the lines quote. Force a channel with `collect(progress=True)` or
-`collect(progress=False)`.
+The plan is put in **one** place, never two: a drawn tree is already the key those
+`[step N]` lines need — it is on screen throughout, and left there in full when the run
+ends — so it isn't logged as well. The per-step records are the same either way.
+
+That choice is `collect(interactive=...)`, named for the assumption it makes rather
+than the widget it produces. Drawing means *someone is watching*, so the plan can be a
+thing on screen that the session throws away; `interactive=False` puts the tree in the
+log instead, and is what a run whose output outlives the session wants. The default,
+`interactive=None`, reads a terminal or a notebook as a yes and anything else as a no.
+
+A plan taller than your window is windowed rather than dropped: the frame shows the
+rows around the running step and says how many are hidden either side, following the
+run down the tree. The last frame is the whole thing.
+
+```
+⋮ 1 more above · 11 more below
+    ├── ○ [12] resolver
+    │   ├── ○ [11] resolver
+    │   │   ├── ○ [10] resolver
+    │   │   │   ├── ◐ [9] resolver running 0.0s
+    │   │   │   │   ├── ○ [8] model
+    │   │   │   │   │   └── ◍ [7] view cached
+    │   │   │   │   │       └── ◍ [0] source 'dh' cached
+○ waiting   ◐ running   ◍ cached
+```
+
+That works alongside the live tree with nothing further to set up. `basicConfig` binds
+whatever `sys.stderr` was at the time, which would otherwise write over the frame being
+redrawn, so a running collection borrows handlers pointed at its terminal and routes
+them through its console until it is finished. Records appear above the tree as they
+arrive.
 
 ## Inspecting
 

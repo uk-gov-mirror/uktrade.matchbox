@@ -182,10 +182,10 @@ class Step(ABC):
         """Materialise this step unless its artifact is already stored.
 
         This classifies the outcome but reports none of it. `collect` holds the walk,
-        and therefore each step's position — the thing a log line has to quote to be
-        findable in the plan it printed — so reporting belongs there, with the single
-        `matchlab.progress.Progress` that owns both channels. That is also what keeps
-        the live tree and the log from ever disagreeing. This keeps to the work.
+        and therefore each step's position — the thing a record has to quote to be
+        findable in the plan — so reporting belongs there, with the single
+        `matchlab.progress.Progress` that owns what is drawn and what is logged. That is
+        also what keeps the two from ever disagreeing. This keeps to the work.
 
         Returns:
             What it took: `DONE` if this call computed the step, `CACHED` if the
@@ -213,7 +213,7 @@ class Step(ABC):
     # -- public API -------------------------------------------------------------------
 
     def collect(
-        self, adapter: Adapter | None = None, progress: bool | None = None
+        self, adapter: Adapter | None = None, interactive: bool | None = None
     ) -> Self:
         """Materialise this step and everything it depends on.
 
@@ -223,9 +223,11 @@ class Step(ABC):
         Args:
             adapter: Where to read and write artifacts. Defaults to the module-level
                 adapter (a DuckDB store in the user cache directory).
-            progress: Whether to draw the plan as a live tree, redrawn in place. `None`
-                — the default — draws it at a terminal and logs the same tree plus a
-                record per step anywhere else. See `matchlab.progress`.
+            interactive: Whether someone is watching. `None` — the default — takes a
+                terminal or a notebook as a yes. When they are, the plan is drawn as a
+                live tree redrawn in place, and not logged: the tree on screen is the
+                key those `[step N]` records need, and it stays there. When they are
+                not, the plan is logged instead. See `matchlab.progress`.
 
         Returns:
             This step, now collected.
@@ -234,7 +236,7 @@ class Step(ABC):
         # One walk, used for both. It fixes each step's position, so a `step 7` the
         # reporter logs is the node it drew as `[7]`.
         steps = lineage.walk(self)
-        with report(self, steps, progress) as reporter:
+        with report(self, steps, interactive) as reporter:
             for step in steps:
                 reporter.begin(step)
                 try:

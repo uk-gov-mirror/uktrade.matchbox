@@ -10,12 +10,15 @@ Rows are split across the four sources, with duplicates inside each and overlap
 between them, so both pipelines do real deduplication and real linking.
 """
 
+import logging
 import sqlite3
 import sys
 import time
 from pathlib import Path
 
 import polars as pl
+
+logging.basicConfig(level=logging.INFO)
 
 # The two pipelines sit alongside this file, so make them importable however this is
 # run — as a script, or from the repository root.

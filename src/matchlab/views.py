@@ -87,11 +87,11 @@ class View(Step):
         adapter.store_view(fp, self._compute(adapter))
 
     def collect(
-        self, adapter: Adapter | None = None, progress: bool | None = None
+        self, adapter: Adapter | None = None, interactive: bool | None = None
     ) -> Self:
         """Materialise this cleaned view (and its inputs) rather than fusing it."""
         self.stores = True
-        return super().collect(adapter, progress)
+        return super().collect(adapter, interactive)
 
     # -- data -------------------------------------------------------------------------
 

@@ -152,6 +152,16 @@ def draw(
     *,
     markup: bool = False,
 ) -> str:
+    """`root`'s sub-plan as an indented tree. See `render`, which this joins up."""
+    return "\n".join(render(root, state, markup=markup)[0])
+
+
+def render(
+    root: Step,
+    state: Mapping[int, StepState] | None = None,
+    *,
+    markup: bool = False,
+) -> tuple[list[str], dict[int, int]]:
     """Render `root`'s sub-plan as an indented tree, inputs nested beneath consumers.
 
     Each node carries its **position** — the index `collect` runs it at, and the index
@@ -169,7 +179,10 @@ def draw(
             default, so the return value stays printable anywhere.
 
     Returns:
-        The tree, one line per node plus one per repeat reference.
+        The lines — one per node plus one per repeat reference — and the row each step
+        is first drawn on, keyed by `id(step)` as `number` is. The rows are what let a
+        caller show part of a tree and still know where it is: `matchlab.progress`
+        windows a plan too tall for the terminal around the row that is running.
 
     A node feeding several branches is expanded where it is first met and marked `↑`
     everywhere after, rather than having its whole subtree redrawn each time. Positions
@@ -180,8 +193,11 @@ def draw(
     position = number(root)
     lines: list[str] = []
     expanded: set[int] = set()
+    #: Where each step is drawn. A repeat reference is a pointer to the expansion, not
+    #: another copy of it, so the first row is the one worth looking at.
+    rows: dict[int, int] = {}
 
-    def render(step: Step, prefix: str, connector: str) -> None:
+    def draw_step(step: Step, prefix: str, connector: str) -> None:
         if state is None:
             marker = "●" if step.is_collected else "○"
             style, annotation = "", ""
@@ -206,6 +222,7 @@ def draw(
             f"[{style}]{marker}[/] {_escape(label)}" if markup else f"{marker} {label}"
         )
 
+        rows.setdefault(id(step), len(lines))
         lines.append(f"{prefix}{connector}{row}")
         if repeat:  # already drawn in full above; the reference is the whole line
             return
@@ -214,10 +231,10 @@ def draw(
         parents = step.upstream
         for index, parent in enumerate(parents):
             last = index == len(parents) - 1
-            render(parent, child_prefix, "└── " if last else "├── ")
+            draw_step(parent, child_prefix, "└── " if last else "├── ")
 
-    render(root, "", "")
-    return "\n".join(lines)
+    draw_step(root, "", "")
+    return lines, rows
 
 
 def _escape(text: str) -> str:

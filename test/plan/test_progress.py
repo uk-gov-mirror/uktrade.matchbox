@@ -1,12 +1,12 @@
 """Tests for the collection progress report.
 
-The live tree and the log channel are the same information in two shapes, so these
-check both: that `collect` classifies each step correctly (ran / cached / fused /
-failed), and that each channel renders what it was told.
+A collection is drawn or logged, never both, so these check both shapes: that
+`collect` classifies each step correctly (ran / cached / fused / failed), and that
+whichever shape is in use renders what it was told.
 
 The property that matters most is the cross-reference. Steps have no names, so a
 record reading `[step 2] Ran in 0.041s` is only meaningful against a drawing that
-numbers `[2]` — whichever channel is in use has to put that drawing somewhere.
+numbers `[2]` — so exactly one of the two has to be carrying that drawing.
 
 Fake steps throughout: a real plan's timings and step kinds are irrelevant here, and
 the point is to pin the reporting independently of what is being reported.
@@ -23,6 +23,7 @@ import polars as pl
 import pytest
 from pydantic import BaseModel
 from rich.console import Console
+from rich.live import Live
 
 from matchlab import lineage
 from matchlab import progress as progress_module
@@ -119,10 +120,29 @@ def _plan() -> tuple[StoringStep, StoringStep, FusedStep]:
     return apex, source, view
 
 
+def _tall_plan(depth: int) -> StoringStep:
+    """A chain `depth` steps deep, which draws one row per step. Apex last."""
+    step = StoringStep("step0")
+    for level in range(1, depth):
+        step = StoringStep(f"step{level}", upstream=(step,))
+    return step
+
+
+def _frame(reporter: Progress) -> str:
+    """The frame as text, rendered wide and tall enough not to crop it again.
+
+    The window has already been chosen against the patched console by the time this
+    renders, so what comes back is what that terminal would have shown.
+    """
+    buffer = io.StringIO()
+    Console(file=buffer, width=100, height=100).print(reporter._renderable())
+    return buffer.getvalue()
+
+
 def _run(apex: Step, store: DuckDBAdapter) -> Progress:
     """Drive a report by hand, the way `collect` does, and hand back its state."""
     steps = apex.lineage()
-    with report(apex, steps, progress=False) as reporter:
+    with report(apex, steps, interactive=False) as reporter:
         for step in steps:
             reporter.begin(step)
             reporter.end(step, step._ensure(store))
@@ -131,6 +151,11 @@ def _run(apex: Step, store: DuckDBAdapter) -> Progress:
 
 def _messages(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [record.getMessage() for record in caplog.records]
+
+
+def _untimed(messages: list[str]) -> list[str]:
+    """Messages with their durations blanked, so two runs can be compared."""
+    return [re.sub(r"\d+\.\d+s", "Xs", message) for message in messages]
 
 
 # -- what collect reports ------------------------------------------------------------
@@ -149,7 +174,7 @@ def test_a_first_collect_runs_every_storing_step(store: DuckDBAdapter) -> None:
 def test_recollecting_reports_cached_not_ran(store: DuckDBAdapter) -> None:
     """The distinction the report exists to show: what your edit actually re-ran."""
     apex, source, _view = _plan()
-    apex.collect(adapter=store, progress=False)
+    apex.collect(adapter=store, interactive=False)
     assert source.executions == 1
 
     state = _run(apex, store).state
@@ -161,7 +186,7 @@ def test_recollecting_reports_cached_not_ran(store: DuckDBAdapter) -> None:
 
 def test_a_fresh_plan_over_a_warm_store_is_all_cached(store: DuckDBAdapter) -> None:
     """Fingerprints are plan-derived, so a rebuilt plan hits the same artifacts."""
-    _plan()[0].collect(adapter=store, progress=False)
+    _plan()[0].collect(adapter=store, interactive=False)
 
     apex, source, _view = _plan()
     state = _run(apex, store).state
@@ -175,7 +200,7 @@ def test_a_failure_is_marked_and_reraised(store: DuckDBAdapter) -> None:
     apex = FailingStep("apex", upstream=(source,))
 
     with pytest.raises(RuntimeError, match="boom"):
-        apex.collect(adapter=store, progress=False)
+        apex.collect(adapter=store, interactive=False)
 
 
 def test_every_step_is_timed(store: DuckDBAdapter) -> None:
@@ -193,7 +218,7 @@ def test_the_summary_carries_the_counts_a_debug_reader_would_have_seen(
     store: DuckDBAdapter,
 ) -> None:
     """`Cached` and `Fused` sit at DEBUG, so the INFO summary has to total them."""
-    _plan()[0].collect(adapter=store, progress=False)
+    _plan()[0].collect(adapter=store, interactive=False)
     apex, _source, _view = _plan()
 
     summary = _run(apex, store).summary()
@@ -213,7 +238,7 @@ def test_the_plan_is_logged_once_up_front(
     apex, _source, _view = _plan()
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        apex.collect(adapter=store, progress=False)
+        apex.collect(adapter=store, interactive=False)
 
     headers = [m for m in _messages(caplog) if m.startswith("Collecting")]
     assert len(headers) == 1
@@ -230,7 +255,7 @@ def test_a_log_line_quotes_a_position_the_logged_tree_numbers(
     apex, _source, _view = _plan()
 
     with caplog.at_level(logging.DEBUG, logger="matchlab"):
-        apex.collect(adapter=store, progress=False)
+        apex.collect(adapter=store, interactive=False)
 
     messages = _messages(caplog)
     tree = next(m for m in messages if m.startswith("Collecting"))
@@ -243,6 +268,115 @@ def test_a_log_line_quotes_a_position_the_logged_tree_numbers(
         assert f"[{position}] " in tree
 
 
+def test_a_step_own_records_are_attributed_to_it(
+    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+) -> None:
+    """What a step logs while it runs is tied to the plan without it saying so.
+
+    A `Linker` counting matches is layers below the walk that numbered its step and
+    could never quote a position itself. Before this, its records were the only
+    unattributed lines in a collection's log.
+    """
+
+    class ChattyStep(StoringStep):
+        def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+            mlog.logger.info("Round 1: Found 13,336 matches")
+            super()._execute(adapter, fp)
+
+    apex = ChattyStep("apex", upstream=(StoringStep("source"),))
+
+    with caplog.at_level(logging.INFO, logger="matchlab"):
+        apex.collect(adapter=store, interactive=False)
+
+    position = lineage.number(apex)[id(apex)]
+    assert f"[step {position}] Round 1: Found 13,336 matches" in _messages(caplog)
+
+
+def test_a_nested_collection_gives_the_outer_positions_back(
+    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A step can collect — `Model.results()` does — and that walk numbers its own.
+
+    Its positions have to last exactly as long as it does. Leaking them would leave
+    the outer collection quoting a tree it isn't in.
+    """
+    inner_apex, _source, _view = _plan()
+
+    class NestingStep(StoringStep):
+        def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+            mlog.logger.info("before")
+            inner_apex.collect(adapter=adapter, interactive=False)
+            mlog.logger.info("after")
+            super()._execute(adapter, fp)
+
+    apex = NestingStep("apex", upstream=(StoringStep("source"),))
+
+    with caplog.at_level(logging.INFO, logger="matchlab"):
+        apex.collect(adapter=store, interactive=False)
+
+    outer = lineage.number(apex)[id(apex)]
+    messages = _messages(caplog)
+    # `after` is the one that matters: by then the inner walk has been and gone, and
+    # the outer position is back in force.
+    assert f"[step {outer}] before" in messages
+    assert f"[step {outer}] after" in messages
+    # The inner walk numbered itself against a tree of its own, logged where it began.
+    assert sum("Collecting" in m for m in messages) == 2
+    assert f"[step {outer}] Collecting 3 steps" in "\n".join(messages)
+
+
+def test_a_caller_supplied_prefix_only_applies_outside_a_collection(
+    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A `Source` reads the warehouse from both, and each has its own best answer.
+
+    Inside a walk the position is the prefix that matches the tree, so it wins. While
+    a plan is still being built — `Source.index_fields` reads too — there is no
+    position, and the name is what's left.
+    """
+
+    class NamedStep(StoringStep):
+        def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+            mlog.logger.info("Reading from the warehouse", prefix="hmrc")
+            super()._execute(adapter, fp)
+
+    apex = NamedStep("apex", upstream=(StoringStep("source"),))
+
+    with caplog.at_level(logging.INFO, logger="matchlab"):
+        mlog.logger.info("Reading from the warehouse", prefix="hmrc")
+        apex.collect(adapter=store, interactive=False)
+
+    position = lineage.number(apex)[id(apex)]
+    messages = _messages(caplog)
+    assert messages[0] == "[hmrc] Reading from the warehouse"
+    assert f"[step {position}] Reading from the warehouse" in messages
+
+
+def test_the_prefix_is_released_when_the_collection_ends(
+    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A position outlives its walk as a lie: it numbers a tree nobody is inside."""
+    apex, _source, _view = _plan()
+
+    with caplog.at_level(logging.INFO, logger="matchlab"):
+        apex.collect(adapter=store, interactive=False)
+        caplog.clear()
+        mlog.logger.info("afterwards")
+
+    assert mlog.prefix.get() is None
+    assert _messages(caplog) == ["afterwards"]
+
+
+def test_a_failing_step_does_not_leak_its_prefix(store: DuckDBAdapter) -> None:
+    """The raise skips `end`, so releasing has to happen on the way out too."""
+    apex = FailingStep("apex", upstream=(StoringStep("source"),))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        apex.collect(adapter=store, interactive=False)
+
+    assert mlog.prefix.get() is None
+
+
 def test_each_outcome_logs_at_the_level_it_deserves(
     store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -251,7 +385,7 @@ def test_each_outcome_logs_at_the_level_it_deserves(
     positions = lineage.number(apex)
 
     with caplog.at_level(logging.DEBUG, logger="matchlab"):
-        apex.collect(adapter=store, progress=False)
+        apex.collect(adapter=store, interactive=False)
 
     levels = {
         record.getMessage().split("]")[0].lstrip("["): record.levelno
@@ -262,19 +396,167 @@ def test_each_outcome_logs_at_the_level_it_deserves(
     assert levels[f"step {positions[id(apex)]}"] == logging.INFO  # ran
 
 
-def test_the_live_display_keeps_its_logs_out_of_the_way(
+def test_the_records_are_the_same_whether_or_not_a_tree_is_drawn(
+    terminal: io.StringIO, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Only the key moves between channels. What each step reports does not.
+
+    Drawing a live tree used to demote every record to DEBUG, so a collection at a
+    terminal logged nothing at all at INFO — not a step, not the summary.
+    """
+    # A store each, so both runs do the same work and differ only in their display.
+    with caplog.at_level(logging.INFO, logger="matchlab"):
+        _plan()[0].collect(adapter=DuckDBAdapter(":memory:"), interactive=True)
+    drawn = _untimed(_messages(caplog))
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="matchlab"):
+        _plan()[0].collect(adapter=DuckDBAdapter(":memory:"), interactive=False)
+    logged = _untimed(_messages(caplog))
+
+    assert [m for m in drawn if not m.startswith("Collecting")] == [
+        m for m in logged if not m.startswith("Collecting")
+    ]
+    assert any("Ran in" in m for m in drawn)
+    assert any(m.startswith("Collected") for m in drawn)
+
+
+def test_a_drawn_tree_is_not_logged_as_well(
     store: DuckDBAdapter, terminal: io.StringIO, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A handler on the same terminal would smear the frame, so these drop to DEBUG."""
+    """The frame is already the key, and stays on screen — a second copy is noise.
+
+    This is the interactive case. `interactive=False` is what puts the tree in the log.
+    """
     apex, _source, _view = _plan()
 
-    with caplog.at_level(logging.DEBUG, logger="matchlab"):
-        apex.collect(adapter=store, progress=True)
+    with caplog.at_level(logging.INFO, logger="matchlab"):
+        apex.collect(adapter=store, interactive=True)
 
-    levels = {
-        record.levelno for record in caplog.records if "Ran in" in record.getMessage()
-    }
-    assert levels == {logging.DEBUG}
+    assert not any(m.startswith("Collecting") for m in _messages(caplog))
+    assert any("Ran in" in m for m in _messages(caplog))  # the records still land
+    assert "apex" in terminal.getvalue()  # and the plan is on screen instead
+
+
+def test_a_plain_stream_handler_does_not_smear_the_frame(
+    store: DuckDBAdapter, terminal: io.StringIO
+) -> None:
+    """`logging.basicConfig(level=INFO)` is what people write, so it has to work.
+
+    Its handler holds the stream it was built with, so it never sees the redirect Rich
+    installs and writes into the middle of whatever is being redrawn — leaving records
+    welded onto the end of a tree row.
+    """
+    apex, _source, _view = _plan()
+    handler = logging.StreamHandler(terminal)
+    handler.setFormatter(logging.Formatter("%(levelname)s:%(message)s"))
+    matchlab = logging.getLogger("matchlab")
+    matchlab.addHandler(handler)
+    try:
+        apex.collect(adapter=store, interactive=True)
+    finally:
+        matchlab.removeHandler(handler)
+
+    plain = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", terminal.getvalue())
+    assert "INFO:" in plain  # the records did reach the terminal
+    # Each one begins a line: `\r` is Rich returning the cursor, not a partial row.
+    for offset in (m.start() for m in re.finditer("INFO:", plain)):
+        assert offset == 0 or plain[offset - 1] in "\n\r"
+
+
+def test_a_handler_is_only_borrowed_for_as_long_as_the_frame_lasts(
+    store: DuckDBAdapter, terminal: io.StringIO
+) -> None:
+    """It belongs to the application, and has to be handed back as it was."""
+    apex, _source, _view = _plan()
+    handler = logging.StreamHandler(terminal)
+    matchlab = logging.getLogger("matchlab")
+    matchlab.addHandler(handler)
+    try:
+        during: list[object] = []
+        original = handler.stream
+
+        class Watcher(StoringStep):
+            def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+                during.append(handler.stream)
+                super()._execute(adapter, fp)
+
+        Watcher("watched", upstream=(apex,)).collect(adapter=store, interactive=True)
+    finally:
+        matchlab.removeHandler(handler)
+
+    assert during and during[0] is not original  # rerouted while the frame was up
+    assert handler.stream is original  # and given back afterwards
+
+
+def test_a_notebook_handler_is_left_alone(
+    monkeypatch: pytest.MonkeyPatch, store: DuckDBAdapter
+) -> None:
+    """There is no cursor to collide with, and rerouting would cost formatting.
+
+    Rich draws a notebook's live display into a widget that redraws in isolation, so
+    records cannot smear it. Sent through the console they would each become their own
+    `display()` — a separate boxed HTML block — instead of ordinary stream text.
+    """
+    buffer = io.StringIO()
+    monkeypatch.setattr(mlog, "console", Console(file=buffer, force_jupyter=True))
+    apex, _source, _view = _plan()
+    handler = logging.StreamHandler(buffer)
+    matchlab = logging.getLogger("matchlab")
+    matchlab.addHandler(handler)
+    try:
+        assert report(apex, apex.lineage(), interactive=True)._live is not None
+        with mlog.through_console():
+            assert handler.stream is buffer  # not borrowed
+    finally:
+        matchlab.removeHandler(handler)
+
+
+def test_a_handler_writing_elsewhere_is_left_alone(
+    store: DuckDBAdapter, terminal: io.StringIO
+) -> None:
+    """Nothing to collide with, so nothing to rearrange."""
+    apex, _source, _view = _plan()
+    elsewhere = io.StringIO()
+    handler = logging.StreamHandler(elsewhere)
+    matchlab = logging.getLogger("matchlab")
+    matchlab.addHandler(handler)
+    try:
+        with report(apex, apex.lineage(), interactive=True):
+            assert handler.stream is elsewhere
+    finally:
+        matchlab.removeHandler(handler)
+
+
+def test_a_console_handler_lets_the_log_and_the_tree_share_a_terminal(
+    store: DuckDBAdapter, terminal: io.StringIO
+) -> None:
+    """The alternative to silencing records: put them where Rich can see them.
+
+    Printing through the console is what keeps records above the live region instead
+    of through it, and it renders at full width so a logged tree stays a tree.
+    """
+    long_record = "Round 1: " + "x" * 60  # 69 chars, in an 80-column terminal
+
+    class ChattyStep(StoringStep):
+        def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+            mlog.logger.info(long_record)
+            super()._execute(adapter, fp)
+
+    apex = ChattyStep("apex", upstream=(StoringStep("source"),))
+    handler = mlog.ConsoleHandler()
+    logging.getLogger("matchlab").addHandler(handler)
+    try:
+        apex.collect(adapter=store, interactive=True)
+    finally:
+        logging.getLogger("matchlab").removeHandler(handler)
+
+    output = terminal.getvalue()
+    assert "Ran in" in output  # the log reached the same terminal as the frame
+    assert "\x1b[1A" in output  # and the frame is still redrawn in place
+    # Written at the console's full width, not wrapped into a narrow message column
+    # the way `RichHandler` would lay it out.
+    assert f"[step 1] {long_record}" in output
 
 
 # -- the drawn channel ---------------------------------------------------------------
@@ -321,7 +603,7 @@ def test_the_live_display_redraws_in_place(
 ) -> None:
     apex, _source, _view = _plan()
 
-    apex.collect(adapter=store, progress=True)
+    apex.collect(adapter=store, interactive=True)
 
     output = terminal.getvalue()
     # The cursor-up sequence is what makes it one updating frame rather than a
@@ -331,23 +613,114 @@ def test_the_live_display_redraws_in_place(
     assert "ran" in output  # the legend
 
 
+# -- windowing a tall plan -----------------------------------------------------------
+
+
+def test_the_window_follows_the_running_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The point of a frame is to show what is happening in it."""
+    _terminal(monkeypatch, height=8)
+    apex = _tall_plan(12)
+    steps = apex.lineage()
+
+    with report(apex, steps, interactive=True) as reporter:
+        reporter.begin(steps[0])  # the deepest node, drawn last
+        deepest = _frame(reporter)
+        reporter.end(steps[0], StepStatus.DONE)
+        reporter.begin(apex)  # the root, drawn first
+        highest = _frame(reporter)
+        reporter.end(apex, StepStatus.DONE)
+
+    assert "step0" in deepest
+    assert "step11" not in deepest
+    assert "step11" in highest
+    assert "step0" not in highest
+
+
+def test_the_window_says_what_it_is_leaving_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without it the frame looks like the whole plan, and the positions look wrong."""
+    _terminal(monkeypatch, height=8)
+    apex = _tall_plan(12)
+    steps = apex.lineage()
+
+    with report(apex, steps, interactive=True) as reporter:
+        reporter.begin(apex)
+        at_root = _frame(reporter)
+        reporter.end(apex, StepStatus.DONE)
+        reporter.begin(steps[0])
+        at_leaf = _frame(reporter)
+        reporter.end(steps[0], StepStatus.DONE)
+
+    # 12 rows, 8 of terminal, less one for the legend and one for this note.
+    assert "6 more below" in at_root
+    assert "above" not in at_root
+    assert "6 more above" in at_leaf
+    assert "below" not in at_leaf
+
+
+def test_a_plan_that_fits_is_drawn_whole_and_unannotated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The note is for a frame that is hiding something; most frames aren't."""
+    _terminal(monkeypatch, height=24)
+    apex = _tall_plan(12)
+
+    with report(apex, apex.lineage(), interactive=True) as reporter:
+        reporter.begin(apex)
+        frame = _frame(reporter)
+        reporter.end(apex, StepStatus.DONE)
+
+    assert "step0" in frame
+    assert "step11" in frame
+    assert "⋮" not in frame
+
+
+def test_the_last_frame_is_the_whole_tree(monkeypatch: pytest.MonkeyPatch) -> None:
+    """It is what stays on screen, and what the summary line refers to.
+
+    Nothing is being redrawn in place any more, so letting it scroll costs nothing.
+    """
+    output = _terminal(monkeypatch, height=8)
+    apex = _tall_plan(12)
+
+    with report(apex, apex.lineage(), interactive=True) as reporter:
+        reporter.begin(apex)
+        reporter.end(apex, StepStatus.DONE)
+        assert "step0" not in _frame(reporter)  # windowed while it ran
+
+    drawn = output.getvalue()
+    assert "step0" in drawn
+    assert "step11" in drawn
+
+
 # -- choosing a channel --------------------------------------------------------------
 
 
-def test_a_plan_taller_than_the_terminal_uses_the_log_channel(
+def test_a_plan_taller_than_the_terminal_is_still_drawn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Height decides how much of the frame you see, and nothing else."""
+    _terminal(monkeypatch, height=3)
+    apex = _tall_plan(12)
+
+    assert report(apex, apex.lineage(), interactive=None)._live is not None
+
+
+def test_a_windowed_frame_costs_the_records_nothing(
     store: DuckDBAdapter,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Cropping the tree would lose the positions the log lines quote."""
-    output = _terminal(monkeypatch, height=3)
-    apex, _source, _view = _plan()
+    """Only so many rows fit on screen. Every step still reports."""
+    apex = _tall_plan(12)
+    _terminal(monkeypatch, height=5)
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        apex.collect(adapter=store, progress=True)
+        apex.collect(adapter=store, interactive=True)
 
-    assert output.getvalue() == ""  # nothing was drawn
-    assert any(m.startswith("Collecting") for m in _messages(caplog))
+    ran = [m for m in _messages(caplog) if "Ran in" in m]
+    assert len(ran) == 12
 
 
 def test_progress_defaults_to_off_when_output_is_redirected(
@@ -358,7 +731,7 @@ def test_progress_defaults_to_off_when_output_is_redirected(
     monkeypatch.setattr(mlog, "console", console)
     apex, _source, _view = _plan()
 
-    assert report(apex, apex.lineage(), progress=None)._live is None
+    assert report(apex, apex.lineage(), interactive=None)._live is None
 
 
 def test_progress_defaults_to_on_at_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -366,31 +739,58 @@ def test_progress_defaults_to_on_at_a_terminal(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(mlog, "console", console)
     apex, _source, _view = _plan()
 
-    assert report(apex, apex.lineage(), progress=None)._live is not None
+    assert report(apex, apex.lineage(), interactive=None)._live is not None
 
 
-def test_a_nested_collection_prints_no_tree_of_its_own(
+def test_a_nested_collection_is_undrawn_but_logs_its_own_tree(
     terminal: io.StringIO, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Its positions come from another walk, so numbering them against the tree lies.
+    """Rich allows one live display, but its positions still need a key.
 
-    The outer report uses the log channel here, so it does print a tree — which is
-    what makes a second one detectable.
+    They come from a different walk, so reading them against the outer tree would
+    mislead. Logging its own tree first is what makes them resolvable.
     """
     apex, _source, _view = _plan()
 
     with (
         caplog.at_level(logging.INFO, logger="matchlab"),
-        report(apex, apex.lineage(), progress=False),
+        report(apex, apex.lineage(), interactive=False),
     ):
-        inner = report(apex, apex.lineage(), progress=True)
+        inner = report(apex, apex.lineage(), interactive=True)
         with inner:
             pass
 
     assert inner._live is None
-    assert len([m for m in _messages(caplog) if m.startswith("Collecting")]) == 1
+    assert len([m for m in _messages(caplog) if m.startswith("Collecting")]) == 2
     # The flag is released by the outer report, not by the nested one.
-    assert report(apex, apex.lineage(), progress=True)._live is not None
+    assert report(apex, apex.lineage(), interactive=True)._live is not None
+
+
+def test_a_display_that_fails_to_start_borrows_nothing(
+    monkeypatch: pytest.MonkeyPatch, terminal: io.StringIO
+) -> None:
+    """A failed `__enter__` means no `__exit__`, so it has to clean up after itself.
+
+    Rich raises out of `Live.start` if its first frame fails. The handlers borrowed
+    just before would otherwise stay borrowed for the life of the process.
+    """
+    apex, _source, _view = _plan()
+    handler = logging.StreamHandler(terminal)
+    matchlab = logging.getLogger("matchlab")
+    matchlab.addHandler(handler)
+    monkeypatch.setattr(
+        Live, "start", lambda *_, **__: (_ for _ in ()).throw(RuntimeError("no frame"))
+    )
+    try:
+        with (
+            pytest.raises(RuntimeError, match="no frame"),
+            report(apex, apex.lineage(), interactive=True),
+        ):
+            pass  # pragma: no cover - never entered
+    finally:
+        matchlab.removeHandler(handler)
+
+    assert handler.stream is terminal
 
 
 def test_an_unfinished_collection_releases_the_report(
@@ -400,8 +800,8 @@ def test_an_unfinished_collection_releases_the_report(
 
     with (
         pytest.raises(RuntimeError, match="boom"),
-        report(apex, apex.lineage(), progress=True),
+        report(apex, apex.lineage(), interactive=True),
     ):
         raise RuntimeError("boom")
 
-    assert report(apex, apex.lineage(), progress=True)._live is not None
+    assert report(apex, apex.lineage(), interactive=True)._live is not None
