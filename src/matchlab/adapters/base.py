@@ -14,7 +14,11 @@ Artifacts, by step kind (schemas from `matchlab.core.arrow`):
              This is `merge(upstream complete resolution, own clusters)` — the Phase 0
              finding — NOT just the resolver's own clusters.
 
-Plus evaluation storage (judgements + cluster expansion) and lifecycle (`gc`).
+Plus evaluation storage (judgements + cluster expansion), publication (`publish` points
+a label at a resolution) and `close`.
+
+**Nothing here deletes an artifact on the store's own initiative.** A store keeps what
+it is given until the owner disposes of it — see the guide's "Reclaiming storage".
 """
 
 from __future__ import annotations
@@ -201,14 +205,6 @@ class Adapter(ABC):
         ...
 
     # -- lifecycle --------------------------------------------------------------------
-
-    @abstractmethod
-    def gc(self, live: set[Fingerprint]) -> int:
-        """Drop every stored artifact whose fingerprint is not in `live`.
-
-        Returns the number of artifacts removed.
-        """
-        ...
 
     def close(self) -> None:  # noqa: B027 - optional concrete hook, not abstract
         """Release any underlying resources. Override if needed."""

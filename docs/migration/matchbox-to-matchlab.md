@@ -311,9 +311,10 @@ read. `Source(...)` again re-reads the warehouse and invalidates everything down
 `(root, leaf, key, source)` table when it collects. Queries are reads against that
 table, which is why `lookup_key` and `get_matches` are now fast and offline.
 
-**Storage is local and reclaimable.** Artifacts live in a DuckDB store in your user
-cache directory by default. Call `matchlab.gc()` to drop artifacts belonging to plans
-you no longer hold.
+**Storage is local and kept until you delete it.** Artifacts live in a DuckDB store in
+your user cache directory by default. Nothing is ever removed on the library's
+initiative — reclaiming means deleting the store file, since a DuckDB file does not
+shrink when rows are deleted. See the guide's "Reclaiming storage".
 
 ## What didn't change
 

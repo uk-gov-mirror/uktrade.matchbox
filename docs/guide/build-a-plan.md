@@ -392,14 +392,54 @@ sub-plan of it number differently — but a run and that run's drawing always ag
 
 ## Reclaiming storage
 
-Collected artifacts stay in the adapter. When you drop a plan, its storage becomes
-reclaimable:
+**A store keeps everything you collect into it, until you delete the file.** matchlab
+never removes an artifact on its own initiative. That is deliberate: an artifact's value
+has nothing to do with whether your program still holds the variable that produced it,
+and the next process to rebuild the same plan wants a cache hit rather than a rerun.
+
+So reclaiming is a file operation:
 
 ```python
-import matchlab
+from pathlib import Path
 
-matchlab.gc()  # drop artifacts no live step references
+Path("./run.duckdb").unlink()  # start again from cold
 ```
+
+The default store lives in your user cache directory — `default_adapter()` will tell you
+where — and is safe to delete at any time. You lose cache hits, not results you can't
+rebuild, provided the warehouse data hasn't moved.
+
+!!! warning "DuckDB files do not shrink"
+    Deleting rows or dropping tables inside a DuckDB file does **not** return space to
+    the operating system. DuckDB marks the blocks free and reuses them for later
+    writes, but the file stays the size of its high-water mark — there is no
+    `VACUUM FULL`, and `CHECKPOINT` will not do it either:
+
+    ```
+    after write:               149.7 MB
+    after DROP + CHECKPOINT:   149.7 MB
+    ```
+
+    This is why matchlab has no "reclaim some of it" operation: deleting artifacts
+    would buy reuse headroom inside the file while your disk usage stayed exactly the
+    same. If you want the space back, delete the file. If you want to keep some of it,
+    collect what you want to keep into a fresh store and delete the old one.
+
+### Keeping memory bounded
+
+An in-memory store (`DuckDBAdapter(":memory:")`) is not limited to RAM. DuckDB spills
+table data to a temporary directory once it exceeds `memory_limit`, which defaults to
+about 80% of your machine's memory:
+
+```python
+adapter = DuckDBAdapter(":memory:")
+adapter.conn.execute("SET memory_limit = '4GB'")
+adapter.conn.execute("SET temp_directory = '/fast/scratch'")
+```
+
+That bounds the resident footprint without discarding anything, which is almost always
+what you want from a cache: paged out is cheap to read back, deleted has to be
+recomputed.
 
 ## Next
 

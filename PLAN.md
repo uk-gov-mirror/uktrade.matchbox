@@ -159,7 +159,7 @@ class Adapter(ABC):
     def store_resolver(fp, resolution);            read_resolver(fp)
     def store_clean(fp, table);                    read_clean(fp)      # Phase A addition
     def store_judgement(...); read_eval_data(tag); sample(fp, n, seed)
-    def gc(live: set[fp]) -> int;                  close()
+    def publish(label, fp); find(label); labels();  close()
 ```
 
 ## What each collected step persists
@@ -220,8 +220,8 @@ Current local suite: **324 passing, 0 skipped** (2026-07-24).
 5. **Single verb set ✅.** `clean` / `dedupe` / `link` / `resolve` / `collect`;
    `get_matches` + `lookup_key` on `Resolve`. All `DAG`, `run_and_sync`, `sync`, `run`,
    run-lifecycle and noun methods deleted.
-6. **GC ✅.** Module `WeakSet` of live steps; `gc()` mark-and-sweeps by live fingerprint
-   (not per-node finalizers — content-addressing means distinct nodes can share one).
+6. **GC — built, then removed (2026-07-26).** A module `WeakSet` of live steps and a
+   mark-and-sweep `gc()`. Deleted outright; see "Stores keep what they are given" below.
 7. **Tests ✅.** `test/plan/test_lineage.py` (8, pure graph semantics with fake steps)
    and `test/plan/test_plan.py` (15, e2e over SQLite). The old `test/integration` suite
    is replaced.
@@ -771,6 +771,59 @@ contradicting the structural sharing it exists to show.
 *Caveat, accepted:* third-party `INFO` logging on the same terminal can still smear a
 live frame. Only matchlab's own records are demoted, and the frame self-heals on the
 next redraw.
+
+#### Stores keep what they are given (2026-07-26)
+
+`matchlab.gc()`, `Adapter.gc`, `DuckDBAdapter.gc` and the `_LIVE_STEPS` `WeakSet` are
+all deleted. Reclamation was keyed on **Python object reachability**, and that was the
+wrong root set for a store that outlives the process.
+
+Three things were wrong with it, in ascending order of seriousness.
+
+**It didn't reclaim disk.** DuckDB marks freed blocks for reuse but never returns them
+to the OS, and there is no `VACUUM FULL`. Measured: a 149.7 MB store is still 149.7 MB
+after `DROP TABLE` + `CHECKPOINT`, and after reopening and checkpointing again. So `gc()`
+reported "N artifacts removed" while the user's disk usage did not move.
+
+**Its motivation evaporated.** The defensible reason to evict is memory pressure on an
+in-memory store, and DuckDB handles that natively and better: `memory_limit` defaults to
+~80% of RAM and `temp_directory` is set even for `:memory:` databases, so table data
+spills rather than OOMs. Measured: an in-memory store with a 300 MB limit held an ~800 MB
+table by spilling 418 MB. Paged out is cheap to read back; deleted has to be recomputed.
+
+**It silently destroyed published work.** In a fresh interpreter `_LIVE_STEPS` is empty,
+so every artifact is garbage. `_purge` also dropped any label pointing at what it
+removed. Measured, against a file store:
+
+```
+MONDAY  -> labels: ['production']
+TUESDAY -> labels before gc: ['production']     # new process, same ./run.duckdb
+TUESDAY -> matchlab.gc() removed: 1 artifacts
+TUESDAY -> labels after  gc: []
+```
+
+A nightly `matchlab.gc()` would have wiped the store, publications included.
+
+The underlying error is worth naming, because the instinct behind it is right elsewhere:
+reachability is exactly the correct lifetime rule for **plans**, which are in-memory
+objects, and the `WeakSet` was a genuine improvement on the old strong `DAG.nodes`
+registry. It does not transfer to **artifacts**, which are persistent bytes whose value
+is independent of which variables some process happens to be holding. Sharpest form:
+reachability-based collection is only *correct* where it is *pointless* (`:memory:`,
+which dies at exit anyway) and only *useful* where it is *wrong* (a named file).
+
+`_purge` stays — it is still needed so a re-store replaces rather than duplicates rows
+in the shared `source_leaves` / `model_edges` / `resolution` tables. But it no longer
+touches `labels`: it only ever runs immediately before re-storing the *same* fingerprint,
+which by content-addressing is the same data, so the label still resolves to
+indistinguishable bytes. A re-collect revoking a publication was a bug, not a policy.
+
+*Costs, accepted:* there is now no way to reclaim part of a store — you delete the file
+and collect again. Given that deleting artifacts never shrank the file, that is the only
+operation that ever actually freed space, so nothing real is lost. If a size- or age-
+based cache policy is wanted later for the shared cache directory, that is what to build
+(`last_used` on `artifacts`, plus a `trim(max_bytes=, older_than=)`) — a cache policy,
+expressed in the terms a cache actually has, with labels as pins. Not reachability.
 
 ### Loose ends closed
 

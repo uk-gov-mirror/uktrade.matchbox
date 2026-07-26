@@ -178,10 +178,9 @@ class Progress:
             self._live.stop()
             # Drop the display, breaking the reference cycle it forms with this object
             # (`Live` holds `self._renderable`, a bound method, and this holds `Live`).
-            # A cycle would leave the whole plan reachable until the cyclic collector
-            # happened to run, and `matchlab.gc` reclaims exactly what is unreachable —
-            # so a collected plan you dropped would keep its storage for a while.
-            # Releasing here makes the plan die with `collect`'s frame, by refcount.
+            # This object holds every step, so the cycle would keep a whole plan — and
+            # through it the adapter — alive until the cyclic collector happened to run.
+            # Releasing here lets the plan die with `collect`'s frame, by refcount.
             self._live = None
         if not self._nested:
             _REPORTING = False

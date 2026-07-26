@@ -22,7 +22,6 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Self
-from weakref import WeakSet
 
 from platformdirs import user_cache_path
 from pydantic import BaseModel
@@ -37,12 +36,6 @@ if TYPE_CHECKING:
     import polars as pl
 
 CACHE_DIR = user_cache_path("matchlab")
-
-# Every live step, weakly referenced. Weak refs do not keep steps alive, so Python
-# reachability drives lifetime — which is what makes `gc()` able to reclaim the
-# storage of plans you have dropped. A strong registry (the old `DAG.nodes`) made
-# that impossible.
-_LIVE_STEPS: WeakSet[Step] = WeakSet()
 
 _DEFAULT_ADAPTER: Adapter | None = None
 
@@ -60,22 +53,6 @@ def default_adapter() -> Adapter:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         _DEFAULT_ADAPTER = DuckDBAdapter(CACHE_DIR / "store.duckdb")
     return _DEFAULT_ADAPTER
-
-
-def gc(adapter: Adapter | None = None) -> int:
-    """Drop stored artifacts belonging to no live step.
-
-    Mark-and-sweep against the live set — **not** a per-step finalizer. Because
-    artifacts are content-addressed, two distinct steps can share a fingerprint, so
-    deleting one step's artifact when it is dropped would destroy a live sibling's
-    data.
-
-    Returns:
-        The number of artifacts removed.
-    """
-    adapter = adapter or default_adapter()
-    live = {step._fp for step in _LIVE_STEPS if step._fp is not None}
-    return adapter.gc(live)
 
 
 class Step(ABC):
@@ -107,7 +84,6 @@ class Step(ABC):
         self.upstream = tuple(upstream)
         self._fp: Fingerprint | None = None
         self._adapter: Adapter | None = None
-        _LIVE_STEPS.add(self)
 
     def __repr__(self) -> str:
         """Return a short representation showing kind and collection state."""

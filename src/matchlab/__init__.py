@@ -18,7 +18,7 @@ from matchlab.locations import RelationalDBLocation
 from matchlab.models import Model
 from matchlab.resolvers import Resolver
 from matchlab.sources import Source
-from matchlab.steps import Step, default_adapter, gc, set_default_adapter
+from matchlab.steps import Step, default_adapter, set_default_adapter
 from matchlab.views import View
 
 __all__ = (
@@ -31,7 +31,6 @@ __all__ = (
     "View",
     "default_adapter",
     "dump",
-    "gc",
     "load",
     "set_default_adapter",
 )

@@ -144,7 +144,14 @@ class DuckDBAdapter(Adapter):
         self.conn.execute("INSERT OR REPLACE INTO artifacts VALUES (?, ?)", [fp, kind])
 
     def _purge(self, fp: Fingerprint) -> None:
-        """Remove any existing artifact for `fp`, so stores are idempotent."""
+        """Remove any existing artifact for `fp`, so stores are idempotent.
+
+        Only ever called immediately before storing that same fingerprint again. A
+        fingerprint addresses content, so the replacement is the same data by
+        construction — which is why any **label** pointing at `fp` is left alone. The
+        label still resolves, to bytes indistinguishable from the ones it resolved to
+        before, and a publication is not something a re-collect should quietly revoke.
+        """
         kind = self._kind(fp)
         if kind is None:
             return
@@ -160,9 +167,6 @@ class DuckDBAdapter(Adapter):
             self.conn.execute("DELETE FROM resolution WHERE fp = ?", [fp])
             self.conn.execute("DELETE FROM resolution_sources WHERE fp = ?", [fp])
         self.conn.execute("DELETE FROM artifacts WHERE fp = ?", [fp])
-        # A label pointing at an artifact that no longer exists would resolve to
-        # nothing, so it goes with it.
-        self.conn.execute("DELETE FROM labels WHERE fp = ?", [fp])
 
     # -- existence --------------------------------------------------------------------
 
@@ -394,16 +398,6 @@ class DuckDBAdapter(Adapter):
         }
 
     # -- lifecycle --------------------------------------------------------------------
-
-    def gc(self, live: set[Fingerprint]) -> int:  # noqa: D102
-        rows = self.conn.execute("SELECT fp, kind FROM artifacts").fetchall()
-        removed = 0
-        for fp, _kind in rows:
-            if fp in live:
-                continue
-            self._purge(fp)
-            removed += 1
-        return removed
 
     def close(self) -> None:  # noqa: D102
         self.conn.close()

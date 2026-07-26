@@ -25,7 +25,6 @@ def adapter() -> DuckDBAdapter:
 
 # Distinct fingerprints for each artifact under test.
 FP_SRC = b"\x01" * 32
-FP_SRC_B = b"\x0b" * 32
 FP_MODEL = b"\x02" * 32
 FP_RESOLVER = b"\x03" * 32
 FP_RESOLVER_B = b"\x0c" * 32
@@ -197,29 +196,6 @@ def test_read_eval_data_empty_has_correct_schema(adapter: DuckDBAdapter) -> None
     assert set(expansion.columns) == {"root", "leaves"}
 
 
-# -- garbage collection ---------------------------------------------------------------
-
-
-def test_gc_removes_only_dead_artifacts(adapter: DuckDBAdapter) -> None:
-    adapter.store_source(FP_SRC, "key", _extract(), _leaves())
-    adapter.store_source(FP_SRC_B, "key", _extract(), _leaves())
-    adapter.store_model(FP_MODEL, _edges())
-    adapter.store_resolver(FP_RESOLVER, _resolution())
-
-    removed = adapter.gc(live={FP_SRC, FP_RESOLVER})
-    assert removed == 2  # FP_SRC_B and FP_MODEL
-
-    assert adapter.has(FP_SRC)
-    assert adapter.has(FP_RESOLVER)
-    assert not adapter.has(FP_SRC_B)
-    assert not adapter.has(FP_MODEL)
-
-    # The dropped source's extract table is really gone, but the live one survives.
-    with pytest.raises(KeyError):
-        adapter.read_source_extract(FP_SRC_B)
-    assert adapter.read_source_extract(FP_SRC).height == _extract().height
-
-
 # -- on-disk persistence --------------------------------------------------------------
 
 
@@ -260,13 +236,20 @@ def test_a_label_is_a_movable_pointer(adapter: DuckDBAdapter) -> None:
     assert adapter.labels() == ["entities"]  # moved, not duplicated
 
 
-def test_purging_an_artifact_drops_labels_pointing_at_it(
+def test_restoring_an_artifact_keeps_the_label_pointing_at_it(
     adapter: DuckDBAdapter,
 ) -> None:
-    """A label resolving to an artifact that no longer exists would be a trap."""
+    """Re-collecting a published plan must not quietly revoke the publication.
+
+    Storing replaces the artifact for a fingerprint, and a fingerprint addresses
+    content — so the label resolves to the same bytes it always did. Dropping it here
+    used to mean a re-collect silently unpublished your resolution.
+    """
     adapter.store_resolver(FP_RESOLVER, _resolution())
     adapter.publish("entities", FP_RESOLVER)
 
-    adapter.gc(live=set())
-    assert adapter.find("entities") is None
-    assert adapter.labels() == []
+    adapter.store_resolver(FP_RESOLVER, _resolution())  # same fingerprint, again
+
+    assert adapter.find("entities") == FP_RESOLVER
+    assert adapter.labels() == ["entities"]
+    assert adapter.read_resolver(FP_RESOLVER).height == _resolution().height

@@ -22,7 +22,7 @@ import polars as pl
 import pytest
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import Resolver, Source, gc, lineage, set_default_adapter
+from matchlab import Resolver, Source, lineage, set_default_adapter
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import StepNotFound
 from matchlab.locations import RelationalDBLocation
@@ -381,34 +381,30 @@ def test_resolver_exposes_its_sources(warehouse: Engine) -> None:
     assert {source.name for source in apex.sources} == {"crn", "dh"}
 
 
-# -- garbage collection ---------------------------------------------------------------
+# -- storage lifetime -----------------------------------------------------------------
 
 
-def test_gc_keeps_live_plans(warehouse: Engine) -> None:
-    apex, _crn, _dh = _apex(warehouse)
-    apex.collect()
-    assert gc() == 0  # everything is still referenced
+def test_dropping_a_plan_leaves_its_artifacts_stored(
+    warehouse: Engine, adapter: DuckDBAdapter
+) -> None:
+    """A store keeps what it was given; dropping the Python objects reclaims nothing.
 
-
-def test_gc_reclaims_a_dropped_plan(warehouse: Engine, adapter: DuckDBAdapter) -> None:
-    """Dropping the last reference to a plan makes its storage reclaimable.
-
-    This is what the old DAG registry made impossible: it strong-referenced every
-    step forever, so nothing was ever unreachable.
+    Deliberate. An artifact's value has nothing to do with whether this process still
+    holds the variable that produced it — the next process rebuilding the same plan
+    wants a cache hit. Reclaiming is the owner's explicit act, not the library's.
     """
-    import gc as pygc  # noqa: PLC0415 - local, to avoid clashing with matchlab.gc
+    import gc as pygc  # noqa: PLC0415 - the interpreter's, to force reachability
 
     crn = _source(warehouse, "crn")
     deduped = _dedupe_crn(crn)
     deduped.collect()
-    doomed = deduped._fp
-    assert adapter.has(doomed)
+    fp = deduped._fp
+    assert adapter.has(fp)
 
     del crn, deduped
     pygc.collect()
 
-    assert gc() > 0
-    assert not adapter.has(doomed)
+    assert adapter.has(fp)
 
 
 # -- views ----------------------------------------------------------------------------
