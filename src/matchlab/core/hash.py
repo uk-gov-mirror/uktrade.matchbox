@@ -1,18 +1,12 @@
 """Utilities for hashing data and creating unique identifiers."""
 
-import base64
 import hashlib
 from enum import StrEnum
-from typing import TypeVar
-from uuid import UUID
 
 import polars as pl
 import polars.expr as plx
 import polars_hash as plh
 import pyarrow as pa
-
-T = TypeVar("T")
-HashableItem = TypeVar("HashableItem", bytes, bool, str, int, float, bytearray)
 
 HASH_FUNC = hashlib.sha256
 
@@ -22,62 +16,6 @@ class HashMethod(StrEnum):
 
     XXH3_128 = "xxh3_128"
     SHA256 = "sha256"
-
-
-def hash_to_base64(hash: bytes) -> str:
-    """Converts a hash to a base64 string."""
-    return base64.urlsafe_b64encode(hash).decode("utf-8")
-
-
-def base64_to_hash(value: str | bytes) -> bytes:
-    """Converts a base64 string to a hash, or returns a hash as is."""
-    if isinstance(value, bytes):
-        return value
-    return base64.urlsafe_b64decode(value)
-
-
-def prep_for_hash(item: HashableItem) -> bytes:
-    """Encodes strings so they can be hashed, otherwises, passes through."""
-    if isinstance(item, bytes):
-        return item
-    elif isinstance(item, str):
-        return bytes(item.encode())
-    elif isinstance(item, UUID):
-        return item.bytes
-    elif isinstance(item, int):
-        # https://stackoverflow.com/a/54141411
-        signed = True
-        length = ((item + ((item * signed) < 0)).bit_length() + 7 + signed) // 8
-        return item.to_bytes(length, byteorder="big", signed=signed)
-    else:
-        raise ValueError(f"Cannot hash value of type {type(item)}")
-
-
-def hash_data(data: HashableItem) -> bytes:
-    """Hash the given data using the globally defined hash function.
-
-    This function ties into the existing hashing utilities.
-    """
-    return HASH_FUNC(prep_for_hash(data)).digest()
-
-
-def hash_values(*values: tuple[T, ...]) -> bytes:
-    """Returns a single hash of a tuple of items ordered by its values.
-
-    List must be sorted as the different orders of value must produce the same hash.
-    """
-    try:
-        sorted_vals = sorted(values)
-    except TypeError as e:
-        raise TypeError("Can only order lists or fields of the same datatype.") from e
-
-    hashed_vals_list = [HASH_FUNC(prep_for_hash(i)) for i in sorted_vals]
-
-    hashed_vals = hashed_vals_list[0]
-    for val in hashed_vals_list[1:]:
-        hashed_vals.update(val.digest())
-
-    return hashed_vals.digest()
 
 
 def process_column_for_hashing(column_name: str, schema_type: pl.DataType) -> plx.Expr:
@@ -215,40 +153,3 @@ def hash_arrow_table(
     all_hashes: bytes = b"".join(row_hashes.sort().to_list())
 
     return HASH_FUNC(all_hashes).digest()
-
-
-def hash_model_results(results: pa.Table) -> bytes:
-    """Fingerprint model results."""
-    return hash_arrow_table(results, as_sorted_list=["left_id", "right_id"])
-
-
-def hash_clusters(assignments: pa.Table) -> bytes:
-    """Fingerprint resolver cluster assignments by cluster membership semantics.
-
-    This hash is invariant to:
-        * row ordering
-        * parent_id relabeling
-        * child row ordering within a parent cluster
-    """
-    df = pl.from_arrow(assignments)
-
-    if df.height == 0:
-        return b"empty_table_hash"
-
-    canonical_df = (
-        df.select("parent_id", "child_id")
-        .group_by("parent_id")
-        .agg(pl.col("child_id").unique().sort().alias("child_ids"))
-        .select("child_ids")
-        .sort("child_ids")
-        .with_row_index(name="cluster_ordinal", offset=1)
-        .explode("child_ids", empty_as_null=True)
-        .rename({"child_ids": "child_id"})
-        .cast(
-            {
-                "cluster_ordinal": pl.UInt64,
-                "child_id": df.schema["child_id"],
-            }
-        )
-    )
-    return hash_arrow_table(canonical_df.to_arrow())

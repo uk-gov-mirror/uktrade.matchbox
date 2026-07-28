@@ -18,7 +18,7 @@ This module holds the pure functions that produce that resolution:
 
 The merge-forward requirement — that leaves grouped upstream but untouched by this
 resolver inherit their upstream cluster rather than collapsing to singletons — is the
-Phase 0 finding (`spikes/phase0_materialize_forward.py`). It is implemented here by
+Phase 0 finding. It is implemented here by
 giving every *untouched* reachable ID its own component ("fall-through"), so the
 upstream grouping survives.
 
@@ -35,7 +35,7 @@ from collections.abc import Iterable
 import polars as pl
 import polars_hash  # noqa: F401 - registers the `nchash` expression namespace
 
-from matchlab.core.arrow import SCHEMA_EVAL_SAMPLES
+from matchlab.core.schemas import SCHEMA_RESOLUTION
 
 # Upstream resolution schema consumed by `materialise_resolution`: every reachable
 # query-space ID mapped to a source row and its leaf.
@@ -124,7 +124,7 @@ def materialise_resolution(
             formed over it. `id` is the query-space ID the model referenced.
 
     Returns:
-        `SCHEMA_EVAL_SAMPLES` `(root, leaf, key, source)`: one row per reachable source
+        `SCHEMA_RESOLUTION` `(root, leaf, key, source)`: one row per reachable source
         record, with `root` the cluster it resolves to. Complete and merge-forward.
     """
     missing = set(UPSTREAM_COLUMNS) - set(upstream.columns)
@@ -139,7 +139,7 @@ def materialise_resolution(
     )
 
     if upstream.height == 0:
-        return pl.from_arrow(SCHEMA_EVAL_SAMPLES.empty_table())
+        return pl.from_arrow(SCHEMA_RESOLUTION.empty_table())
 
     child_to_parent = clusters.select(
         pl.col("child_id").cast(pl.UInt64),

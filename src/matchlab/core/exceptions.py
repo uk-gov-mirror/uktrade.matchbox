@@ -22,10 +22,6 @@ class MatchlabError(Exception):
         super().__init__(message or self.__doc__)
 
 
-class DataTypeError(MatchlabError, RuntimeError):
-    """A value could not be handled as the expected type."""
-
-
 class SchemaMismatch(MatchlabError):
     """An Arrow table did not have the expected schema."""
 

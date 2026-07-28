@@ -4,8 +4,6 @@ from collections import defaultdict
 from collections.abc import Hashable
 from typing import Generic, TypeVar
 
-from matchlab.core.hash import HASH_FUNC
-
 T = TypeVar("T", bound=Hashable)
 
 
@@ -62,8 +60,3 @@ class DisjointSet(Generic[T]):
             root = self._find(x)
             components[root].add(x)
         return list(components.values())
-
-
-def hash_cluster_leaves(leaves: list[bytes]) -> bytes:
-    """Canonical method to convert list of cluster IDs to their combined hash."""
-    return HASH_FUNC(b"|".join(leaf for leaf in sorted(leaves))).digest()

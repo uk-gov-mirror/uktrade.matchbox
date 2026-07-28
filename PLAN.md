@@ -17,7 +17,7 @@ resolve on demand.** The recursive query engine is *deleted, not ported*.
 `merge(upstream complete resolution, its own clusters)` — not just its own clusters.
 Leaves grouped upstream but untouched downstream ("fall-through") must inherit their
 upstream cluster, or they collapse to singletons. This is the eager equivalent of the
-server's `COALESCE`. Proven in `spikes/phase0_materialize_forward.py`.
+server's `COALESCE`. Proven in the Phase 0 spike.
 
 ---
 
@@ -185,8 +185,8 @@ Phase B, `common/` before it became `core/`.
 
 **Done and durable — untouched by the re-architecture:**
 
-* **Phase 0 ✅** — materialise-forward spike + equivalence oracle
-  (`spikes/phase0_materialize_forward.py`, 3 tests). Surfaced the merge-forward finding.
+* **Phase 0 ✅** — materialise-forward spike + equivalence oracle. Surfaced the
+  merge-forward finding; the spike itself has since been removed.
 * **Phase 1 ✅** — DuckDB adapter, storage only (`src/matchbox/adapters/`,
   `test/adapters/test_duckdb.py`, 15 tests) incl. a real eval round-trip through
   `precision_recall`.
@@ -389,8 +389,8 @@ rest executes for real. Porting `ResolverMatches` caught a **third Phase A regre
   status carriers plus a registry that reflected over them to build a wire-format enum.
   Naming now follows Polars: one prefixed base (`MatchlabError`) so `except MatchlabError`
   reads well when imported bare, with unprefixed specifics beneath it — `StepNotFound`,
-  `SchemaMismatch`, `ExtractTransformError`, `SourceClientError`, `SourceTableError`,
-  `NameValidationError`, `DataTypeError`. Specifics avoid shadowing builtins.
+  `SchemaMismatch`, `ExtractTransformError`, `SourceTableError`. Specifics avoid
+  shadowing builtins.
 * `core/dtos.py` → `core/config.py`, **781 → 269 lines**. It holds no transfer objects
   any more — it is the serialisable description of a plan's steps. Dropped the last
   vestigial models (`Step`, `StepType`, `QueryConfig`, `ResolverConfig`, `ModelConfig`,
@@ -468,8 +468,8 @@ extract returns except the key**, so a column that shouldn't affect identity is 
 shouldn't select, and a type you want pinned is a `cast` in the SELECT.
 
 Deleted: `index_fields`, `SourceField`, `infer_types`, `Location.infer_types`,
-`schema_overrides` plumbing. `DataTypes` survives for the testkit's data generator,
-which is a separate concern. Keys are cast to string on read rather than validated.
+`schema_overrides` plumbing. `DataTypes` went too — the testkit's data generator now
+carries a plain `polars.DataType`. Keys are cast to string on read rather than validated.
 `index_fields` remains as a *property* read from the extract, so it cannot drift.
 
 This closed a live bug found the same morning: `_config_key` hashed only the index, so

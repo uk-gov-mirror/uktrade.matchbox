@@ -309,7 +309,7 @@ on everything but the base:
 | `MatchboxSourceClientError` | *gone* — a `Location` takes its client in `__init__`, so it can never be used without one |
 | `MatchboxSourceTableError` | `SourceTableError` |
 | `MatchboxNameError` | *gone* — `Source` validates its own name |
-| `MatchboxRuntimeError` | `DataTypeError` |
+| `MatchboxRuntimeError` | `MatchlabError` |
 
 Everything else was an HTTP status carrier and went with the server.
 

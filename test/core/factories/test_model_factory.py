@@ -3,12 +3,12 @@ from typing import Any, Literal
 import polars as pl
 import pytest
 
-from matchlab.core.arrow import SCHEMA_MODEL_EDGES
 from matchlab.core.factories.models import (
     generate_dummy_scores,
     model_factory,
 )
 from matchlab.core.factories.sources import linked_sources_factory, source_factory
+from matchlab.core.schemas import SCHEMA_MODEL_EDGES
 
 
 @pytest.mark.parametrize(

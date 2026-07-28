@@ -16,15 +16,15 @@ import duckdb
 import polars as pl
 
 from matchlab.adapters.base import Adapter, Fingerprint, StoreStats, TrimResult
-from matchlab.core.arrow import (
+from matchlab.core.resolution import root_id_of
+from matchlab.core.schemas import (
     SCHEMA_CLUSTER_EXPANSION,
-    SCHEMA_EVAL_SAMPLES,
     SCHEMA_JUDGEMENTS,
     SCHEMA_MODEL_EDGES,
+    SCHEMA_RESOLUTION,
     check_schema_subset,
 )
-from matchlab.core.eval import Judgement
-from matchlab.core.resolution import root_id_of
+from matchlab.eval.judgements import Judgement
 
 #: Bumped whenever the stored shape changes. A store written by an older matchlab is
 #: recreated rather than half-read, which is the honest failure for a cache.
@@ -492,7 +492,7 @@ class DuckDBAdapter(Adapter):
         resolution: pl.DataFrame,
         sources: Mapping[str, Fingerprint] | None = None,
     ) -> None:
-        check_schema_subset(SCHEMA_EVAL_SAMPLES, resolution.to_arrow().schema)
+        check_schema_subset(SCHEMA_RESOLUTION, resolution.to_arrow().schema)
         self._purge(fp)
         resolution = resolution.select(
             pl.col("root").cast(pl.UInt64),

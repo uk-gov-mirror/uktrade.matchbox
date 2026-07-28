@@ -3,9 +3,12 @@ import pytest
 from polars.testing import assert_frame_equal
 from sqlalchemy import Engine
 
-from matchlab.core.arrow import SCHEMA_QUERY_WITH_LEAVES
 from matchlab.core.factories.sources import source_factory, source_from_tuple
-from matchlab.results import ResolverMatches, normalise_model_scores
+from matchlab.results import (
+    SCHEMA_QUERY_WITH_LEAVES,
+    ResolverMatches,
+    normalise_model_scores,
+)
 from matchlab.sources import Source
 
 

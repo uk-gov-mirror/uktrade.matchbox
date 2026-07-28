@@ -7,7 +7,6 @@ import polars as pl
 from faker import Faker
 from pydantic import BaseModel, ConfigDict, Field
 
-from matchlab.core.arrow import SCHEMA_CLUSTERS
 from matchlab.core.config import (
     ResolverType,
 )
@@ -22,6 +21,7 @@ from matchlab.resolvers import (
     ResolverSettings,
     add_resolver_class,
 )
+from matchlab.resolvers.base import SCHEMA_CLUSTERS
 from matchlab.sources import Source
 from matchlab.views import View
 

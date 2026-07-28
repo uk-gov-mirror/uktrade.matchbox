@@ -12,12 +12,11 @@ import polars as pl
 import pyarrow as pa
 from adbc_driver_manager.dbapi import Connection as AdbcConnection
 from faker import Faker
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Engine, create_engine
 from sqlglot import cast, select
 from sqlglot.expressions import column
 
-from matchlab.core.arrow import SCHEMA_INDEX, SCHEMA_QUERY
 from matchlab.core.config import (
     SourceConfig,
 )
@@ -31,7 +30,6 @@ from matchlab.core.factories.entities import (
     generate_entities,
     scores_to_results_entities,
 )
-from matchlab.core.hash import hash_values
 from matchlab.locations import RelationalDBLocation
 from matchlab.sources import Source
 from matchlab.views import View
@@ -100,20 +98,9 @@ class SourceTestkit(BaseModel):
     data: pa.Table = Field(
         description="Data corresponding to the output of queries, without leaf data."
     )
-    data_hashes: pa.Table = Field(description="A PyArrow table of hashes for the data.")
     entities: tuple[ClusterEntity, ...] = Field(
         description="ClusterEntities that were generated from the source."
     )
-
-    @field_validator("data")
-    @classmethod
-    def cast_table(cls, value: pa.Table) -> pa.Table:
-        """Ensure that the data matches the query schema."""
-        for col in SCHEMA_QUERY.names:
-            cast_col = value[col].cast(SCHEMA_QUERY.field(col).type)
-            value = value.set_column(value.schema.get_field_index(col), col, cast_col)
-
-        return value
 
     @property
     def name(self) -> str:
@@ -299,9 +286,7 @@ def generate_rows(
     selected_entities: tuple[SourceEntity, ...],
     features: tuple[FeatureConfig, ...],
     repetition: int,
-) -> tuple[
-    dict[str, list], dict[int, list[str]], dict[int, list[str]], dict[int, bytes]
-]:
+) -> tuple[dict[str, list], dict[int, list[str]], dict[int, list[str]]]:
     """Generate raw data rows with unique keys and shared IDs.
 
     This function generates rows of data plus maps between three types of identifiers:
@@ -319,8 +304,6 @@ def generate_rows(
         * entity_keys: A dictionary that maps which keys belong to each source entity
         * id_keys: A dictionary that maps which keys share the same row content,
             with the same `id`
-        * id_hashes: A dictionary that maps `id`s to hash values for each unique
-            row content
 
     The key insight:
 
@@ -377,12 +360,6 @@ def generate_rows(
         3: ["e", "g"],  # Both have "beta co" content
         4: ["f", "h"],  # Both have "beta ltd" content
     }
-    id_hashes = {
-        1: b"hash1",  # Hash of "alpha co"
-        2: b"hash2",  # Hash of "alpha ltd"
-        3: b"hash3",  # Hash of "beta co"
-        4: b"hash4",  # Hash of "beta ltd"
-    }
     ```
     """
     raw_data = {"key": [], "id": []}
@@ -392,20 +369,17 @@ def generate_rows(
     # Track entity locations and row identities
     entity_keys = {entity.id: [] for entity in selected_entities}
     id_keys = {}
-    id_hashes = {}
     value_to_id = {}
 
     def add_row(entity_id: int, values: tuple) -> None:
         """Add a row of data, handling IDs and keys."""
         key = str(generator.uuid4())
         entity_keys[entity_id].append(key)
-        row_hash = hash_values(*(str(v) for v in values))
 
         if values not in value_to_id:
             mb_id = generator.random_number(digits=16)
             value_to_id[values] = mb_id
             id_keys[mb_id] = []
-            id_hashes[mb_id] = row_hash
 
         row_id = value_to_id[values]
         id_keys[row_id].append(key)
@@ -448,7 +422,7 @@ def generate_rows(
             for _ in range(repetition + 1):
                 add_row(entity.id, values)
 
-    return raw_data, entity_keys, id_keys, id_hashes
+    return raw_data, entity_keys, id_keys
 
 
 @cache
@@ -458,12 +432,11 @@ def generate_source(
     features: tuple[FeatureConfig, ...],
     repetition: int,
     seed_entities: tuple[SourceEntity, ...] | None = None,
-) -> tuple[pa.Table, pa.Table, dict[int, set[str]], dict[int, set[str]]]:
+) -> tuple[pa.Table, dict[int, set[str]], dict[int, set[str]]]:
     """Generate raw data as PyArrow tables with entity tracking.
 
     Returns:
         - data: PyArrow table with generated data
-        - data_hashes: PyArrow table with hash groups
         - entity_keys: SourceEntity ID -> list of keys mapping
         - id_keys: Unique row ID -> list of keys mapping for identical rows
     """
@@ -478,7 +451,7 @@ def generate_source(
         )
 
     # Generate initial data
-    raw_data, entity_keys, id_keys, id_hashes = generate_rows(
+    raw_data, entity_keys, id_keys = generate_rows(
         generator=generator,
         selected_entities=selected_entities,
         features=features,
@@ -487,21 +460,6 @@ def generate_source(
 
     # Create DataFrame
     df = pd.DataFrame(raw_data)
-
-    # Create hash groups
-    keys = []
-    hashes = []
-    for row_id, group_keys in id_keys.items():
-        keys.append(list(group_keys))
-        hashes.append(id_hashes[row_id])
-
-    data_hashes = pa.Table.from_pydict(
-        {
-            "keys": keys,
-            "hash": hashes,
-        },
-        schema=SCHEMA_INDEX,
-    )
 
     # Update variation counts
     for entity in selected_entities:
@@ -512,7 +470,6 @@ def generate_source(
 
     return (
         pa.Table.from_pandas(df, preserve_index=False),
-        data_hashes,
         entity_keys,
         id_keys,
     )
@@ -577,7 +534,7 @@ def source_factory(
     )
 
     # Generate data using the base entities
-    data, data_hashes, entity_keys, row_keys = generate_source(
+    data, entity_keys, row_keys = generate_source(
         generator=generator,
         n_true_entities=n_true_entities,
         features=features,
@@ -619,7 +576,6 @@ def source_factory(
         source=source,
         features=features,
         data=data,
-        data_hashes=data_hashes,
         entities=tuple(sorted(results_entities)),
     )
 
@@ -673,17 +629,6 @@ def source_from_tuple(
         key_field="key",
     )
 
-    hashes = [hash_values(*row) for row in data_tuple]
-
-    data_hashes = pa.Table.from_pydict(
-        {
-            # Assumes that string conversion will be the same as the SQL warehouse's
-            "keys": [str(dkey) for dkey in data_keys],
-            "hash": hashes,
-        },
-        schema=SCHEMA_INDEX,
-    )
-
     raw_data = pa.Table.from_pylist(list(data_tuple))
     raw_keys = pa.array(data_keys)
 
@@ -692,7 +637,6 @@ def source_from_tuple(
     return SourceTestkit(
         source=source,
         data=data,
-        data_hashes=data_hashes,
         entities=tuple(sorted(results_entities)),
     )
 
@@ -847,7 +791,7 @@ def linked_sources_factory(
     # Generate sources
     for parameters in source_parameters:
         # Generate source data using seed entities
-        data, data_hashes, entity_keys, row_keys = generate_source(
+        data, entity_keys, row_keys = generate_source(
             generator=generator,
             features=tuple(parameters.features),
             n_true_entities=parameters.n_true_entities,
@@ -884,7 +828,6 @@ def linked_sources_factory(
             source=source,
             features=tuple(parameters.features),
             data=data,
-            data_hashes=data_hashes,
             entities=tuple(sorted(results_entities)),
         )
 

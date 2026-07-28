@@ -6,10 +6,13 @@ from typing import Annotated, ClassVar
 import polars as pl
 from pydantic import Field
 
-from matchlab.core.arrow import SCHEMA_CLUSTERS
 from matchlab.core.config import ResolverType
 from matchlab.core.dsu import DisjointSet
-from matchlab.resolvers.base import ResolverMethod, ResolverSettings
+from matchlab.resolvers.base import (
+    SCHEMA_CLUSTERS,
+    ResolverMethod,
+    ResolverSettings,
+)
 
 
 class ComponentsSettings(ResolverSettings):

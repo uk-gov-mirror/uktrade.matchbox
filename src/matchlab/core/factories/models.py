@@ -15,7 +15,6 @@ from faker import Faker
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import create_engine
 
-from matchlab.core.arrow import SCHEMA_MODEL_EDGES
 from matchlab.core.config import (
     ModelType,
 )
@@ -33,6 +32,7 @@ from matchlab.core.factories.sources import (
     linked_sources_factory,
 )
 from matchlab.core.hash import HASH_FUNC
+from matchlab.core.schemas import SCHEMA_MODEL_EDGES
 from matchlab.models import add_model_class
 from matchlab.models.dedupers.base import Deduper, DeduperSettings
 from matchlab.models.linkers.base import Linker, LinkerSettings

@@ -1,16 +1,22 @@
 """Objects representing the results of running a model client-side."""
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Final, Self
 
 import polars as pl
+import pyarrow as pa
 
-from matchlab.core.arrow import SCHEMA_MODEL_EDGES
 from matchlab.core.dsu import DisjointSet
 from matchlab.core.logging import logger
+from matchlab.core.schemas import SCHEMA_MODEL_EDGES
 
 if TYPE_CHECKING:
     from matchlab.sources import Source
+
+SCHEMA_QUERY_WITH_LEAVES: Final[pa.Schema] = pa.schema(
+    [("id", pa.int64()), ("key", pa.large_string()), ("leaf_id", pa.int64())]
+)
+"""The shape of a query result: root cluster IDs keyed to source keys and leaf IDs."""
 
 
 def normalise_model_scores(scores: pl.DataFrame) -> pl.DataFrame:

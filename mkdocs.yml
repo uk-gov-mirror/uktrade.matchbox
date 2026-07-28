@@ -29,15 +29,16 @@ nav:
     - Adapters: api/adapters.md
     - Locations: api/locations.md
   - Evaluation:
-    - Sampling and scoring: api/eval.md
+    - Sampling: api/eval-sampling.md
+    - Judgements: api/eval-judgements.md
+    - Metrics: api/eval-metrics.md
     - Interactive review: api/eval-tui.md
   - Core:
     - Config: api/core/config.md
+    - Schemas: api/core/schemas.md
     - Resolution: api/core/resolution.md
     - Exceptions: api/core/exceptions.md
-    - Evaluation metrics: api/core/eval.md
     - Hashing: api/core/hash.md
-    - Arrow schemas: api/core/arrow.md
     - Transform: api/core/transform.md
     - Test factories: api/core/factories.md
 - Contributing:

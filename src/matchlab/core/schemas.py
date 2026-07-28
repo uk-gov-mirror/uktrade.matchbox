@@ -1,0 +1,79 @@
+"""Arrow schemas for the artifacts an adapter persists.
+
+These are the shapes that cross the boundary between a step and its storage: what a
+`Model` or `Resolver` hands the adapter, and what the adapter hands back. They live here
+rather than with their producers because both sides need them, and `core` is the only
+layer both a producer and an adapter can depend on without inverting.
+
+The membership rule is exactly that boundary — **the adapter persists it or returns
+it**. A shape that never leaves the process belongs with the code that produces it:
+`SCHEMA_CLUSTERS` with `matchlab.resolvers.base`, `SCHEMA_QUERY_WITH_LEAVES` with
+`matchlab.results`. Keeping those out is what stops this module from becoming a
+catch-all for anything that happens to be an Arrow schema.
+"""
+
+from typing import Final
+
+import pyarrow as pa
+from pyarrow import Schema
+
+from matchlab.core.exceptions import SchemaMismatch
+
+SCHEMA_MODEL_EDGES: Final[pa.Schema] = pa.schema(
+    [
+        ("left_id", pa.uint64()),
+        ("right_id", pa.uint64()),
+        ("score", pa.float32()),
+    ]
+)
+"""A deduper's or linker's output: a scored edge list."""
+
+SCHEMA_RESOLUTION: Final[pa.Schema] = pa.schema(
+    [
+        ("root", pa.uint64()),
+        ("leaf", pa.uint64()),
+        ("key", pa.large_string()),
+        ("source", pa.large_string()),
+    ]
+)
+"""A resolver's complete flat resolution: one row per reachable source record.
+
+Evaluation sampling returns a row-subset of this, which is why it is named for the
+resolution rather than for the sample.
+"""
+
+SCHEMA_JUDGEMENTS: Final[pa.Schema] = pa.schema(
+    [
+        ("user_name", pa.large_string()),
+        ("endorsed", pa.uint64()),
+        ("shown", pa.uint64()),
+    ]
+)
+"""Stored user judgements, as returned by `Adapter.read_eval_data`."""
+
+SCHEMA_CLUSTER_EXPANSION: Final[pa.Schema] = pa.schema(
+    [
+        ("root", pa.uint64()),
+        ("leaves", pa.list_(pa.uint64())),
+    ]
+)
+"""A cluster ID mapped to all its source cluster IDs, alongside the judgements."""
+
+
+def check_schema_subset(expected: Schema, actual: Schema) -> None:
+    """Check presence of Arrow fields, ignoring field order, extras and metadata.
+
+    Args:
+        expected: Schema with fields that must be present
+        actual: Schema to check
+    """
+    actual = pa.schema(
+        [
+            (name, actual.field(name).type)
+            for name in expected.names
+            if name in actual.names
+        ]
+    )
+
+    if not actual.equals(expected):
+        raise SchemaMismatch(expected=expected, actual=actual)

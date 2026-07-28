@@ -4,7 +4,6 @@ import polars as pl
 import pytest
 from faker import Faker
 
-from matchlab.core.datatypes import DataTypes
 from matchlab.core.factories.entities import (
     ClusterEntity,
     EntityReference,
@@ -429,13 +428,13 @@ def test_source_to_results_conversion() -> None:
 @pytest.mark.parametrize(
     ("base_generator", "expected_type"),
     [
-        pytest.param("name", DataTypes.STRING, id="text_generator"),
-        pytest.param("random_int", DataTypes.INT64, id="integer_generator"),
-        pytest.param("date_this_decade", DataTypes.DATE, id="date_generator"),
+        pytest.param("name", pl.String, id="text_generator"),
+        pytest.param("random_int", pl.Int64, id="integer_generator"),
+        pytest.param("date_this_decade", pl.Date, id="date_generator"),
     ],
 )
 def test_feature_config_datatype_inference(
-    base_generator: str, expected_type: str
+    base_generator: str, expected_type: pl.DataType
 ) -> None:
     """Test that SQL types are correctly inferred from feature configurations."""
     feature_config = FeatureConfig(name=base_generator, base_generator=base_generator)

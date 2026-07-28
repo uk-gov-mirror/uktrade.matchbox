@@ -1,6 +1,6 @@
 """Tests for client-side resolution (Phase 2 keystone).
 
-These bridge the abstract Phase 0 spike (`spikes/phase0_materialize_forward.py`) to the
+These bridge the abstract Phase 0 spike to the
 concrete `(clusters, upstream)` data shapes the client actually produces, and assert
 the merge-forward resolution — including fall-through of upstream-grouped, locally
 untouched leaves.
@@ -8,12 +8,12 @@ untouched leaves.
 
 import polars as pl
 
-from matchlab.core.arrow import SCHEMA_CLUSTERS
 from matchlab.core.resolution import (
     leaf_id,
     materialise_resolution,
     root_id_of,
 )
+from matchlab.resolvers.base import SCHEMA_CLUSTERS
 
 
 def _clusters(pairs: list[tuple[int, int]]) -> pl.DataFrame:

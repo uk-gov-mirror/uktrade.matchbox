@@ -5,7 +5,6 @@ import pytest
 from matchlab.core.hash import (
     HashMethod,
     hash_arrow_table,
-    hash_clusters,
     hash_rows,
 )
 
@@ -397,37 +396,3 @@ class TestNormalisation:
         assert hash_empty == b"empty_table_hash", (
             "Empty tables should return consistent special hash value"
         )
-
-
-def test_hash_clusters_ignores_parent_labels_and_row_order() -> None:
-    table_a = pa.Table.from_pydict(
-        {
-            "parent_id": [1, 1, 2, 2],
-            "child_id": [10, 11, 20, 21],
-        }
-    )
-    table_b = pa.Table.from_pydict(
-        {
-            "parent_id": [99, 42, 42, 99],
-            "child_id": [11, 20, 21, 10],
-        }
-    )
-
-    assert hash_clusters(table_a) == hash_clusters(table_b)
-
-
-def test_hash_clusters_changes_when_membership_changes() -> None:
-    baseline = pa.Table.from_pydict(
-        {
-            "parent_id": [1, 1, 2, 2],
-            "child_id": [10, 11, 20, 21],
-        }
-    )
-    changed = pa.Table.from_pydict(
-        {
-            "parent_id": [1, 1, 2, 2],
-            "child_id": [10, 11, 20, 22],
-        }
-    )
-
-    assert hash_clusters(baseline) != hash_clusters(changed)

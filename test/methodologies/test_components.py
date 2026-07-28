@@ -2,8 +2,8 @@
 
 import polars as pl
 
-from matchlab.core.arrow import SCHEMA_CLUSTERS
 from matchlab.resolvers import Components, ComponentsSettings
+from matchlab.resolvers.base import SCHEMA_CLUSTERS
 
 
 def test_components_compute_clusters_uses_thresholds() -> None:

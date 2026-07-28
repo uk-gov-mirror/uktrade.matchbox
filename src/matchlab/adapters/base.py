@@ -3,15 +3,16 @@
 An adapter is **storage, not an engine**. It persists the artifacts each collected DAG
 step produces, keyed by that step's content fingerprint, and reads them back. It does
 *not* resolve anything on demand — the server's `_build_unified_query` is gone.
-Resolvers materialise their complete, merge-forward resolution at collect time (see
-`spikes/phase0_materialize_forward.py`) and hand the adapter a finished table.
+Resolvers materialise their complete, merge-forward resolution at collect time and hand
+the adapter a finished table.
 
-Artifacts, by step kind (schemas from `matchlab.core.arrow`):
+Artifacts, by step kind (schemas in `matchlab.core.schemas`, which holds exactly the
+shapes that cross this boundary):
 
 * Source   → warehouse extract (arbitrary schema) + leaf assignment `(key, leaf)`.
 * View     → the cleaned view (arbitrary schema).
 * Model    → edge list, `SCHEMA_MODEL_EDGES` `(left_id, right_id, score)`.
-* Resolver → complete flat resolution, `SCHEMA_EVAL_SAMPLES` `(root, leaf, key, src)`.
+* Resolver → complete flat resolution, `SCHEMA_RESOLUTION` `(root, leaf, key, src)`.
              This is `merge(upstream complete resolution, own clusters)` — the Phase 0
              finding — NOT just the resolver's own clusters.
 
@@ -32,7 +33,7 @@ from collections.abc import Iterable, Mapping
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 
-from matchlab.core.eval import Judgement
+from matchlab.eval.judgements import Judgement
 
 Fingerprint = bytes
 
@@ -257,7 +258,7 @@ class Adapter(ABC):
 
         Args:
             fp: The resolver step's fingerprint.
-            resolution: `SCHEMA_EVAL_SAMPLES` columns `(root, leaf, key, source)`,
+            resolution: `SCHEMA_RESOLUTION` columns `(root, leaf, key, source)`,
                 already merged forward over all upstream leaves. The adapter does not
                 verify the merge — that is the client's contract — but it does validate
                 the schema.
@@ -335,7 +336,7 @@ class Adapter(ABC):
     ) -> pl.DataFrame:
         """Sample up to `n` clusters from a stored resolution for evaluation.
 
-        Returns `SCHEMA_EVAL_SAMPLES` rows `(root, leaf, key, source)` for the sampled
+        Returns `SCHEMA_RESOLUTION` rows `(root, leaf, key, source)` for the sampled
         roots.
         """
         ...

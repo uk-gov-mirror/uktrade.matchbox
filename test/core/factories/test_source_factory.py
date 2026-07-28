@@ -4,7 +4,6 @@ import pytest
 from faker import Faker
 from sqlalchemy import Engine
 
-from matchlab.core.arrow import SCHEMA_INDEX
 from matchlab.core.factories.entities import (
     FeatureConfig,
     ReplaceRule,
@@ -24,8 +23,7 @@ def test_source_factory_default() -> None:
 
     assert len(source.entities) == 10
     assert source.data.shape[0] == 10
-    assert source.data_hashes.shape[0] == 10
-    assert source.data_hashes.schema.equals(SCHEMA_INDEX)
+    assert len(set(source.data.column("id").to_pylist())) == 10
 
 
 def test_source_factory_repetition() -> None:
@@ -49,35 +47,28 @@ def test_source_factory_repetition() -> None:
 
     # Convert to pandas for easier analysis
     data_df = source.data.to_pandas()
-    hashes_df = source.data_hashes.to_pandas()
 
-    # For each hash group, verify it contains the correct number of rows
-    for _, group in hashes_df.groupby("hash"):
-        # Each hash should have repetition + 1 (base) number of keys
-        keys = group["keys"].explode()
+    # Each `id` groups the rows sharing identical content
+    for _, rows in data_df.groupby("id"):
+        # Each id should have repetition + 1 (base) number of keys
+        keys = rows["key"]
         assert len(keys) == len(keys.unique())
         assert len(keys) == repetition + 1
-
-        # Get the actual rows for these keys
-        rows = data_df[data_df["key"].isin(keys)]
-
-        # Should have repetition + 1 (base) number of rows
-        assert len(rows) == repetition + 1
 
         # All rows should have identical feature values
         for feature in features:
             assert len(rows[feature.name].unique()) == 1
 
-    # Total number of unique hashes should be n_true_entities * (variations + 1)
-    expected_unique_hashes = n_true_entities * (len(features[0].variations) + 1)
-    assert len(hashes_df["hash"].unique()) == expected_unique_hashes
+    # Total number of unique ids should be n_true_entities * (variations + 1)
+    expected_unique_rows = n_true_entities * (len(features[0].variations) + 1)
+    assert len(data_df["id"].unique()) == expected_unique_rows
 
-    # Total number of rows should be unique hashes * repetition + 1 (base)
-    assert len(data_df) == expected_unique_hashes * (repetition + 1)
+    # Total number of rows should be unique ids * repetition + 1 (base)
+    assert len(data_df) == expected_unique_rows * (repetition + 1)
 
 
-def test_source_factory_data_hashes_integrity() -> None:
-    """Test that data_hashes correctly identifies identical rows."""
+def test_source_factory_row_id_integrity() -> None:
+    """Test that row `id`s correctly identify identical rows."""
     features = [
         FeatureConfig(
             name="company_name",
@@ -96,32 +87,25 @@ def test_source_factory_data_hashes_integrity() -> None:
     )
 
     # Convert to pandas for easier analysis
-    hashes_df = source_testkit.data_hashes.to_pandas()
     data_df = source_testkit.data.to_pandas()
 
-    # For each hash group, verify that the corresponding rows are identical
-    for _, group in hashes_df.groupby("hash"):
-        keys = group["keys"].explode()
-        rows = data_df[data_df["key"].isin(keys)]
-
-        # All rows in the same hash group should have identical feature values
+    # For each id group, verify that the corresponding rows are identical
+    for _, rows in data_df.groupby("id"):
+        # All rows sharing an id should have identical feature values
         for feature in features:
             assert len(rows[feature.name].unique()) == 1
 
     # Due to repetition=1, each unique row should appear
-    # in exactly one hash group with two keys
+    # in exactly one id group with two keys
     # Repetition + 1 because we include the base value
-    assert all(
-        len(group["keys"].explode()) == repetition + 1
-        for _, group in hashes_df.groupby("hash")
-    )
+    assert all(len(rows["key"]) == repetition + 1 for _, rows in data_df.groupby("id"))
 
-    # Total number of hash groups should equal
+    # Total number of id groups should equal
     # number of unique rows * number of true entities
-    expected_hash_groups = n_true_entities * (
+    expected_id_groups = n_true_entities * (
         len(features[0].variations) + 1
     )  # +1 for base value
-    assert len(hashes_df["hash"].unique()) == expected_hash_groups
+    assert len(data_df["id"].unique()) == expected_id_groups
 
 
 def test_source_factory_mock_properties(sqlite_in_memory_warehouse: Engine) -> None:
@@ -358,7 +342,7 @@ def test_source_from_tuple() -> None:
 
     assert testkit.data.shape[0] == 2
     assert set(testkit.data.column_names) == {"id", "key", "a", "b"}
-    assert testkit.data_hashes.shape[0] == 2
+    assert len(set(testkit.data.column("id").to_pylist())) == 2
     assert set(testkit.field_names) == {"a", "b"}
 
 
@@ -490,7 +474,7 @@ def test_generate_rows(
 ) -> None:
     """Test generate_rows correctly tracks entities and row identities."""
     generator = Faker(seed=42)
-    raw_data, entity_keys, id_keys, id_hashes = generate_rows(
+    raw_data, entity_keys, id_keys = generate_rows(
         generator=generator,
         selected_entities=selected_entities,
         features=features,
@@ -540,7 +524,6 @@ def test_generate_rows(
         assert not raw_data["key"]
         assert not entity_keys
         assert not id_keys
-        assert not id_hashes
 
     # Verify core variation behavior
     for entity in selected_entities:
@@ -596,26 +579,23 @@ def test_generate_rows(
         expected_total_rows = expected_unique_combinations * (repetition + 1)
         assert len(entity_keys[entity.id]) == expected_total_rows
 
-    # Verify hashing functionality
-    # Each unique row should have a unique hash
-    assert len(id_hashes) == len(id_keys)
-    assert set(id_hashes.keys()) == set(id_keys.keys())
+    # Verify row identity
+    # Every id in the data should be tracked in id_keys, and vice versa
+    assert set(id_keys.keys()) == set(raw_data["id"])
 
-    # Create a map from values to hash
-    values_to_hash = {}
+    # Create a map from values to id
+    values_to_id = {}
     for i in range(n_rows):
         values = tuple(raw_data[f.name][i] for f in features)
         row_id = raw_data["id"][i]
-        hash_value = id_hashes[row_id]
 
-        # First encounter of these values, store the hash
-        if values not in values_to_hash:
-            values_to_hash[values] = hash_value
-        # If we've seen these values before, make sure the hash matches
+        # First encounter of these values, store the id
+        if values not in values_to_id:
+            values_to_id[values] = row_id
+        # If we've seen these values before, make sure the id matches
         else:
-            assert values_to_hash[values] == hash_value
+            assert values_to_id[values] == row_id
 
-    # Check that different data produces different hashes
+    # Check that different data produces different ids
     if len(unique_values) > 1:
-        unique_hashes = set(values_to_hash.values())
-        assert len(unique_hashes) == len(unique_values)
+        assert len(set(values_to_id.values())) == len(unique_values)

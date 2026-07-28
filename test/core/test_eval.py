@@ -1,8 +1,12 @@
 import polars as pl
 import pytest
 
-from matchlab.core.arrow import SCHEMA_CLUSTER_EXPANSION, SCHEMA_JUDGEMENTS
-from matchlab.core.eval import Judgement, precision_recall, process_judgements
+from matchlab.core.schemas import SCHEMA_CLUSTER_EXPANSION, SCHEMA_JUDGEMENTS
+from matchlab.eval.judgements import Judgement
+from matchlab.eval.metrics import (
+    precision_recall,
+    process_judgements,
+)
 
 
 def test_judgement_validation() -> None:

@@ -17,7 +17,6 @@ from faker import Faker
 from frozendict import frozendict
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from matchlab.core.datatypes import DataTypes
 from matchlab.core.dsu import DisjointSet
 
 if TYPE_CHECKING:
@@ -85,28 +84,28 @@ class ReplaceRule(VariationRule[str]):
         return value.replace(self.old, self.new)
 
 
-def infer_data_type(base: str, parameters: tuple | None) -> DataTypes:
-    """Infer an appropriate matchlab type from a Faker configuration.
+def infer_data_type(base: str, parameters: tuple | None) -> pl.DataType:
+    """Infer the Polars data type a Faker configuration produces.
 
     Args:
         base: Faker generator type
         parameters: Parameters for the generator
 
     Returns:
-        A matchlab DataType
+        The Polars data type of the generated values
     """
     generator = Faker()
     value_generator = getattr(generator, base)
     parameters = {} if not parameters else dict(parameters)
     examples = [value_generator(**dict(parameters)) for _ in range(5)]
     series = pl.Series(examples)
-    return DataTypes.from_dtype(series.dtype)
+    return series.dtype
 
 
 class FeatureConfig(BaseModel):
     """Configuration for generating a feature with variations."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     name: str
     base_generator: str
@@ -128,7 +127,7 @@ class FeatureConfig(BaseModel):
         default=False, description="Whether the base case is dropped."
     )
     variations: tuple[VariationRule, ...] = Field(default_factory=tuple)
-    datatype: DataTypes = Field(
+    datatype: pl.DataType = Field(
         default_factory=lambda data: infer_data_type(
             data["base_generator"], data["parameters"]
         )
@@ -151,14 +150,6 @@ class FeatureConfig(BaseModel):
         """Ensure name is not a reserved keyword."""
         if value in {"id", "key"}:
             raise ValueError("Feature name cannot be 'id' or 'key'.")
-        return value
-
-    @field_validator("datatype", mode="before")
-    @classmethod
-    def string_to_strenum(cls: type[Self], value: str) -> DataTypes:
-        """Convert string to DataTypes enum."""
-        if isinstance(value, str):
-            return DataTypes(value)
         return value
 
 

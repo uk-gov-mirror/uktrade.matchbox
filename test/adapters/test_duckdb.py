@@ -16,8 +16,9 @@ from matchlab.adapters import (
     StoreStats,
     format_bytes,
 )
-from matchlab.core.eval import Judgement, precision_recall
 from matchlab.core.exceptions import SchemaMismatch
+from matchlab.eval.judgements import Judgement
+from matchlab.eval.metrics import precision_recall
 
 
 @pytest.fixture
@@ -61,7 +62,7 @@ def _edges() -> pl.DataFrame:
 
 
 def _resolution() -> pl.DataFrame:
-    # root/leaf/key/source == SCHEMA_EVAL_SAMPLES
+    # root/leaf/key/source == SCHEMA_RESOLUTION
     return pl.DataFrame(
         {
             "root": [10, 10, 20, 20],

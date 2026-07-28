@@ -4,7 +4,6 @@ import numpy as np
 import polars as pl
 import pytest
 
-from matchlab.core.arrow import SCHEMA_MODEL_EDGES
 from matchlab.core.dsu import DisjointSet
 from matchlab.core.factories.entities import (
     ClusterEntity,
@@ -17,6 +16,7 @@ from matchlab.core.factories.models import (
     generate_dummy_scores,
     generate_entity_scores,
 )
+from matchlab.core.schemas import SCHEMA_MODEL_EDGES
 from test.core.factories.test_entity_factory import (
     make_cluster_entity,
     make_source_entity,

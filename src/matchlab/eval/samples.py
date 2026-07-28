@@ -5,10 +5,9 @@ from typing import TYPE_CHECKING, Any
 import polars as pl
 from pydantic import BaseModel
 
-from matchlab.core.eval import Judgement, precision_recall
-from matchlab.core.exceptions import (
-    SourceTableError,
-)
+from matchlab.core.exceptions import SourceTableError
+from matchlab.eval.judgements import Judgement
+from matchlab.eval.metrics import precision_recall
 
 if TYPE_CHECKING:
     from matchlab.adapters import Adapter

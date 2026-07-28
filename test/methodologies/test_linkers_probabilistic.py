@@ -9,7 +9,6 @@ import pytest
 from splink import SettingsCreator
 from splink import comparison_library as cl
 
-from matchlab.core.datatypes import DataTypes
 from matchlab.core.factories.entities import (
     FeatureConfig,
     ReplaceRule,
@@ -113,22 +112,19 @@ def configure_splink_scored(
     for field in shared_fields:
         field_type = next(
             (f.datatype for f in left_testkit.features if f.name == field),
-            "TEXT",
+            None,
         )
 
         # Create deterministic matching rule for each field
         deterministic_matching_rules.append(f"l.{field} = r.{field}")
 
         # String fields
-        if field_type.base_type == DataTypes.STRING:
+        if field_type == pl.String:
             blocking_rules.append(f"SUBSTR(l.{field}, 1, 3) = SUBSTR(r.{field}, 1, 3)")
             comparisons.append(cl.JaroWinklerAtThresholds(field, [0.9, 0.7]))
 
         # Numeric fields
-        elif any(
-            t in field_type
-            for t in [DataTypes.INT64, DataTypes.FLOAT64, DataTypes.DECIMAL]
-        ):
+        elif field_type in (pl.Int64, pl.Float64, pl.Decimal):
             blocking_rules.append(f"CAST(l.{field} AS INT) = CAST(r.{field} AS INT)")
             comparisons.append(cl.ExactMatch(field))
 

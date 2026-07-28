@@ -2,12 +2,21 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import ClassVar
+from typing import ClassVar, Final
 
 import polars as pl
+import pyarrow as pa
 from pydantic import BaseModel, ConfigDict
 
 from matchlab.core.config import ResolverType
+
+SCHEMA_CLUSTERS: Final[pa.Schema] = pa.schema(
+    [
+        ("parent_id", pa.uint64()),
+        ("child_id", pa.uint64()),
+    ]
+)
+"""The shape of a resolver's output: cluster assignments."""
 
 
 class ResolverSettings(BaseModel, ABC):

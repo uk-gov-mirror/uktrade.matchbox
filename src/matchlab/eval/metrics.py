@@ -1,52 +1,14 @@
 """Common operations to produce model evaluation scores."""
 
 from itertools import chain, combinations
-from typing import Self, TypeAlias
+from typing import TypeAlias
 
 import polars as pl
-from pydantic import BaseModel, Field, model_validator
 
 Pair: TypeAlias = tuple[int, int]
 Pairs: TypeAlias = set[Pair]
 
 PrecisionRecall: TypeAlias = tuple[float, float]
-
-
-class Judgement(BaseModel):
-    """User determination on how to group source clusters from a model cluster."""
-
-    tag: str | None = None
-    shown: list[int] = Field(
-        description="IDs of the source clusters shown to user at once"
-    )
-    endorsed: list[list[int]] = Field(
-        description="""Groups of source cluster IDs that user thinks belong together"""
-    )
-
-    @model_validator(mode="after")
-    def check_no_duplicates(self) -> Self:
-        """Ensure no cluster IDs are repeated in the endorsement."""
-        if len(self.shown) != len(set(self.shown)):
-            raise ValueError("One or more cluster IDs were repeated in the shown data")
-        concat_ids = list(chain(*self.endorsed))
-        if len(concat_ids) != len(set(concat_ids)):
-            raise ValueError(
-                "One or more cluster IDs were repeated in the endorsement data"
-            )
-
-        return self
-
-    @model_validator(mode="after")
-    def check_consistency(self) -> Self:
-        """Ensure union of endorsed clusters matches shown cluster."""
-        all_shown = set(self.shown)
-        all_endorsed = set(chain(*self.endorsed))
-        if all_shown != all_endorsed:
-            raise ValueError(
-                "Inconsistent source cluster IDs between shown and endorsed clusters"
-            )
-
-        return self
 
 
 def precision_recall(
@@ -75,8 +37,8 @@ def precision_recall(
         models_root_leaf: list of tables with root and leaf columns, one per model.
             They must include all the clusters that resolve from a model, all the way
             to the original source clusters if no model in the lineage merged them.
-        judgements: Dataframe following `matchlab.core.arrow.SCHEMA_JUDGEMENTS`.
-        expansion: Dataframe following `matchlab.core.arrow.SCHEMA_CLUSTER_EXPANSION`.
+        judgements: Dataframe following `SCHEMA_JUDGEMENTS`.
+        expansion: Dataframe following `SCHEMA_CLUSTER_EXPANSION`.
 
     Returns:
         List of tuples of precision and recall scores, one per model.
@@ -174,8 +136,8 @@ def process_judgements(
         must be as well.
 
     Args:
-        judgements: Dataframe following `matchlab.core.arrow.SCHEMA_JUDGEMENTS`.
-        expansion: Dataframe following `matchlab.core.arrow.SCHEMA_CLUSTER_EXPANSION`.
+        judgements: Dataframe following `SCHEMA_JUDGEMENTS`.
+        expansion: Dataframe following `SCHEMA_CLUSTER_EXPANSION`.
 
     Returns:
         Tuple of:
