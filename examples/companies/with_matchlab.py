@@ -72,7 +72,8 @@ def build() -> "Source":
     deduped = dedupes[0].resolve(*dedupes[1:])
 
     # Read each source *through* the dedupe, so `id` is an entity rather than a
-    # record. Build each view once — they're the same view, reused by every link.
+    # record. Build each view once — one node, computed once, read by every link
+    # that shares it.
     entity_views = {
         src.name: deduped.view(src, cleaning=views[src.name].cleaning)
         for src in (crn, dh, cdms, hmrc)

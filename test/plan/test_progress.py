@@ -67,15 +67,6 @@ class StoringStep(Step):
         adapter.store_view(fp, pl.DataFrame({"x": [1]}))
 
 
-class FusedStep(StoringStep):
-    """A step that stores nothing, like a `View` feeding a model."""
-
-    stores: ClassVar[bool] = False
-
-    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:  # pragma: no cover
-        raise AssertionError("a fused step never executes")
-
-
 class FailingStep(StoringStep):
     """A step that always raises."""
 
@@ -112,10 +103,10 @@ def terminal(monkeypatch: pytest.MonkeyPatch) -> io.StringIO:
     return _terminal(monkeypatch, height=24)
 
 
-def _plan() -> tuple[StoringStep, StoringStep, FusedStep]:
-    """A source, a fused view over it, and an apex that stores."""
+def _plan() -> tuple[StoringStep, StoringStep, StoringStep]:
+    """A source, a view over it, and an apex. Every step stores."""
     source = StoringStep("source")
-    view = FusedStep("view", upstream=(source,))
+    view = StoringStep("view", upstream=(source,))
     apex = StoringStep("apex", upstream=(view,))
     return apex, source, view
 
@@ -168,7 +159,7 @@ def test_a_first_collect_runs_every_storing_step(store: DuckDBAdapter) -> None:
 
     assert state[id(source)].status is StepStatus.DONE
     assert state[id(apex)].status is StepStatus.DONE
-    assert state[id(view)].status is StepStatus.FUSED
+    assert state[id(view)].status is StepStatus.DONE
 
 
 def test_recollecting_reports_cached_not_ran(store: DuckDBAdapter) -> None:
@@ -217,15 +208,14 @@ def test_every_step_is_timed(store: DuckDBAdapter) -> None:
 def test_the_summary_carries_the_counts_a_debug_reader_would_have_seen(
     store: DuckDBAdapter,
 ) -> None:
-    """`Cached` and `Fused` sit at DEBUG, so the INFO summary has to total them."""
+    """`Cached` sits at DEBUG, so the INFO summary has to total it."""
     _plan()[0].collect(adapter=store, interactive=False)
     apex, _source, _view = _plan()
 
     summary = _run(apex, store).summary()
 
     assert "0 ran" in summary
-    assert "2 cached" in summary
-    assert "1 fused" in summary
+    assert "3 cached" in summary
 
 
 # -- the log channel -----------------------------------------------------------------
@@ -380,20 +370,25 @@ def test_a_failing_step_does_not_leak_its_prefix(store: DuckDBAdapter) -> None:
 def test_each_outcome_logs_at_the_level_it_deserves(
     store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Work done is INFO; structure — cached, fused — is DEBUG."""
-    apex, _source, view = _plan()
-    positions = lineage.number(apex)
+    """Work done is INFO; structure — cached — is DEBUG."""
+    _plan()[0].collect(adapter=store, interactive=False)
+
+    # A fresh plan over the warm store with one new step on top, so a single collect
+    # produces both outcomes: everything below is cached, only the new apex runs.
+    warm, _source, _view = _plan()
+    top = StoringStep("top", upstream=(warm,))
+    positions = lineage.number(top)
 
     with caplog.at_level(logging.DEBUG, logger="matchlab"):
-        apex.collect(adapter=store, interactive=False)
+        top.collect(adapter=store, interactive=False)
 
     levels = {
         record.getMessage().split("]")[0].lstrip("["): record.levelno
         for record in caplog.records
         if record.getMessage().startswith("[step ")
     }
-    assert levels[f"step {positions[id(view)]}"] == logging.DEBUG  # fused
-    assert levels[f"step {positions[id(apex)]}"] == logging.INFO  # ran
+    assert levels[f"step {positions[id(warm)]}"] == logging.DEBUG  # cached
+    assert levels[f"step {positions[id(top)]}"] == logging.INFO  # ran
 
 
 def test_the_records_are_the_same_whether_or_not_a_tree_is_drawn(
@@ -566,14 +561,14 @@ def test_the_tree_marks_each_status() -> None:
     apex, source, view = _plan()
     state = {
         id(source): StepState(StepStatus.CACHED),
-        id(view): StepState(StepStatus.FUSED),
+        id(view): StepState(StepStatus.DONE, 0.4),
         id(apex): StepState(StepStatus.RUNNING, 2.5),
     }
 
     tree = draw(apex, state)
 
     assert "◐ [2] apex running 2.5s" in tree
-    assert "◌ [1] view fused" in tree
+    assert "● [1] view 0.4s" in tree
     assert "◍ [0] source cached" in tree
 
 

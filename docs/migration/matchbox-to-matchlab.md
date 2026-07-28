@@ -122,8 +122,7 @@ and `draw()` numbers the same walk:
 
 The shared view appears as `[1]` under both models, because it *is* one node read twice
 rather than two identical ones — drawn in full where you first meet it, and marked `↑`
-after. Step 1 has no line of its own in the log: a view feeding models is fused into
-them rather than materialised.
+after. It runs once, and both models read its stored table.
 
 ### Per-model thresholds take the model, not its name
 

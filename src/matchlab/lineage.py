@@ -39,7 +39,6 @@ class StepStatus(StrEnum):
     RUNNING = "running"
     DONE = "done"
     CACHED = "cached"
-    FUSED = "fused"
     FAILED = "failed"
 
     @property
@@ -63,7 +62,6 @@ _MARKERS: dict[StepStatus, str] = {
     StepStatus.RUNNING: "◐",
     StepStatus.DONE: "●",
     StepStatus.CACHED: "◍",
-    StepStatus.FUSED: "◌",
     StepStatus.FAILED: "✗",
 }
 
@@ -72,7 +70,6 @@ _STYLES: dict[StepStatus, str] = {
     StepStatus.RUNNING: "bold yellow",
     StepStatus.DONE: "bold green",
     StepStatus.CACHED: "cyan",
-    StepStatus.FUSED: "dim",
     StepStatus.FAILED: "bold red",
 }
 
@@ -91,8 +88,8 @@ class StepState:
     def annotation(self) -> str:
         """The trailing detail shown after a step in a drawing, possibly empty.
 
-        A time is shown only where it was spent: a cached or fused step reads
-        `cached` / `fused` alone, because `0.0s` next to it says nothing.
+        A time is shown only where it was spent: a cached step reads `cached` alone,
+        because `0.0s` next to it says nothing.
         """
         parts: list[str] = []
         if self.status not in (StepStatus.PENDING, StepStatus.DONE):

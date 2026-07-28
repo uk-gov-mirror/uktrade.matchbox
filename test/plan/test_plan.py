@@ -1,7 +1,7 @@
 """End-to-end tests for the plan API, over a real SQLite warehouse.
 
 Covers the whole Phase A surface: building a plan with no DAG, laziness, collect with
-plan-fingerprint caching, `View` fusion, lineage navigation, GC, and the terminal
+plan-fingerprint caching, `View` storage, lineage navigation, GC, and the terminal
 reads (`get_matches`, `lookup_key`).
 
 Scenario — a dedupe feeding a cross-source link:
@@ -22,7 +22,7 @@ import polars as pl
 import pytest
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import Resolver, Source, lineage, set_default_adapter
+from matchlab import Model, Resolver, Source, View, lineage, set_default_adapter
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import StepNotFound
 from matchlab.locations import RelationalDBLocation
@@ -123,7 +123,6 @@ def test_nothing_runs_until_collect(warehouse: Engine) -> None:
 
     assert all(not step.is_collected for step in deduped.lineage())
     deduped.collect()
-    # The view is fused, so it carries a fingerprint but stores nothing.
     assert all(step.is_collected for step in deduped.lineage())
 
 
@@ -328,10 +327,62 @@ def test_a_source_memoises_its_read(warehouse: Engine) -> None:
     crn.collect()  # memoised fingerprint short-circuits
 
 
-# -- View fusion ----------------------------------------------------------------------
+# -- View storage ---------------------------------------------------------------------
 
 
-def test_view_is_fused_by_default(warehouse: Engine, adapter: DuckDBAdapter) -> None:
+@pytest.fixture
+def computes(monkeypatch: pytest.MonkeyPatch) -> dict[int, int]:
+    """Count `View._compute` calls per view, keyed by `id(view)`."""
+    counts: dict[int, int] = {}
+    original = View._compute
+
+    def counting(self: View, adapter: DuckDBAdapter) -> pl.DataFrame:
+        counts[id(self)] = counts.get(id(self), 0) + 1
+        return original(self, adapter)
+
+    monkeypatch.setattr(View, "_compute", counting)
+    return counts
+
+
+@pytest.fixture
+def model_runs(monkeypatch: pytest.MonkeyPatch) -> list[Model]:
+    """Record which models actually executed, rather than hitting cache."""
+    ran: list[Model] = []
+    original = Model._execute
+
+    def counting(self: Model, adapter: DuckDBAdapter, fp: bytes) -> None:
+        ran.append(self)
+        return original(self, adapter, fp)
+
+    monkeypatch.setattr(Model, "_execute", counting)
+    return ran
+
+
+def _shared_view_plan(
+    warehouse: Engine, comparison: str | None = None
+) -> tuple[Resolver, View]:
+    """One cleaned view feeding both a dedupe and a link, joined by a resolver.
+
+    `comparison` retunes the linker without touching the view, so a second plan can
+    invalidate the models while every view's fingerprint still hits.
+    """
+    crn = _source(warehouse, "crn")
+    dh = _source(warehouse, "dh")
+    view = crn.view(cleaning={"name": "crn_company"})
+    deduped = view.dedupe(
+        model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
+    )
+    linked = view.link(
+        dh,
+        model_class=DeterministicLinker,
+        model_settings={"comparisons": comparison or f"l.name = r.{dh.f('company')}"},
+    )
+    return deduped.resolve(linked), view
+
+
+def test_a_view_is_stored_when_its_consumer_is_collected(
+    warehouse: Engine, adapter: DuckDBAdapter
+) -> None:
     crn = _source(warehouse, "crn")
     view = crn.view(cleaning={"name": "crn_company"})
     deduped = view.dedupe(
@@ -339,9 +390,51 @@ def test_view_is_fused_by_default(warehouse: Engine, adapter: DuckDBAdapter) -> 
     ).resolve()
     deduped.collect()
 
-    # It has an identity in the plan, but no artifact was written.
     assert view.is_collected
-    assert not adapter.has(view._fp)
+    assert adapter.has(view._fp)
+
+
+def test_a_shared_view_is_computed_once(
+    warehouse: Engine, adapter: DuckDBAdapter, computes: dict[int, int]
+) -> None:
+    """The point of storing: fan-out costs one computation, not one per consumer."""
+    apex, view = _shared_view_plan(warehouse)
+
+    apex.collect()
+
+    assert computes[id(view)] == 1
+    assert adapter.has(view._fp)
+
+
+def test_a_rebuilt_plan_reads_a_view_stored_by_an_earlier_one(
+    warehouse: Engine,
+    adapter: DuckDBAdapter,
+    computes: dict[int, int],
+    model_runs: list[Model],
+) -> None:
+    """Cross-session reuse: a stored view is read back, not recomputed.
+
+    The second plan is fresh objects, as a new process would build, with the linker
+    retuned so the models genuinely re-run. Their inputs are unchanged, so the views
+    hit cache and the frame comes off disk. Recomputing here was the old behaviour:
+    a rebuilt view had no way to know its table was already stored.
+    """
+    dh = _source(warehouse, "dh")
+    apex, _view = _shared_view_plan(warehouse)
+    apex.collect()
+    computes.clear()
+    model_runs.clear()
+
+    retuned, view = _shared_view_plan(
+        warehouse, comparison=f"r.{dh.f('company')} = l.name"
+    )
+    retuned.collect()
+
+    assert computes == {}, "a stored view was recomputed"
+    assert adapter.has(view._fp)
+    # The linker really did re-run, so something genuinely asked for the frame —
+    # without this the assertion above would hold trivially.
+    assert [model.model_class for model in model_runs] == [DeterministicLinker]
 
 
 def test_collecting_a_view_directly_materialises_it(

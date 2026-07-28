@@ -27,7 +27,6 @@ class FakeStep(Step):
     """
 
     kind: ClassVar[str] = "fake"
-    stores: ClassVar[bool] = False
 
     def __init__(self, label: str = "fake", upstream: tuple[Step, ...] = ()) -> None:
         self.label = label

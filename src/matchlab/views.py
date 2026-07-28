@@ -1,15 +1,25 @@
 """View — a queryable, optionally-cleaned view over one or more sources.
 
-`View` is a plan node like any other, but it is **fused by default**: collecting a
-plan does not materialise it, the model that consumes it just builds its frame
-inline. Collecting a `View` *directly* materialises it, after which downstream steps
-read the stored table instead of recomputing — the equivalent of Polars' `.cache()`,
-and the way to inspect "what does my cleaned data actually look like?".
+`View` is a plan node like any other, and it stores its cleaned table like any other: a
+view feeding three models is computed once and read back three times, rather than
+rebuilt inside each of them. That is worth the storage because a view is usually a
+plan's most shared node — every pairwise link over the same sources reads the same few
+views — and because building the frame is the expensive part: a join over the stored
+source extracts, then the cleaning SQL.
+
+`data()` reads that same stored table, so inspecting "what does my cleaned data actually
+look like?" costs nothing beyond the collection that was going to happen anyway.
+
+What a view does *not* store is `identifiers()` — the `(id, source, key, leaf)` mapping
+a downstream resolver needs. That depends only on the sources and resolver a view reads,
+never on its cleaning, and the cleaned frame has dropped `source`, `key` and `leaf` by
+the time it is stored. It is read back from the source leaves and the upstream
+resolution instead, both of which are already stored.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import duckdb
 import polars as pl
@@ -31,7 +41,6 @@ class View(Step):
     """A cleaned view over sources, optionally resolved through a resolver."""
 
     kind: ClassVar[str] = "view"
-    stores: ClassVar[bool] = False  # fused unless collected directly
 
     def __init__(
         self,
@@ -86,13 +95,6 @@ class View(Step):
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         adapter.store_view(fp, self._compute(adapter))
 
-    def collect(
-        self, adapter: Adapter | None = None, interactive: bool | None = None
-    ) -> Self:
-        """Materialise this cleaned view (and its inputs) rather than fusing it."""
-        self.stores = True
-        return super().collect(adapter, interactive)
-
     # -- data -------------------------------------------------------------------------
 
     def identifiers(self, adapter: Adapter) -> pl.DataFrame:
@@ -146,10 +148,19 @@ class View(Step):
         return _apply_cleaning(frame, self.cleaning, group=self.group)
 
     def _frame(self, adapter: Adapter) -> pl.DataFrame:
-        """Return the cleaned data, reading the stored table when materialised."""
-        if self.stores and self._fp is not None and adapter.has(self._fp):
-            return adapter.read_view(self._fp)
-        return self._compute(adapter)
+        """Return the cleaned data from the stored table.
+
+        Unconditional, because `collect` runs a step's inputs before the step itself —
+        so by the time a consumer asks, this view's `_ensure` has already stored it or
+        found it cached. Reading rather than recomputing is what makes a shared view
+        cost one computation instead of one per consumer, and it is what lets a plan
+        rebuilt in a new process pick up a view stored by an earlier one.
+        """
+        if self._fp is None:  # pragma: no cover - collect orders upstream first
+            raise RuntimeError(
+                "This view has not been collected. Call collect() first."
+            )
+        return adapter.read_view(self._fp)
 
     def data(
         self, return_type: QueryReturnType = QueryReturnType.POLARS

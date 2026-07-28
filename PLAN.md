@@ -99,10 +99,9 @@ caused four distinct problems:
    A node is therefore both "lazy" and "collected" — satisfying *"each step can take as
    input either a lazy step or a collected one"* with no second type.
    `get_matches()` on an uncollected node collects first.
-4. **`View` is a plan node, fused by default.** Not materialised unless you
-   `.collect()` it — the equivalent of Polars' `.cache()`. Collecting it is the
-   "show me my cleaned data" debugging path; once materialised, downstream reads it
-   instead of re-fusing.
+4. **`View` is a plan node that stores, like every other kind.** Fused-by-default was
+   tried and reverted — see "Views store their frame" below. A view feeding three
+   models is computed once and read back three times.
 5. **Adapter: module default + per-collect override.** A lazily-created DuckDB store in
    the user cache dir; `set_default_adapter(...)` globally, `collect(adapter=...)` per
    call.
@@ -167,7 +166,7 @@ class Adapter(ABC):
 | Step | Artifact (fingerprint-keyed, namespaced by step kind) |
 |---|---|
 | `Source` | warehouse extract + `key → leaf_id` |
-| `View` | *nothing by default* (fused); the view's table if explicitly collected |
+| `View` | the cleaned view's table |
 | `Model` | edge list `(left_id, right_id, score)` |
 | `Resolver` | complete flat resolution `(root, leaf, key, source)` |
 
@@ -210,7 +209,7 @@ Current local suite: **324 passing, 0 skipped** (2026-07-24).
 1. **`Step` + lineage ✅.** `Step` ABC (`name`, `upstream`, `_fp`) in `steps.py`;
    `lineage.py` holds `walk` / `find` / `validate` / `draw` as pure functions over a
    root node, deduplicating shared nodes by object identity.
-2. **Node types ✅.** `Source` (leaf), `Clean` (fused), `Model`, `Resolve` — each
+2. **Node types ✅.** `Source` (leaf), `Clean` (fused at the time), `Model`, `Resolve` — each
    holding only its inputs. `dags.py` and `queries.py` deleted.
 3. **Adapter plumbing ✅.** `set_default_adapter` / `default_adapter` +
    `collect(adapter=...)`; `store_clean`/`read_clean` added to the adapter.
@@ -936,6 +935,50 @@ subset of the other breaks evaluation subtly, not loudly.
 Consequence, not cause: content-addressing also makes runs reproducible and leaf IDs
 stable across re-collect. Real, but downstream of the above — don't cite it as the
 reason.
+
+### Views store their frame
+
+`View` was fused by default — `stores = False`, no artifact, each consuming model
+rebuilding the frame inline. Reverted 2026-07-28: views now store like every other kind,
+and `stores` is gone from `Step` along with `StepStatus.FUSED`.
+
+The reasoning for fusing was sound and the conclusion still wrong. A view *is* a
+declaration of grain plus a projection rather than a result anyone asks for, and its
+frame *is* derivable from source extracts already in the store. But that argues for "a
+view is cheap to rebuild", not for "rebuild it once per consumer" — and a view is
+usually the most-shared node in a plan. `examples/companies` builds 4 entity views and
+links every pair, so each view fed 3 linkers and was computed 3 times.
+
+Measured on `examples/companies/benchmark.sqlite` (1.3M rows), fused → stored:
+
+* cold collect 10.34s → **9.76s** (16 computes → 8). Storing is *cheaper* than
+  recomputing wherever a view is shared: the saved joins and cleaning round-trips
+  outweigh the writes.
+* after retuning a linker, 7.37s → **5.41s** (12 computes → 0).
+* a plan with no view sharing loses the cold run by 0.36s and wins the next
+  invalidating run by 0.42s — break-even at one re-run.
+* store grows ~28%: 8 view tables add 33MB to 114MB. A view is `id` plus its cleaning
+  projection, so usually narrower than the extract it derives from.
+
+Fusion also cost two things that this deletes rather than fixes. `View._frame` gated its
+stored read on `self.stores`, so a plan rebuilt in a new process recomputed even when the
+artifact was present — views were the one kind with no cross-session reuse. And
+`View.collect()` assigned `self.stores = True`, shadowing the ClassVar on one instance,
+which `View.data()` triggered — so inspecting a view silently changed it for the rest of
+the session, and `PlanDocument` could not carry the flag.
+
+**Not done, deliberately:** no `cache=False` opt-out. Storing is unconditional until
+optimisation is designed systematically rather than bolted on.
+
+**What this does not touch:** `View.identifiers()`. It depends only on a view's sources
+and resolver — never on `cleaning` or `group` — and the stored frame has dropped
+`source`, `key` and `leaf` by the time it is written, which `group=True` makes
+irreversible. So it cannot be cached under the view's fingerprint and cannot live in the
+view's artifact. It is a *query* over `resolution` and `source_leaves`, both already
+stored, and the fix is to push it into the adapter — separate change. Today
+`Resolver._execute` calls it once per `(model, view)` pair, `n(n-1)` for all-pairs
+linking, each a full scan; that is O(n²) against this change's O(n), so it dominates at
+scale.
 
 ---
 

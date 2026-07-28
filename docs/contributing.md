@@ -117,7 +117,6 @@ New plan steps subclass [`Step`](api/steps.md). A step must:
 * Return a stable `_config_key()` covering everything that changes its output, so
   caching is correct
 * Do all its work in `_execute()`, reading inputs from the adapter by fingerprint
-* Set `stores = False` if it is fused into its consumer rather than materialised
 
 ### Git
 

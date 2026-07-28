@@ -87,13 +87,12 @@ _Window = tuple[list[str], Text | None]
 # against its own walk and not against whatever is on screen.
 _REPORTING = False
 
-#: How each outcome reads in a log line, and at what level. `Cached` and `Fused` are
-#: structural rather than work done, so they sit at `DEBUG` and the summary carries
-#: their counts for an `INFO` reader.
+#: How each outcome reads in a log line, and at what level. `Cached` is structural
+#: rather than work done, so it sits at `DEBUG` and the summary carries its count for
+#: an `INFO` reader.
 _RECORDS: dict[StepStatus, tuple[int, str]] = {
     StepStatus.DONE: (logging.INFO, "Ran in {elapsed:.3f}s"),
     StepStatus.CACHED: (logging.DEBUG, "Cached"),
-    StepStatus.FUSED: (logging.DEBUG, "Fused into its consumer"),
     StepStatus.FAILED: (logging.ERROR, "Failed after {elapsed:.3f}s"),
 }
 
@@ -103,7 +102,6 @@ _LABELS: dict[StepStatus, str] = {
     StepStatus.RUNNING: "running",
     StepStatus.DONE: "ran",
     StepStatus.CACHED: "cached",
-    StepStatus.FUSED: "fused",
     StepStatus.FAILED: "failed",
 }
 
@@ -298,16 +296,15 @@ class Progress:
     def summary(self) -> str:
         """One line describing what the collection did.
 
-        Carries the cached and fused counts because their per-step records sit at
-        `DEBUG` — this is where an `INFO` reader learns what the run skipped.
+        Carries the cached count because those per-step records sit at `DEBUG` — this
+        is where an `INFO` reader learns what the run skipped.
         """
         counts = self._counts(self.state)
         elapsed = time.perf_counter() - self._started if self._started else 0.0
         return (
             f"Collected {len(self.steps)} steps ("
             f"{counts[StepStatus.DONE]} ran, "
-            f"{counts[StepStatus.CACHED]} cached, "
-            f"{counts[StepStatus.FUSED]} fused) in {elapsed:.3f}s"
+            f"{counts[StepStatus.CACHED]} cached) in {elapsed:.3f}s"
         )
 
     # -- rendering ------------------------------------------------------------------

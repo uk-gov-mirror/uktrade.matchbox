@@ -59,9 +59,6 @@ class Step(ABC):
     """A node in a lazy plan."""
 
     kind: ClassVar[str]
-    #: Whether this kind of step persists an artifact. `View` is fused (False) unless
-    #: it is collected directly.
-    stores: ClassVar[bool] = True
 
     def __init__(self, upstream: tuple[Step, ...] = ()) -> None:
         """Initialise a plan node with its direct inputs.
@@ -189,18 +186,14 @@ class Step(ABC):
 
         Returns:
             What it took: `DONE` if this call computed the step, `CACHED` if the
-            artifact was already stored, `FUSED` if this kind stores nothing.
+            artifact was already stored.
         """
         self._adapter = adapter
 
-        if self._fp is not None and (not self.stores or adapter.has(self._fp)):
-            return StepStatus.FUSED if not self.stores else StepStatus.CACHED
+        if self._fp is not None and adapter.has(self._fp):
+            return StepStatus.CACHED
 
         fp = self._fingerprint()
-
-        if not self.stores:
-            self._fp = fp
-            return StepStatus.FUSED
 
         if adapter.has(fp):  # cache hit — skip the work entirely
             self._fp = fp

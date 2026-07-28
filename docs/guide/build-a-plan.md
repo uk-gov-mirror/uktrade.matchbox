@@ -269,13 +269,13 @@ step settles — one frame, not one tree per step:
 ```
 ○ [6] resolver(Components)
     ├── ◐ [5] model(NaiveDeduper) running 2.6s
-    │   └── ◌ [3] view fused
+    │   └── ● [3] view 0.4s
     │       └── ● [2] source 'crn' 0.3s
     └── ● [4] model(DeterministicLinker) 0.5s
-        ├── ◌ [3] view fused ↑
-        └── ◌ [1] view fused
+        ├── ● [3] view 0.4s ↑
+        └── ● [1] view 0.2s
             └── ● [0] source 'dh' 0.2s
-○ waiting   ◐ running   ● ran   ◌ fused
+○ waiting   ◐ running   ● ran
 ```
 
 The number in brackets is the step's **position**, and it is the same number
@@ -290,13 +290,12 @@ with a name. A view is just a view.
 
 The legend lists only what's on screen. A node feeding two branches is one node, so it
 is drawn in full where you first meet it and marked `↑` after: `[3]` above feeds both
-models but runs once, and its inputs are listed under its first appearance rather than
-repeated. On plans with a shared base that is the difference between a readable tree
-and a few hundred lines.
+models but runs once — computed once and read back by each of them — and its inputs are
+listed under its first appearance rather than repeated. On plans with a shared base that
+is the difference between a readable tree and a few hundred lines.
 
 `cached` is the one to watch: it is the plan telling you your edit didn't invalidate
-that step, so nothing was recomputed. `fused` marks a view that was folded into its
-consumer rather than materialised.
+that step, so nothing was recomputed.
 
 Where nothing is drawn — a scheduler, CI, a redirected stream — the same tree is logged
 **once**, up front, with each step reporting beneath it:
@@ -313,19 +312,19 @@ INFO  Collecting 7 steps:
             └── ○ [0] source 'dh'
 INFO  [step 0] Reading from the warehouse
 INFO  [step 0] Ran in 0.160s
-DEBUG [step 1] Fused into its consumer
+INFO  [step 1] Ran in 0.198s
 INFO  [step 2] Reading from the warehouse
 INFO  [step 2] Ran in 0.255s
-DEBUG [step 3] Fused into its consumer
+INFO  [step 3] Ran in 0.390s
 INFO  [step 4] Round 1: Found 2 matches
 INFO  [step 4] Ran in 0.515s
 INFO  [step 5] Ran in 0.284s
 INFO  [step 6] Ran in 0.104s
-INFO  Collected 7 steps (5 ran, 0 cached, 2 fused) in 1.402s
+INFO  Collected 7 steps (7 ran, 0 cached) in 1.402s
 ```
 
-Work done is `INFO`; skipping — cached, fused — is `DEBUG`, and the closing summary
-totals both so an `INFO` reader still sees what the run avoided. Anything a step logs
+Work done is `INFO`; skipping — cached is `DEBUG`, and the closing summary
+totals it so an `INFO` reader still sees what the run avoided. Anything a step logs
 while it runs is prefixed the same way, so a linker reporting its rounds lands under
 the position it belongs to. Like any library logger it is silent until you configure
 logging:
