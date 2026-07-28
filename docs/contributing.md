@@ -118,6 +118,12 @@ New plan steps subclass [`Step`](api/steps.md). A step must:
   caching is correct
 * Do all its work in `_execute()`, reading inputs from the adapter by fingerprint
 
+### Adapters
+
+New storage backends subclass [`Adapter`](api/adapters.md). Beyond the read and write
+methods, `stats()` has to answer for the store's size and contents — every collect
+reports it, and a store nobody can measure is one that fills a disk quietly.
+
 ### Git
 
 We commit as frequently as possible. We keep our commits as atomic as possible. We never

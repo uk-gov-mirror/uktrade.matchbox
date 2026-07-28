@@ -229,7 +229,7 @@ class Step(ABC):
         # One walk, used for both. It fixes each step's position, so a `step 7` the
         # reporter logs is the node it drew as `[7]`.
         steps = lineage.walk(self)
-        with report(self, steps, interactive) as reporter:
+        with report(self, steps, interactive, adapter) as reporter:
             for step in steps:
                 reporter.begin(step)
                 try:

@@ -74,6 +74,7 @@ if TYPE_CHECKING:
 
     from rich.console import RenderableType
 
+    from matchlab.adapters import Adapter, StoreStats
     from matchlab.steps import Step
 
 #: The slice of a plan a frame shows, and a note of what it leaves out — `None` when
@@ -126,6 +127,7 @@ class Progress:
         *,
         live: bool = False,
         nested: bool = False,
+        adapter: Adapter | None = None,
     ) -> None:
         """Prepare a report for collecting `root`, whose plan is `steps`.
 
@@ -135,8 +137,17 @@ class Progress:
             live: Draw the tree as a live frame. Independent of what gets logged.
             nested: Whether an outer collection is already reporting. A nested report
                 does not claim the console; it logs as any other does.
+            adapter: Where the collection stores what it computes, so the summary can
+                say how much room it is taking and how much this run added. Optional:
+                without one the summary simply drops that clause.
         """
         self.root = root
+        self._adapter = adapter
+        #: The store's size before anything ran, so the summary can report what this
+        #: collection cost rather than only what the store now weighs. Taken in
+        #: `__enter__` — a report that is built and never entered has no run to
+        #: attribute growth to.
+        self._store_before: StoreStats | None = None
         self.steps = tuple(steps)
         #: Position by step identity — the same numbering `lineage.number` gives, taken
         #: from the walk `collect` already did rather than by walking again.
@@ -224,6 +235,8 @@ class Progress:
         """Start reporting, putting the plan on screen or in the log."""
         global _REPORTING  # noqa: PLW0603 - one report per console
         self._started = time.perf_counter()
+        if self._adapter is not None:
+            self._store_before = self._adapter.stats()
         stack = ExitStack()
         try:
             if self._live is not None:
@@ -294,18 +307,31 @@ class Progress:
         return draw(self.root, self.state)
 
     def summary(self) -> str:
-        """One line describing what the collection did.
+        """One line describing what the collection did, and what it cost to keep.
 
         Carries the cached count because those per-step records sit at `DEBUG` — this
         is where an `INFO` reader learns what the run skipped.
+
+        It also carries the store's size, because nothing else does. A store keeps
+        everything collected into it and lives in a cache directory nobody opens, so
+        the first sign of it is a full disk with nothing to blame. The delta is the
+        part that assigns blame: it says what *this* run added, which is what connects
+        a size to the edit that caused it.
         """
         counts = self._counts(self.state)
         elapsed = time.perf_counter() - self._started if self._started else 0.0
-        return (
+        line = (
             f"Collected {len(self.steps)} steps ("
             f"{counts[StepStatus.DONE]} ran, "
             f"{counts[StepStatus.CACHED]} cached) in {elapsed:.3f}s"
         )
+        if self._adapter is None:
+            return line
+
+        # The store says this part itself, because what is worth saying about it
+        # depends on the backend — `DuckDBStoreStats` distinguishes bytes in memory
+        # from bytes on a disk, and another store will have its own qualification.
+        return f"{line}. {self._adapter.stats().describe(since=self._store_before)}"
 
     # -- rendering ------------------------------------------------------------------
 
@@ -404,7 +430,12 @@ def _legend(states: Iterable[StepState]) -> Text:
     return legend
 
 
-def report(root: Step, steps: Sequence[Step], interactive: bool | None) -> Progress:
+def report(
+    root: Step,
+    steps: Sequence[Step],
+    interactive: bool | None,
+    adapter: Adapter | None = None,
+) -> Progress:
     """Build the reporter for collecting `root`.
 
     Args:
@@ -414,6 +445,8 @@ def report(root: Step, steps: Sequence[Step], interactive: bool | None) -> Progr
             `None` — the default — takes a terminal or a notebook as a yes, and
             anything else as a no. How tall the plan is doesn't enter into it: one too
             tall to show is windowed, not abandoned.
+        adapter: Where the collection stores what it computes, so the summary can
+            report the store's size and what this run added to it.
     """
     if interactive is None:
         live = mlog.console.is_terminal or mlog.console.is_jupyter
@@ -422,4 +455,4 @@ def report(root: Step, steps: Sequence[Step], interactive: bool | None) -> Progr
     # Rich allows one live display per console, so an inner collection goes undrawn
     # whatever it asked for. It still logs, tree and all.
     live = live and not _REPORTING
-    return Progress(root, steps, live=live, nested=_REPORTING)
+    return Progress(root, steps, live=live, nested=_REPORTING, adapter=adapter)

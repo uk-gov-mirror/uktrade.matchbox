@@ -28,10 +28,82 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 
 import polars as pl
+from pydantic import BaseModel, ConfigDict, Field
 
 from matchlab.core.eval import Judgement
 
 Fingerprint = bytes
+
+
+class StoreStats(BaseModel):
+    """What a store holds, and what it costs.
+
+    A store keeps everything collected into it, so it grows with every plan and every
+    edit to one. Adapters subclass this to report metrics that are relevant to them.
+
+    Attributes:
+        location: Where the store is, as a reader would name it — a path, a URI,
+            `":memory:"`. Always present, because a store you cannot point at is one
+            you cannot go and delete.
+        bytes: The store's size. For anything file-backed that is a **high-water
+            mark**: a store that briefly held 4 GB reports 4 GB after the rows are
+            gone, because deleting inside a database file does not return space to the
+            OS. That is the right number for a disk filling up, and the wrong one for
+            "how much data do I have".
+        artifacts: How many artifacts of each step kind are stored.
+        labels: How many published labels point into the store.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    location: str
+    bytes: int
+    artifacts: dict[str, int] = Field(default_factory=dict)
+    labels: int = 0
+
+    @property
+    def size(self) -> str:
+        """This store's size, as a phrase.
+
+        A hook, because a bare figure can mislead: bytes held in memory and bytes
+        written to a disk are not the same claim, and only the backend knows which it
+        just reported.
+        """
+        return format_bytes(self.bytes)
+
+    def describe(self, since: StoreStats | None = None) -> str:
+        """One clause saying what the store costs, for a collect to print.
+
+        Args:
+            since: An earlier reading, so the growth between them can be attributed to
+                whatever happened in between. Without it the figure is the store's size
+                and nothing more, which names no cause.
+        """
+        count = sum(self.artifacts.values())
+        growth = (
+            f" ({format_bytes(self.bytes - since.bytes, signed=True)})"
+            if since is not None
+            else ""
+        )
+        return f"Store {self.size}{growth}, {count} artifact{'' if count == 1 else 's'}"
+
+
+def format_bytes(count: int, *, signed: bool = False) -> str:
+    """Render a byte count the way someone reading a disk would.
+
+    Binary units, because that is what a file browser and `du -h` report, and a size
+    that disagrees with the one the user can check is worse than no size at all.
+    """
+    sign = "+" if signed and count >= 0 else "-" if count < 0 else ""
+    size = float(abs(count))
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            # Whole bytes never want a decimal point; larger units always do, so a
+            # store that grew stays visibly distinct from one that didn't.
+            precision = 0 if unit == "B" else 1
+            return f"{sign}{size:.{precision}f} {unit}"
+        size /= 1024
+    raise AssertionError("unreachable: the loop returns at TB")  # pragma: no cover
 
 
 class Adapter(ABC):
@@ -233,6 +305,23 @@ class Adapter(ABC):
 
         Returns `SCHEMA_EVAL_SAMPLES` rows `(root, leaf, key, source)` for the sampled
         roots.
+        """
+        ...
+
+    # -- introspection ----------------------------------------------------------------
+
+    @abstractmethod
+    def stats(self) -> StoreStats:
+        """Report the store's size and contents.
+
+        Abstract rather than an optional hook like `close`, because there is no honest
+        default. A store that reported zero would be wrong in exactly the place a user
+        is being asked to trust a number, and a store that cannot say how much room it
+        is taking is not one to hand a growing cache to.
+
+        Called on every collect, so it must be cheap. It may also settle pending writes
+        in order to report a size that has stopped moving — `DuckDBAdapter` checkpoints
+        — so this is not guaranteed to be a pure read.
         """
         ...
 

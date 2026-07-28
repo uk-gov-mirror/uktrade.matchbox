@@ -14,7 +14,7 @@ from pathlib import Path
 import duckdb
 import polars as pl
 
-from matchlab.adapters.base import Adapter, Fingerprint
+from matchlab.adapters.base import Adapter, Fingerprint, StoreStats
 from matchlab.core.arrow import (
     SCHEMA_CLUSTER_EXPANSION,
     SCHEMA_EVAL_SAMPLES,
@@ -69,6 +69,34 @@ CREATE TABLE IF NOT EXISTS expansion (
     root UBIGINT PRIMARY KEY, leaves UBIGINT[]
 );
 """
+
+
+class DuckDBStoreStats(StoreStats):
+    """What a DuckDB store holds, plus what only a file of blocks can report.
+
+    Attributes:
+        path: The database file, or `None` for `:memory:`. `location` already names the
+            store; this is the file itself, for code that wants to `stat` or delete it.
+        free_bytes: Space already freed inside the file. DuckDB reuses those blocks for
+            later writes but never returns them to the OS, so this is the gap between
+            what the store weighs and what it holds — and the only figure that says
+            what a reclaim could recover without first deciding what to delete. It has
+            no meaning for a backend that is not a file of reusable blocks, which is
+            why it lives here rather than on `StoreStats`.
+    """
+
+    path: Path | None = None
+    free_bytes: int = 0
+
+    @property
+    def size(self) -> str:
+        """Say when the bytes are resident rather than written.
+
+        `4.6 MB` reads as disk, and for `:memory:` it is not — the store vanishes with
+        the process. The distinction matters most in exactly the case a user is least
+        likely to be thinking about it.
+        """
+        return super().size if self.path is not None else f"{super().size} in memory"
 
 
 def _mint_cluster_id(leaves: list[int]) -> int:
@@ -172,6 +200,69 @@ class DuckDBAdapter(Adapter):
 
     def has(self, fp: Fingerprint) -> bool:  # noqa: D102
         return self._kind(fp) is not None
+
+    # -- introspection ----------------------------------------------------------------
+
+    def stats(self) -> DuckDBStoreStats:
+        """Report the store's size and contents.
+
+        **Checkpoints a file store before measuring it**, which makes this the one
+        method here that writes without being asked to. Without it the figure is not
+        merely imprecise, it is the wrong order of magnitude: recent writes sit in the
+        write-ahead log as a compact journal, and settling them into 256 KB blocks can
+        turn 21 KB of log into 5.5 MB of file. Measured on `examples/companies` — 33 KB
+        reported against a store that became 5.5 MB the moment it was closed. Reporting
+        a size that a user's next `du` contradicts by 170x is worse than reporting none.
+
+        DuckDB's own block count is no help before that point: it reads zero until a
+        checkpoint has happened. Afterwards the two agree to within the file header, so
+        `stat` is what is used — it counts the `.wal` sibling too, and it is the number
+        a user can actually check.
+
+        The checkpoint is cheap because DuckDB has usually already done most of it:
+        1.4 ms after writing 10M rows, 0.08 ms when there is nothing pending.
+
+        `free_blocks` still comes from DuckDB, because nothing outside the file can see
+        how much of it is reusable. So does an in-memory store's size, which allocates
+        no blocks and has no file to measure.
+        """
+        if self.path == ":memory:":
+            # `sum` over an empty table is NULL, so an untouched store needs the `or 0`
+            # as much as a missing row does.
+            resident = self.conn.execute(
+                "SELECT sum(memory_usage_bytes) FROM duckdb_memory()"
+            ).fetchone()
+            size = (resident[0] if resident else 0) or 0
+            free, path = 0, None
+        else:
+            self.conn.execute("CHECKPOINT")
+            blocks = self.conn.execute(
+                "SELECT block_size, free_blocks FROM pragma_database_size()"
+            ).fetchone()
+            free = blocks[0] * blocks[1] if blocks else 0
+            # Resolved because `self.path` is the constructor's argument verbatim: a
+            # store opened as "./run.duckdb" would otherwise report itself against a
+            # working directory that has since moved on.
+            path = Path(self.path).resolve()
+            size = sum(
+                candidate.stat().st_size
+                for candidate in (path, path.with_name(f"{path.name}.wal"))
+                if candidate.exists()
+            )
+
+        labelled = self.conn.execute("SELECT count(*) FROM labels").fetchone()
+        return DuckDBStoreStats(
+            location=self.path,
+            path=path,
+            bytes=int(size),
+            artifacts=dict(
+                self.conn.execute(
+                    "SELECT kind, count(*) FROM artifacts GROUP BY kind"
+                ).fetchall()
+            ),
+            labels=labelled[0] if labelled else 0,
+            free_bytes=free,
+        )
 
     # -- sources ----------------------------------------------------------------------
 

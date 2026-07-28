@@ -10,7 +10,12 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from matchlab.adapters.duckdb import DuckDBAdapter
+from matchlab.adapters import (
+    DuckDBAdapter,
+    DuckDBStoreStats,
+    StoreStats,
+    format_bytes,
+)
 from matchlab.core.eval import Judgement, precision_recall
 from matchlab.core.exceptions import SchemaMismatch
 
@@ -28,6 +33,7 @@ FP_SRC = b"\x01" * 32
 FP_MODEL = b"\x02" * 32
 FP_RESOLVER = b"\x03" * 32
 FP_RESOLVER_B = b"\x0c" * 32
+FP_VIEW = b"\x04" * 32
 
 
 def _extract() -> pl.DataFrame:
@@ -109,6 +115,115 @@ def test_resolver_round_trip(adapter: DuckDBAdapter) -> None:
     adapter.store_resolver(FP_RESOLVER, _resolution())
     out = adapter.read_resolver(FP_RESOLVER).sort("leaf")
     assert out.equals(_resolution().sort("leaf"))
+
+
+# -- introspection --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("count", "signed", "expected"),
+    [
+        (0, False, "0 B"),
+        (0, True, "+0 B"),
+        (512, False, "512 B"),
+        (1024, False, "1.0 KB"),
+        (1536, True, "+1.5 KB"),
+        (5 * 1024**3, False, "5.0 GB"),
+        (-2048, True, "-2.0 KB"),  # a store only shrinks if something rewrites it
+    ],
+)
+def test_byte_formatting(count: int, signed: bool, expected: str) -> None:
+    assert format_bytes(count, signed=signed) == expected
+
+
+def test_stats_describe_themselves() -> None:
+    stats = StoreStats(location="somewhere", bytes=2048, artifacts={"view": 3})
+
+    assert stats.describe() == "Store 2.0 KB, 3 artifacts"
+    assert (
+        stats.describe(since=StoreStats(location="somewhere", bytes=1024))
+        == "Store 2.0 KB (+1.0 KB), 3 artifacts"
+    )
+
+
+def test_an_empty_store_describes_itself_without_a_plural() -> None:
+    one = StoreStats(location="x", bytes=0, artifacts={"source": 1})
+
+    assert StoreStats(location="x", bytes=0).describe() == "Store 0 B, 0 artifacts"
+    assert one.describe() == "Store 0 B, 1 artifact"
+
+
+def test_a_duckdb_store_says_when_its_bytes_are_only_resident() -> None:
+    """The subclass hook: `4.6 MB` reads as disk, and for `:memory:` it is not."""
+    resident = DuckDBStoreStats(location=":memory:", bytes=4096)
+    on_disk = DuckDBStoreStats(location="/s.duckdb", bytes=4096, path=Path("/s.duckdb"))
+
+    assert resident.describe() == "Store 4.0 KB in memory, 0 artifacts"
+    assert on_disk.describe() == "Store 4.0 KB, 0 artifacts"
+
+
+def test_stats_counts_what_is_stored(adapter: DuckDBAdapter) -> None:
+    assert adapter.stats().artifacts == {}
+
+    adapter.store_source(FP_SRC, "key", _extract(), _leaves())
+    adapter.store_model(FP_MODEL, _edges())
+    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.publish("production", FP_RESOLVER)
+
+    stats = adapter.stats()
+    assert stats.artifacts == {"source": 1, "model": 1, "resolver": 1}
+    assert stats.labels == 1
+
+
+def test_an_in_memory_store_reports_a_real_size(adapter: DuckDBAdapter) -> None:
+    """The regression guard for the in-memory branch.
+
+    An in-memory store allocates no blocks, so anything reading DuckDB's block count
+    reports `0 B` — for every test in this suite and every `DuckDBAdapter(":memory:")`
+    a user writes. It has no file either, so there is nothing to `stat`.
+    """
+    adapter.store_source(FP_SRC, "key", _extract(), _leaves())
+
+    stats = adapter.stats()
+
+    assert stats.path is None
+    assert stats.bytes > 0
+    assert stats.free_bytes == 0
+
+
+def test_stats_size_matches_what_is_on_disk(tmp_path: Path) -> None:
+    """The figure has to survive the user checking it with `du`.
+
+    Taken while the connection is open, which is when a collect reports: writes sit in
+    the write-ahead log until they are settled into blocks, and a store measured before
+    that reads orders of magnitude low.
+    """
+    db = tmp_path / "store.duckdb"
+    store = DuckDBAdapter(db)
+    try:
+        store.store_resolver(FP_RESOLVER, _resolution())
+        stats = store.stats()
+        on_disk = sum(f.stat().st_size for f in tmp_path.iterdir())
+
+        assert stats.path == db.resolve()
+        assert stats.bytes == on_disk
+    finally:
+        store.close()
+
+    # And it does not move once the store is closed and reopened.
+    assert sum(f.stat().st_size for f in tmp_path.iterdir()) == stats.bytes
+
+
+def test_stats_size_grows_with_what_is_stored(tmp_path: Path) -> None:
+    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    try:
+        empty = store.stats().bytes
+        store.store_view(
+            FP_VIEW, pl.DataFrame({"id": range(50_000), "name": ["x"] * 50_000})
+        )
+        assert store.stats().bytes > empty
+    finally:
+        store.close()
 
 
 # -- identifiers ----------------------------------------------------------------------

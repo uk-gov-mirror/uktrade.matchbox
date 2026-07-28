@@ -17,6 +17,7 @@ from __future__ import annotations
 import io
 import logging
 import re
+from pathlib import Path
 from typing import ClassVar
 
 import polars as pl
@@ -27,7 +28,13 @@ from rich.live import Live
 
 from matchlab import lineage
 from matchlab import progress as progress_module
-from matchlab.adapters import Adapter, DuckDBAdapter, Fingerprint
+from matchlab.adapters import (
+    Adapter,
+    DuckDBAdapter,
+    DuckDBStoreStats,
+    Fingerprint,
+    StoreStats,
+)
 from matchlab.core import logging as mlog
 from matchlab.lineage import StepState, StepStatus, draw
 from matchlab.progress import Progress, report
@@ -216,6 +223,101 @@ def test_the_summary_carries_the_counts_a_debug_reader_would_have_seen(
 
     assert "0 ran" in summary
     assert "3 cached" in summary
+
+
+# -- what the summary says about the store -------------------------------------------
+
+
+def _summary_of(caplog: pytest.LogCaptureFixture) -> str:
+    """The last summary line `collect` logged."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("Collected")
+    ][-1]
+
+
+def test_the_summary_reports_the_store_size(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Nothing else tells a user what the store costs, so the end of a run does.
+
+    A file store, because that is the one that outlives the process and fills a disk.
+    """
+    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    apex, _source, _view = _plan()
+
+    with caplog.at_level(logging.INFO, logger="matchlab"):
+        apex.collect(adapter=store, interactive=False)
+    summary = _summary_of(caplog)
+    store.close()
+
+    assert re.search(
+        r"Store [\d.]+ [KMGT]?B \(\+[\d.]+ [KMGT]?B\), 3 artifacts", summary
+    )
+
+
+def test_a_collect_that_stored_nothing_reports_no_growth(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The delta is what attributes growth to the run that caused it.
+
+    A fully cached collect wrote nothing, and has to say so — otherwise the number is
+    just the store's size again and names nothing.
+    """
+    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    _plan()[0].collect(adapter=store, interactive=False)
+    apex, _source, _view = _plan()
+
+    with caplog.at_level(logging.INFO, logger="matchlab"):
+        apex.collect(adapter=store, interactive=False)
+    summary = _summary_of(caplog)
+    store.close()
+
+    assert "3 cached" in summary
+    assert "(+0 B)" in summary
+
+
+def test_the_summary_omits_the_store_when_there_is_no_adapter(
+    store: DuckDBAdapter,
+) -> None:
+    """`Progress` is constructible without one, and then simply says less."""
+    apex, _source, _view = _plan()
+
+    summary = _run(apex, store).summary()
+
+    assert "Collected 3 steps" in summary
+    assert "Store" not in summary
+
+
+def test_the_store_describes_itself(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The summary interpolates the store's own words rather than formatting them.
+
+    What is worth saying about a store depends on the backend, so the clause comes from
+    the stats object and not from the reporter. Checked by having one say something no
+    real adapter would.
+    """
+
+    class Chatty(DuckDBStoreStats):
+        def describe(self, since: StoreStats | None = None) -> str:
+            return "a store of unusual size"
+
+    def chatty_stats(self: DuckDBAdapter) -> Chatty:
+        return Chatty(location=self.path, bytes=0)
+
+    monkeypatch.setattr(DuckDBAdapter, "stats", chatty_stats)
+    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    apex, _source, _view = _plan()
+
+    with caplog.at_level(logging.INFO, logger="matchlab"):
+        apex.collect(adapter=store, interactive=False)
+    store.close()
+
+    assert _summary_of(caplog).endswith(". a store of unusual size")
 
 
 # -- the log channel -----------------------------------------------------------------

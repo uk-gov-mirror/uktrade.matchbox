@@ -320,8 +320,14 @@ INFO  [step 4] Round 1: Found 2 matches
 INFO  [step 4] Ran in 0.515s
 INFO  [step 5] Ran in 0.284s
 INFO  [step 6] Ran in 0.104s
-INFO  Collected 7 steps (7 ran, 0 cached) in 1.402s
+INFO  Collected 7 steps (7 ran, 0 cached) in 1.402s. Store 3.0 MB (+3.0 MB), 7 artifacts
 ```
+
+The summary also says what the store now costs, and what this run added to it. A store
+keeps everything you collect into it, so editing a cleaning expression and re-collecting
+leaves the old artifacts behind — the `(+3.0 MB)` is what tells you which edit did that,
+while it is still a few megabytes rather than a full disk. A fully cached re-run reads
+`(+0 B)`. See [Reclaiming storage](#reclaiming-storage).
 
 Work done is `INFO`; skipping — cached is `DEBUG`, and the closing summary
 totals it so an `INFO` reader still sees what the run avoided. Anything a step logs
@@ -435,6 +441,27 @@ never removes an artifact on its own initiative. That is deliberate: an artifact
 has nothing to do with whether your program still holds the variable that produced it,
 and the next process to rebuild the same plan wants a cache hit rather than a rerun.
 
+The cost of that is real, so every collect reports it — the `Store 3.0 MB (+3.0 MB),
+7 artifacts` clause above. You can also ask directly:
+
+```python
+from matchlab import default_adapter
+
+stats = default_adapter().stats()
+print(stats.location)  # where the default store actually is
+print(stats.bytes)  # what it costs, in bytes
+print(stats.artifacts)  # {'source': 8, 'view': 40, 'model': 32, 'resolver': 24}
+print(stats.describe())  # 'Store 1.2 GB, 104 artifacts'
+```
+
+Watch the artifact count rather than the size to see this happen: edit a cleaning
+expression, re-collect, and the count grows while the plan stays the same size. The old
+artifacts are still there, and nothing will remove them.
+
+Each adapter reports what only it can measure, so a `DuckDBAdapter` hands back a
+`DuckDBStoreStats` — with a `path` you can pass to `unlink()`, and a `free_bytes` for
+space already freed inside the file.
+
 So reclaiming is a file operation:
 
 ```python
@@ -443,9 +470,10 @@ from pathlib import Path
 Path("./run.duckdb").unlink()  # start again from cold
 ```
 
-The default store lives in your user cache directory — `default_adapter()` will tell you
-where — and is safe to delete at any time. You lose cache hits, not results you can't
-rebuild, provided the warehouse data hasn't moved.
+The default store lives in your user cache directory —
+`default_adapter().stats().location` will tell you exactly where — and is safe to delete
+at any time. You lose cache hits, not
+results you can't rebuild, provided the warehouse data hasn't moved.
 
 !!! warning "DuckDB files do not shrink"
     Deleting rows or dropping tables inside a DuckDB file does **not** return space to
