@@ -12,7 +12,6 @@ import numpy as np
 import polars as pl
 import pyarrow as pa
 from faker import Faker
-from pyarrow import compute as pc
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import create_engine
 
@@ -723,30 +722,6 @@ class ModelTestkit(BaseModel):
     scores: pl.DataFrame = Field(frozen=True)
 
     _entities: tuple[ClusterEntity, ...]
-    _query_lookup: pa.Table
-
-    @property
-    def data(self) -> pa.Table:
-        """Return a PyArrow table in the same format as matchlab queries."""
-        if self.model.model_type == ModelType.DEDUPER:
-            data = self.left_data
-        else:
-            data = pa.concat_tables(
-                [self.left_data, self.right_data], promote_options="default"
-            )
-
-        indices = pc.index_in(data["id"], self._query_lookup["id"])
-        indices = indices.combine_chunks()
-        replacements = pc.take(self._query_lookup["new_id"], indices).combine_chunks()
-
-        new_ids = pc.replace_with_mask(
-            data["id"],
-            pc.is_valid(indices),
-            replacements,
-        )
-
-        id_index = data.schema.get_field_index("id")
-        return data.set_column(id_index, "id", new_ids)
 
     @property
     def entities(self) -> tuple[ClusterEntity, ...]:
@@ -754,12 +729,11 @@ class ModelTestkit(BaseModel):
         return self._entities
 
     @model_validator(mode="after")
-    def init_query_lookup(self) -> "ModelTestkit":
-        """Initialise query lookup and derived entities using all model edges."""
+    def init_entities(self) -> "ModelTestkit":
+        """Initialise derived entities using all model edges."""
         right_clusters = self.right_clusters.values() if self.right_clusters else []
-        input_results = set(self.left_clusters.values()) | set(right_clusters)
 
-        entities: tuple[ClusterEntity, ...] = scores_to_results_entities(
+        self._entities = scores_to_results_entities(
             scores=self.scores,
             left_clusters=tuple(self.left_clusters.values()),
             right_clusters=tuple(right_clusters)
@@ -767,23 +741,6 @@ class ModelTestkit(BaseModel):
             else None,
             threshold=0,
         )
-
-        id_mapping = {
-            original.id: entity.id
-            for original in input_results
-            for entity in set(entities)
-            if original in entity
-        }
-
-        ids, new_ids = zip(*id_mapping.items(), strict=True) if id_mapping else ([], [])
-
-        self._query_lookup = pa.table(
-            {
-                "id": pa.array(ids, type=pa.int64()),
-                "new_id": pa.array(new_ids, type=pa.int64()),
-            }
-        )
-        self._entities = entities
 
         return self
 

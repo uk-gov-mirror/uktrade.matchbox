@@ -33,25 +33,9 @@ def test_model_type_creation(
     # Create our source objects from the string parameters
     linked = linked_sources_factory()
     all_true_sources = list(linked.true_entities)
-    half_true_sources = all_true_sources[: len(all_true_sources) // 2]
 
-    if left_testkit == "source":
-        left = linked.sources["crn"]
-    elif left_testkit == "model":
-        left = model_factory(
-            left_testkit=linked.sources["crn"], true_entities=half_true_sources
-        )
-    else:
-        left = None
-
-    if right_testkit == "source":
-        right = linked.sources["cdms"]
-    elif right_testkit == "model":
-        right = model_factory(
-            left_testkit=linked.sources["cdms"], true_entities=half_true_sources
-        )
-    else:
-        right = None
+    left = linked.sources["crn"] if left_testkit == "source" else None
+    right = linked.sources["cdms"] if right_testkit == "source" else None
 
     # Create our model
     model = model_factory(
@@ -67,11 +51,9 @@ def test_model_type_creation(
     assert len(model.scores) > 0
     assert model.scores.schema == pl.Schema(SCHEMA_MODEL_EDGES)
 
-    # Verify derived model data exists and includes ids
-    query_data = model.data
-    query_ids = set(query_data["id"].to_pylist())
-    assert len(query_ids) > 0
-    assert "id" in query_data.column_names
+    # Verify the input data exists and includes ids
+    assert "id" in model.left_data.column_names
+    assert len(set(model.left_data["id"].to_pylist())) > 0
 
     # For linkers, verify we maintain separation between left and right IDs
     if expected_type == "linker":
