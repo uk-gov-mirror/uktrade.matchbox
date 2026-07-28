@@ -124,6 +124,17 @@ New storage backends subclass [`Adapter`](api/adapters.md). Beyond the read and 
 methods, `stats()` has to answer for the store's size and contents — every collect
 reports it, and a store nobody can measure is one that fills a disk quietly.
 
+`trim()` is the other half, and the one to be careful with, since it deletes. Three
+rules it has to hold to:
+
+* **Keep what the caller named, and never work out the rest for yourself.** 
+* **Keep every published label, listed or not**, along with whatever its resolution
+  needs to stay readable — and never touch stored judgements, which are the one thing in
+  a store that cannot be recomputed.
+* **Report what you actually reclaimed**, measured. Deleting and reclaiming are not the
+  same number in every backend.
+
+
 ### Git
 
 We commit as frequently as possible. We keep our commits as atomic as possible. We never

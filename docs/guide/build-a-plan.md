@@ -462,7 +462,44 @@ Each adapter reports what only it can measure, so a `DuckDBAdapter` hands back a
 `DuckDBStoreStats` — with a `path` you can pass to `unlink()`, and a `free_bytes` for
 space already freed inside the file.
 
-So reclaiming is a file operation:
+### Trimming
+
+`trim()` keeps what you name and deletes the rest:
+
+```python
+entities = build_plan().collect()
+
+result = default_adapter().trim(keep=entities.fingerprints())
+print(result.describe())
+# 'Removed 80 artifacts, kept 24, reclaimed 416.2 MB'
+```
+
+`plan.fingerprints()` names every artifact a plan is made of — its own and its inputs'.
+Which artifacts those are is the plan's business, not the store's, so the plan is what
+answers. `keep` also takes the name of a published label, which keeps that resolution
+and the sources it reads through:
+
+```python
+default_adapter().trim(keep=[*entities.fingerprints(), "production"])
+```
+
+**Published labels are kept whether or not you list them**, because publishing is the
+strongest way this library has of saying "keep this", and losing one to a forgotten
+argument would be indefensible. Trimming with nothing to keep and nothing published
+raises rather than emptying the store.
+
+Nothing is inferred about what you are still using. matchlab does not watch which
+objects your program is holding and treat the rest as rubbish — a store outlives the
+process that wrote it, so what some interpreter happens to have in scope says nothing
+about what is worth keeping. You say what to keep.
+
+Trimming rewrites the store, which reopens its connection. Any session setting applied
+through `adapter.conn` — see [Keeping memory bounded](#keeping-memory-bounded) — has to
+be applied again afterwards.
+
+### Starting from cold
+
+Deleting the file is still the way to throw everything away:
 
 ```python
 from pathlib import Path
@@ -486,10 +523,15 @@ results you can't rebuild, provided the warehouse data hasn't moved.
     after DROP + CHECKPOINT:   149.7 MB
     ```
 
-    This is why matchlab has no "reclaim some of it" operation: deleting artifacts
-    would buy reuse headroom inside the file while your disk usage stayed exactly the
-    same. If you want the space back, delete the file. If you want to keep some of it,
-    collect what you want to keep into a fresh store and delete the old one.
+    This is why `trim()` **rewrites** the store rather than deleting inside it. Purging
+    artifacts alone would buy reuse headroom while your disk usage stayed exactly the
+    same — on a real 575 MB store, deleting 77% of its artifacts freed nothing at all.
+    Copying what survives into a fresh file and swapping it in recovered 437 MB of that
+    store, in half a second. It is the manual "collect what you want into a new store
+    and delete the old one", done for you and without the re-collect.
+
+    A trim reports what it actually recovered, measured before and after — never what
+    it deleted. Those are different numbers, and only one of them is on your disk.
 
 ### Keeping memory bounded
 

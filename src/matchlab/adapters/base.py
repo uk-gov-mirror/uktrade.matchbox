@@ -19,13 +19,15 @@ Plus evaluation storage (judgements + cluster expansion), publication (`publish`
 a label at a resolution) and `close`.
 
 **Nothing here deletes an artifact on the store's own initiative.** A store keeps what
-it is given until the owner disposes of it — see the guide's "Reclaiming storage".
+it is given until the owner disposes of it, which is what `trim` is: it deletes only
+what the caller has said it may, and never a published resolution. See the guide's
+"Reclaiming storage".
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
@@ -86,6 +88,36 @@ class StoreStats(BaseModel):
             else ""
         )
         return f"Store {self.size}{growth}, {count} artifact{'' if count == 1 else 's'}"
+
+
+class TrimResult(BaseModel):
+    """What a trim removed, and what that actually recovered.
+
+    Adapters subclass this where they have more to say.
+
+    Attributes:
+        removed: How many artifacts were deleted.
+        kept: How many survived — the ones named, the ones their lineage needed, and
+            everything published.
+        reclaimed: Bytes genuinely returned. **Measured** as the store's size before
+            minus after, not totted up from what was deleted. The two are not the same
+            number: deleting inside a database file usually frees nothing at all until
+            the file is rewritten, and a reclaim that reported the bytes it *deleted*
+            would claim to have freed space while the disk sat unchanged.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    removed: int
+    kept: int
+    reclaimed: int
+
+    def describe(self) -> str:
+        """One line saying what happened, for a caller to print."""
+        return (
+            f"Removed {self.removed} artifact{'' if self.removed == 1 else 's'}, "
+            f"kept {self.kept}, reclaimed {format_bytes(self.reclaimed)}"
+        )
 
 
 def format_bytes(count: int, *, signed: bool = False) -> str:
@@ -322,6 +354,52 @@ class Adapter(ABC):
         Called on every collect, so it must be cheap. It may also settle pending writes
         in order to report a size that has stopped moving — `DuckDBAdapter` checkpoints
         — so this is not guaranteed to be a pure read.
+        """
+        ...
+
+    # -- maintenance ------------------------------------------------------------------
+
+    @abstractmethod
+    def trim(self, keep: Iterable[Fingerprint | str] = ()) -> TrimResult:
+        """Delete every artifact except the ones named, and reclaim what that frees.
+
+        **You say what to keep; nothing is inferred.** This is deliberately not the
+        `gc()` that used to live here. That one worked out what was still alive from
+        which Python objects happened to be reachable, so a fresh interpreter — where
+        nothing is reachable — considered the whole store garbage and duly emptied one
+        that had a published resolution in it. An artifact's worth has nothing to do
+        with whether some process is holding the variable that produced it. So the root
+        set arrives as an argument, from a caller who has just named it.
+
+        Both kinds of name are ones a store already understands. A plan is not: which
+        artifacts belong to one is the plan's business, and `Step.fingerprints()` is
+        where it answers. Storage should not have to learn to walk a graph in order to
+        know what it may delete.
+
+        **Published labels are kept whether or not they are named**, along with the
+        sources their resolutions need in order to stay readable. Publishing is the
+        strongest "keep this" the system has, and losing one because a caller forgot to
+        list it would be the old mistake in new clothes.
+
+        Implementations must:
+
+        * never touch stored judgements, which are human work and cannot be recomputed
+          from anything;
+        * report `reclaimed` as space genuinely returned, measured rather than assumed.
+          Deleting is not always the same as reclaiming, and a store that says it freed
+          something it did not is worse than one that frees nothing.
+
+        Args:
+            keep: What to preserve — a `Fingerprint`, or a `str` naming a published
+                label, which keeps that resolution and the sources it reads through.
+
+        Returns:
+            What was removed and what that recovered.
+
+        Raises:
+            ValueError: If this would empty the store — an empty `keep` with nothing
+                published. Deleting everything is deleting the file, and should not be
+                what an accidentally-empty list does.
         """
         ...
 

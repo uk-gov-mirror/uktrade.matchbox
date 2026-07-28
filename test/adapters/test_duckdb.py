@@ -1,7 +1,7 @@
 """Unit tests for the DuckDB storage adapter (Phase 1).
 
 The adapter is storage-only: these tests exercise round-trips, schema validation,
-garbage collection, on-disk persistence, and a real evaluation round-trip through
+introspection, trimming, on-disk persistence, and a real evaluation round-trip through
 `matchlab.core.eval.precision_recall`.
 """
 
@@ -226,6 +226,129 @@ def test_stats_size_grows_with_what_is_stored(tmp_path: Path) -> None:
         store.close()
 
 
+# -- trim -----------------------------------------------------------------------------
+
+
+def _labelled_store(store: DuckDBAdapter) -> None:
+    """A published resolution over one source, plus an unrelated model to throw away."""
+    store.store_source(FP_SRC, "key", _extract(), _leaves())
+    store.store_resolver(FP_RESOLVER, _resolution(), sources={"crn": FP_SRC})
+    store.store_model(FP_MODEL, _edges())
+    store.publish("entities", FP_RESOLVER)
+
+
+def test_trim_keeps_what_it_was_told_and_drops_the_rest(tmp_path: Path) -> None:
+    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    try:
+        store.store_source(FP_SRC, "key", _extract(), _leaves())
+        store.store_model(FP_MODEL, _edges())
+
+        result = store.trim(keep=[FP_SRC])
+
+        assert result.removed == 1
+        assert result.kept == 1
+        assert store.has(FP_SRC)
+        assert not store.has(FP_MODEL)
+        # The kept artifact is not merely listed — it still reads back.
+        assert store.read_source_extract(FP_SRC).height == _extract().height
+    finally:
+        store.close()
+
+
+def test_trim_actually_returns_space_to_the_disk(tmp_path: Path) -> None:
+    """The assertion the old `gc()` would have failed.
+
+    Purging alone frees nothing: DuckDB reuses freed blocks but never hands them back,
+    so the file stays at its high-water mark until it is rewritten.
+    """
+    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    try:
+        store.store_source(FP_SRC, "key", _extract(), _leaves())
+        store.store_view(
+            FP_VIEW, pl.DataFrame({"id": range(200_000), "name": ["padding"] * 200_000})
+        )
+        before = store.stats().bytes
+
+        result = store.trim(keep=[FP_SRC])
+
+        assert store.stats().bytes < before
+        assert result.reclaimed > 0
+    finally:
+        store.close()
+
+
+def test_trim_keeps_every_label_and_the_sources_it_reads_through(
+    tmp_path: Path,
+) -> None:
+    """A publication survives a trim that never mentioned it — and stays *usable*.
+
+    Keeping the label row alone is not enough. Reading a published resolution without a
+    plan goes through `resolution_sources` to each source's extract, so a label kept
+    without its sources resolves to a fingerprint whose data has gone, and fails with a
+    bare `KeyError` well away from the cause.
+    """
+    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    try:
+        _labelled_store(store)
+
+        result = store.trim(keep=[])  # names nothing at all
+
+        assert result.removed == 1  # the model, and only the model
+        assert store.labels() == ["entities"]
+        # Walk the whole label-only read path.
+        fp = store.find("entities")
+        assert fp == FP_RESOLVER
+        assert store.sample(fp, n=10).height > 0
+        assert store.resolution_sources(fp) == {"crn": FP_SRC}
+        assert store.read_source_extract(FP_SRC).height == _extract().height
+        assert store.source_key_field(FP_SRC) == "key"
+    finally:
+        store.close()
+
+
+def test_trim_never_deletes_judgements(tmp_path: Path) -> None:
+    """Human work, and the only thing in the store that cannot be recomputed."""
+    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    try:
+        _labelled_store(store)
+        store.store_judgement(Judgement(shown=[1, 2, 3, 4], endorsed=[[1, 2], [3, 4]]))
+
+        store.trim(keep=[])
+
+        judgements, expansion = store.read_eval_data()
+        assert judgements.height == 2
+        assert expansion.height > 0
+    finally:
+        store.close()
+
+
+def test_trimming_an_in_memory_store_does_not_empty_it(adapter: DuckDBAdapter) -> None:
+    """An in-memory store must not be rewritten.
+
+    Reopening `:memory:` hands back an empty database rather than a smaller one, so a
+    close-and-swap would destroy the store it was asked to tidy — and `:memory:` is what
+    the whole suite and both examples run on.
+    """
+    adapter.store_source(FP_SRC, "key", _extract(), _leaves())
+    adapter.store_model(FP_MODEL, _edges())
+
+    result = adapter.trim(keep=[FP_SRC])
+
+    assert result.removed == 1
+    assert adapter.has(FP_SRC)
+    assert adapter.read_source_extract(FP_SRC).height == _extract().height
+
+
+def test_trimming_with_nothing_to_keep_refuses(adapter: DuckDBAdapter) -> None:
+    """An accidentally-empty list should not be how a store gets emptied."""
+    adapter.store_source(FP_SRC, "key", _extract(), _leaves())
+
+    with pytest.raises(ValueError, match="would empty the store"):
+        adapter.trim(keep=[])
+
+    assert adapter.has(FP_SRC)
+
+
 # -- identifiers ----------------------------------------------------------------------
 
 
@@ -372,12 +495,20 @@ def test_persists_across_reopen(tmp_path: Path) -> None:
     db = tmp_path / "nested" / "store.duckdb"
     a = DuckDBAdapter(db)
     a.store_resolver(FP_RESOLVER, _resolution())
+    a.publish("entities", FP_RESOLVER)
+    a.store_judgement(Judgement(shown=[1, 2], endorsed=[[1, 2]]))
     a.close()
 
     b = DuckDBAdapter(db)
     try:
         assert b.has(FP_RESOLVER)
         assert b.read_resolver(FP_RESOLVER).height == _resolution().height
+        # Publications and judgements survive a reopen too. Artifacts are a cache and
+        # can be recomputed; these cannot, and `_open_schema` drops every table in the
+        # database when the schema version moves — so this is what would catch a bump
+        # taken without thinking about what else is in there.
+        assert b.labels() == ["entities"]
+        assert b.read_eval_data()[0].height == 1
     finally:
         b.close()
 

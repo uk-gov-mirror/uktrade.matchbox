@@ -248,6 +248,26 @@ class Step(ABC):
         """Render this step's sub-plan as a tree."""
         return lineage.draw(self)
 
+    def fingerprints(self) -> set[Fingerprint]:
+        """Address every artifact this plan is made of — its own and its inputs'.
+
+        Which artifacts belong to a plan is the plan's own business, so this is where
+        a store gets told: `adapter.trim(keep=plan.fingerprints())` hands storage a set
+        of addresses it already understands, rather than a graph it would have to learn
+        to walk.
+
+        Returns:
+            One fingerprint per step in `lineage()`. A set, because two steps in one
+            plan can address the same artifact — identical configuration over identical
+            inputs is the same bytes, and it is stored once.
+
+        Raises:
+            RuntimeError: If any step has not been collected. An uncollected plan names
+                no artifacts at all, so answering with a smaller set would quietly tell
+                a caller that less is worth keeping than they think.
+        """
+        return {step._collected()[1] for step in self.lineage()}
+
     # -- helpers for subclasses -------------------------------------------------------
 
     def _collected(self) -> tuple[Adapter, Fingerprint]:

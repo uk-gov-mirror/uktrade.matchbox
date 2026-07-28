@@ -586,6 +586,99 @@ def test_dropping_a_plan_leaves_its_artifacts_stored(
     assert adapter.has(fp)
 
 
+def test_fingerprints_name_every_artifact_a_plan_is_made_of(warehouse: Engine) -> None:
+    crn = _source(warehouse, "crn")
+    plan = _dedupe_crn(crn)
+    plan.collect()
+
+    assert plan.fingerprints() == {step._fp for step in plan.lineage()}
+
+
+def test_fingerprints_collapse_two_nodes_that_address_one_artifact(
+    warehouse: Engine,
+) -> None:
+    """Two distinct steps can be the same artifact — same config over same inputs.
+
+    A set is what makes that safe further down: a store told to keep one of them and
+    delete the other would delete the bytes both of them are.
+    """
+    crn = _source(warehouse, "crn")
+    cleaning = {"name": "crn_company"}
+    twins = [crn.view(cleaning=cleaning), crn.view(cleaning=cleaning)]
+    plan = (
+        twins[0]
+        .dedupe(model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]})
+        .resolve(
+            twins[1].dedupe(
+                model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
+            )
+        )
+    )
+    plan.collect()
+
+    assert twins[0] is not twins[1]
+    assert twins[0]._fp == twins[1]._fp
+    assert len(plan.fingerprints()) < len(plan.lineage())
+
+
+def test_fingerprints_refuse_an_uncollected_plan(warehouse: Engine) -> None:
+    """An uncollected plan names no artifacts, so it must not answer with a smaller set.
+
+    Silently returning what happens to be collected would tell a caller that less is
+    worth keeping than they think — and the caller here is about to delete the rest.
+    """
+    plan = _dedupe_crn(_source(warehouse, "crn"))
+
+    with pytest.raises(RuntimeError, match="has not been collected"):
+        plan.fingerprints()
+
+
+def test_trimming_to_a_plan_leaves_it_fully_cached(
+    warehouse: Engine, adapter: DuckDBAdapter
+) -> None:
+    """The property a trim has to have: it removes only what was superseded.
+
+    Editing a cleaning expression strands the whole subtree below it — that is what
+    fills a store. Trimming to the plan you kept should take exactly those, and leave a
+    store the same plan still hits cache on. If it took one artifact too many the next
+    collect quietly recomputes, and the trim has cost work rather than saved space.
+    """
+
+    def build(cleaning: str) -> Resolver:
+        return (
+            _source(warehouse, "crn")
+            .view(cleaning={"name": cleaning})
+            .dedupe(
+                model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
+            )
+            .resolve()
+        )
+
+    first = build("crn_company")
+    first.collect()
+    superseded = {step._fp for step in first.lineage()}
+
+    plan = build("upper(crn_company)")  # the edit
+    plan.collect()
+    live = {step._fp for step in plan.lineage()}
+
+    stranded = superseded - live
+    assert stranded, "the edit should have stranded something"
+
+    result = adapter.trim(keep=plan.fingerprints())
+
+    assert result.removed == len(stranded)
+    assert all(adapter.has(fp) for fp in live)
+    assert not any(adapter.has(fp) for fp in stranded)
+
+    # The real assertion: rebuild the same plan over the trimmed store and let it run.
+    # Nothing may execute — if the trim took one artifact too many, this raises.
+    rebuilt = build("upper(crn_company)")
+    for step in rebuilt.lineage():
+        _sabotage(step)
+    rebuilt.collect()
+
+
 # -- views ----------------------------------------------------------------------------
 
 
