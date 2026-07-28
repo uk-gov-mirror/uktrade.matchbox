@@ -10,17 +10,17 @@ of the step that consumes it. Positions also preserve structural sharing: a view
 feeding two models is one node referenced twice, where nesting each step's inputs
 inside it would have inlined the whole subtree twice over.
 
-**Edges live here, settings live in the config.** That split is the point of this
-module. A config is hashed into a fingerprint, so it must carry everything that
+**Edges live here, settings live in the spec.** That split is the point of this
+module. A spec is hashed into a fingerprint, so it must carry everything that
 changes the step's output and nothing else; a serialised plan must additionally carry
 the edges, which a fingerprint already covers by folding in its parents'. Putting both
-in one model meant either a config that lied about identity — a rename invalidating a
+in one model meant either a spec that lied about identity — a rename invalidating a
 subtree that produces identical bytes — or a document that could not be rebuilt.
 
 Edges are not the only thing that lands on this side of the split. A source's
 `LocationRef` says which location class to build and under what name, so that `load`
 can attach a client — and neither fact changes a byte the source produces, which is why
-a `SourceConfig` records nothing about where its rows came from.
+a `SourceSpec` records nothing about where its rows came from.
 
 **What a document cannot carry:**
 
@@ -45,17 +45,17 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from matchlab.core.config import (
-    ModelConfig,
-    ResolverConfig,
-    SourceConfig,
-    ViewConfig,
-)
 from matchlab.lineage import walk
 from matchlab.locations import build_location
 from matchlab.models import Model
 from matchlab.resolvers import Resolver
 from matchlab.sources import Source
+from matchlab.specs import (
+    ModelSpec,
+    ResolverSpec,
+    SourceSpec,
+    ViewSpec,
+)
 from matchlab.views import View
 
 if TYPE_CHECKING:
@@ -64,16 +64,16 @@ if TYPE_CHECKING:
     from matchlab.steps import Step
 
 StepKind = Literal["source", "view", "model", "resolver"]
-StepConfig = SourceConfig | ViewConfig | ModelConfig | ResolverConfig
+StepSpec = SourceSpec | ViewSpec | ModelSpec | ResolverSpec
 
-ConfigT = TypeVar("ConfigT", bound=BaseModel)
+SpecT = TypeVar("SpecT", bound=BaseModel)
 StepT = TypeVar("StepT", bound="Step")
 
-_CONFIG_TYPES: dict[str, type[BaseModel]] = {
-    "source": SourceConfig,
-    "view": ViewConfig,
-    "model": ModelConfig,
-    "resolver": ResolverConfig,
+_SPEC_TYPES: dict[str, type[BaseModel]] = {
+    "source": SourceSpec,
+    "view": ViewSpec,
+    "model": ModelSpec,
+    "resolver": ResolverSpec,
 }
 
 
@@ -91,12 +91,12 @@ class LocationRef(BaseModel):
 
 
 class StepNode(BaseModel):
-    """One step: what kind it is, how it is configured, and what it reads."""
+    """One step: what kind it is, what it specifies, and what it reads."""
 
     model_config = ConfigDict(frozen=True)
 
     kind: StepKind = Field(description="Which kind of step this is.")
-    config: StepConfig = Field(
+    spec: StepSpec = Field(
         description="This step's own settings — exactly what its fingerprint hashes."
     )
     inputs: tuple[int, ...] = Field(
@@ -111,7 +111,7 @@ class StepNode(BaseModel):
         default=None,
         description=(
             "For a source, how to rebuild the location it reads. Here rather than in "
-            "the config because it describes reconstruction rather than output — see "
+            "the spec because it describes reconstruction rather than output — see "
             "`LocationRef`. Every other kind of step leaves it unset."
         ),
     )
@@ -127,18 +127,18 @@ class StepNode(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _config_from_kind(cls, data: Any) -> Any:  # noqa: ANN401 - raw pydantic input
-        """Parse `config` as the type `kind` names, rather than guessing.
+    def _spec_from_kind(cls, data: Any) -> Any:  # noqa: ANN401 - raw pydantic input
+        """Parse `spec` as the type `kind` names, rather than guessing.
 
-        The four configs are structurally close enough that a plain union mis-assigns:
-        `ViewConfig` has no required fields, so an empty object matches it and several
+        The four specs are structurally close enough that a plain union mis-assigns:
+        `ViewSpec` has no required fields, so an empty object matches it and several
         others. `kind` is the discriminator the document already carries.
         """
         if not isinstance(data, dict):
             return data
-        kind, config = data.get("kind"), data.get("config")
-        if isinstance(config, dict) and kind in _CONFIG_TYPES:
-            return {**data, "config": _CONFIG_TYPES[kind].model_validate(config)}
+        kind, spec = data.get("kind"), data.get("spec")
+        if isinstance(spec, dict) and kind in _SPEC_TYPES:
+            return {**data, "spec": _SPEC_TYPES[kind].model_validate(spec)}
         return data
 
 
@@ -187,16 +187,16 @@ def dump(root: Step) -> PlanDocument:
 
 
 def _node(step: Step, inputs: tuple[int, ...]) -> StepNode:
-    """Describe one step, checking its config is the one its kind implies."""
-    config_type = _CONFIG_TYPES.get(step.kind)
-    if config_type is None or not isinstance(step.config, config_type):
+    """Describe one step, checking its spec is the one its kind implies."""
+    spec_type = _SPEC_TYPES.get(step.kind)
+    if spec_type is None or not isinstance(step.spec, spec_type):
         raise ValueError(
-            f"A {step.kind} step has no matching config type. A new kind of step "
-            "needs an entry in `_CONFIG_TYPES`."
+            f"A {step.kind} step has no matching spec type. A new kind of step "
+            "needs an entry in `_SPEC_TYPES`."
         )
     return StepNode(
         kind=cast(StepKind, step.kind),
-        config=cast(StepConfig, step.config),
+        spec=cast(StepSpec, step.spec),
         inputs=inputs,
         location=(
             LocationRef(
@@ -242,11 +242,11 @@ def _rebuild(
     """Rebuild one step from its node and its already-rebuilt inputs."""
     match node.kind:
         case "source":
-            config = _expect(node, position, SourceConfig)
+            spec = _expect(node, position, SourceSpec)
             reference = cast(LocationRef, node.location)
             if reference.name not in clients:
                 raise ValueError(
-                    f"Source '{config.name}' reads location '{reference.name}', which "
+                    f"Source '{spec.name}' reads location '{reference.name}', which "
                     f"has no client. Pass one in `clients`: "
                     f"{{'{reference.name}': engine}}."
                 )
@@ -256,13 +256,13 @@ def _rebuild(
                     name=reference.name,
                     client=clients[reference.name],
                 ),
-                name=config.name,
-                extract_transform=config.extract_transform,
-                key_field=config.key_field,
+                name=spec.name,
+                extract_transform=spec.extract_transform,
+                key_field=spec.key_field,
             )
 
         case "view":
-            config = _expect(node, position, ViewConfig)
+            spec = _expect(node, position, ViewSpec)
             sources = tuple(step for step in inputs if isinstance(step, Source))
             resolvers = [step for step in inputs if isinstance(step, Resolver)]
             if len(sources) + len(resolvers) != len(inputs) or len(resolvers) > 1:
@@ -273,12 +273,12 @@ def _rebuild(
             return View(
                 *sources,
                 resolver=resolvers[0] if resolvers else None,
-                cleaning=config.cleaning,
-                group=config.group,
+                cleaning=spec.cleaning,
+                group=spec.group,
             )
 
         case "model":
-            config = _expect(node, position, ModelConfig)
+            spec = _expect(node, position, ModelSpec)
             views = _all_of(node, position, inputs, View)
             if not 1 <= len(views) <= 2:
                 raise ValueError(
@@ -288,27 +288,27 @@ def _rebuild(
             return Model(
                 left=views[0],
                 right=views[1] if len(views) > 1 else None,
-                model_class=config.model_class,
-                model_settings=config.model_settings,
+                model_class=spec.model_class,
+                model_settings=spec.model_settings,
             )
 
         case "resolver":
-            config = _expect(node, position, ResolverConfig)
+            spec = _expect(node, position, ResolverSpec)
             return Resolver(
                 *_all_of(node, position, inputs, Model),
-                resolver_class=config.resolver_class,
-                resolver_settings=config.resolver_settings,
+                resolver_class=spec.resolver_class,
+                resolver_settings=spec.resolver_settings,
             )
 
 
-def _expect(node: StepNode, position: int, config_type: type[ConfigT]) -> ConfigT:
-    """Narrow a node's config to the type its kind implies."""
-    if not isinstance(node.config, config_type):
-        raise ValueError(  # pragma: no cover - the validator parses config by kind
+def _expect(node: StepNode, position: int, spec_type: type[SpecT]) -> SpecT:
+    """Narrow a node's spec to the type its kind implies."""
+    if not isinstance(node.spec, spec_type):
+        raise ValueError(  # pragma: no cover - the validator parses spec by kind
             f"Step {position} ({node.kind}) has a "
-            f"{type(node.config).__name__}, expected {config_type.__name__}."
+            f"{type(node.spec).__name__}, expected {spec_type.__name__}."
         )
-    return node.config
+    return node.spec
 
 
 def _all_of(

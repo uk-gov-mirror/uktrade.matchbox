@@ -7,9 +7,6 @@ import polars as pl
 from faker import Faker
 from pydantic import BaseModel, ConfigDict, Field
 
-from matchlab.core.config import (
-    ResolverType,
-)
 from matchlab.core.dsu import DisjointSet
 from matchlab.core.factories.entities import ClusterEntity, SourceEntity
 from matchlab.core.factories.models import ModelTestkit, model_factory
@@ -19,6 +16,7 @@ from matchlab.resolvers import (
     Resolver,
     ResolverMethod,
     ResolverSettings,
+    ResolverType,
     add_resolver_class,
 )
 from matchlab.resolvers.base import SCHEMA_CLUSTERS

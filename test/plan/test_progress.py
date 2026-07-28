@@ -41,8 +41,8 @@ from matchlab.progress import Progress, report
 from matchlab.steps import Step
 
 
-class _FakeConfig(BaseModel):
-    """Minimal config so the fake steps satisfy the Step contract."""
+class _FakeSpec(BaseModel):
+    """Minimal spec so the fake steps satisfy the Step contract."""
 
     name: str
 
@@ -66,8 +66,8 @@ class StoringStep(Step):
         return self.label
 
     @property
-    def config(self) -> BaseModel:
-        return _FakeConfig(name=self.label)
+    def spec(self) -> BaseModel:
+        return _FakeSpec(name=self.label)
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         self.executions += 1

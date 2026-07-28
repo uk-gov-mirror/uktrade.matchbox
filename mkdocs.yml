@@ -18,6 +18,7 @@ nav:
 - API reference:
   - Plan:
     - Steps: api/steps.md
+    - Specs: api/specs.md
     - Lineage: api/lineage.md
     - Progress: api/progress.md
     - Sources: api/sources.md
@@ -34,7 +35,6 @@ nav:
     - Metrics: api/eval-metrics.md
     - Interactive review: api/eval-tui.md
   - Core:
-    - Config: api/core/config.md
     - Schemas: api/core/schemas.md
     - Resolution: api/core/resolution.md
     - Exceptions: api/core/exceptions.md

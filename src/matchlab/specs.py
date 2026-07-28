@@ -1,26 +1,19 @@
-"""Configuration models — the serialisable description of a plan's steps.
+"""Step specs — what a fingerprint hashes.
 
-One model per step kind. A step's config is what its `_config_key` hashes, so the rule
-for what belongs here is exactly the fingerprint invariant: **a config must carry
-everything the step's output depends on, and nothing else.**
+One model per step kind, and `Step._spec_key` hashes it to address that step's artifact.
+So what belongs in a spec is decided entirely by the fingerprint invariant: **it must
+carry everything the step's output depends on, and nothing else.** Omit something that
+changes the output and `collect` hands back a stale artifact without re-running; include
+something that doesn't and the step re-runs for nothing, along with everything below it.
 
-That rule explains the one asymmetry. `SourceConfig` carries its own `name`, because a
-source's name prefixes every column it contributes and tags its rows in a resolution —
-rename it and the output changes. No other step's name reaches its own output, so no
-other config records one, its own or an input's. A setting that has to point at an
-input points at its **position** (`ComponentsSettings.thresholds`), which is identity
-rather than nomenclature: renaming a step moves no fingerprint anywhere.
+Two things that rules out. **Edges**, because `_fingerprint` already folds in the
+parents' fingerprints — describing an input here would record it twice, and a rename
+would then invalidate a subtree producing identical bytes. And **names**, with one
+exception: `SourceSpec.name` is in the output it prefixes. A setting that must point at
+an input points at its position instead (`ComponentsSettings.thresholds`).
 
-Configs describe **settings, not edges**. A config is a step's own configuration and
-never a description of its inputs — the plan's edges live on `Step.upstream`, and a
-step's fingerprint already folds in its parents'. Recording an input here would be
-recorded twice, and a rename would then invalidate a subtree that produces identical
-bytes.
-
-That is also why a config is *not* the serialisation format. Serialising a plan needs
-the edges; identifying a step must exclude them. `matchlab.document` keeps the two
-apart: `PlanDocument` carries the nodes and the edges between them, and each node's
-config stays exactly what the fingerprint hashes.
+A spec is therefore not the serialisation format — rebuilding a plan needs the edges
+that identifying a step must exclude. `matchlab.document` carries them alongside it.
 """
 
 import textwrap
@@ -41,14 +34,8 @@ class ModelType(StrEnum):
     DEDUPER = "deduper"
 
 
-class ResolverType(StrEnum):
-    """Enumeration of supported resolver methodology types."""
-
-    COMPONENTS = "components"
-
-
-class SourceConfig(BaseModel):
-    """Configuration of a source: what it extracts, and what keys it.
+class SourceSpec(BaseModel):
+    """Specification of a source: what it extracts, and what keys it.
 
     There is no separate list of indexed fields. The extract/transform is the single
     declaration of what a source *is* — every column it returns is part of the record,
@@ -64,7 +51,7 @@ class SourceConfig(BaseModel):
 
     name: str = Field(
         description=(
-            "The source's name within the plan. Part of the config because it is "
+            "The source's name within the plan. Part of the spec because it is "
             "part of the output: it prefixes every column this source contributes "
             "and tags its rows in a resolution."
         )
@@ -96,8 +83,8 @@ class SourceConfig(BaseModel):
     )
 
 
-class ViewConfig(BaseModel):
-    """Configuration of a view: the shape it gives the records a model matches over.
+class ViewSpec(BaseModel):
+    """Specification of a view: the shape it gives the records a model matches over.
 
     *Which* records it reads is not here — that is an edge, and edges live on
     `Step.upstream` and in `PlanDocument`. A view over one source and a view over
@@ -123,8 +110,8 @@ class ViewConfig(BaseModel):
     )
 
 
-class ModelConfig(BaseModel):
-    """Configuration of a deduper or linker."""
+class ModelSpec(BaseModel):
+    """Specification of a deduper or linker."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -137,8 +124,8 @@ class ModelConfig(BaseModel):
     )
 
 
-class ResolverConfig(BaseModel):
-    """Configuration of a resolver over one or more models."""
+class ResolverSpec(BaseModel):
+    """Specification of a resolver over one or more models."""
 
     model_config = ConfigDict(frozen=True)
 

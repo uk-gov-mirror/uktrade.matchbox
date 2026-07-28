@@ -15,9 +15,6 @@ from faker import Faker
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import create_engine
 
-from matchlab.core.config import (
-    ModelType,
-)
 from matchlab.core.dsu import DisjointSet
 from matchlab.core.factories.entities import (
     ClusterEntity,
@@ -37,6 +34,7 @@ from matchlab.models import add_model_class
 from matchlab.models.dedupers.base import Deduper, DeduperSettings
 from matchlab.models.linkers.base import Linker, LinkerSettings
 from matchlab.models.models import Model
+from matchlab.specs import ModelType
 from matchlab.views import View
 
 if TYPE_CHECKING:
@@ -813,7 +811,7 @@ def model_factory(
     n_true_entities = n_true_entities or 10
     dummy_true_entities = None
 
-    # ==== SourceConfig configuration ====
+    # ==== Source setup ====
     if left_testkit is not None:
         # Using provided sources
         left_data = left_testkit.data

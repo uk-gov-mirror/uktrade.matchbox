@@ -592,7 +592,7 @@ def test_fingerprints_name_every_artifact_a_plan_is_made_of(warehouse: Engine) -
 def test_fingerprints_collapse_two_nodes_that_address_one_artifact(
     warehouse: Engine,
 ) -> None:
-    """Two distinct steps can be the same artifact — same config over same inputs.
+    """Two distinct steps can be the same artifact — same spec over same inputs.
 
     A set is what makes that safe further down: a store told to keep one of them and
     delete the other would delete the bytes both of them are.
@@ -798,34 +798,34 @@ def test_group_without_cleaning_is_rejected(warehouse: Engine) -> None:
         crn.view(group=True)
 
 
-# -- configuration --------------------------------------------------------------------
+# -- specs ----------------------------------------------------------------------------
 
 
-def test_every_step_has_a_serialisable_config(warehouse: Engine) -> None:
+def test_every_step_has_a_serialisable_spec(warehouse: Engine) -> None:
     """Each step kind reports its settings through a model, and it round-trips JSON."""
     apex, _crn, _dh = _apex(warehouse)
     apex.collect()
 
     kinds = set()
     for step in apex.lineage():
-        dumped = step.config.model_dump(mode="json")
+        dumped = step.spec.model_dump(mode="json")
         assert json.loads(json.dumps(dumped)) == dumped
-        # The config is the fingerprint payload, so it must be stable.
-        assert step._config_key() == step._config_key()
+        # The spec is the fingerprint payload, so it must be stable.
+        assert step._spec_key() == step._spec_key()
         kinds.add(step.kind)
 
     assert kinds == {"source", "view", "model", "resolver"}
 
 
-def test_a_config_carries_no_upstream_settings(warehouse: Engine) -> None:
-    """Configs describe a step's own settings; edges live on `upstream`."""
+def test_a_spec_carries_no_upstream_settings(warehouse: Engine) -> None:
+    """Specs describe a step's own settings; edges live on `upstream`."""
     apex, crn, _dh = _apex(warehouse)
 
-    resolver_config = apex.config.model_dump(mode="json")
-    assert "extract_transform" not in json.dumps(resolver_config)
+    resolver_spec = apex.spec.model_dump(mode="json")
+    assert "extract_transform" not in json.dumps(resolver_spec)
     # No upstream reference at all: inputs arrive as parent fingerprints, and a
     # setting that points at one uses its position.
-    assert set(resolver_config) == {"resolver_class", "resolver_settings"}
+    assert set(resolver_spec) == {"resolver_class", "resolver_settings"}
 
 
 def test_a_view_through_a_resolver_is_a_different_step(warehouse: Engine) -> None:

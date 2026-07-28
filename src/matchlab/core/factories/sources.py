@@ -17,9 +17,6 @@ from sqlalchemy import Engine, create_engine
 from sqlglot import cast, select
 from sqlglot.expressions import column
 
-from matchlab.core.config import (
-    SourceConfig,
-)
 from matchlab.core.factories.entities import (
     ClusterEntity,
     EntityReference,
@@ -32,6 +29,7 @@ from matchlab.core.factories.entities import (
 )
 from matchlab.locations import RelationalDBLocation
 from matchlab.sources import Source
+from matchlab.specs import SourceSpec
 from matchlab.views import View
 
 P = ParamSpec("P")
@@ -81,12 +79,12 @@ class SourceTestkitParameters(BaseModel):
 
 
 class SourceTestkit(BaseModel):
-    """A testkit of data and metadata for a SourceConfig."""
+    """A testkit of data and metadata for a `Source`."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     source: Source = Field(
-        description="The Source object containing config and convenience methods."
+        description="The Source object containing the spec and convenience methods."
     )
     features: tuple[FeatureConfig, ...] | None = Field(
         description=(
@@ -108,9 +106,9 @@ class SourceTestkit(BaseModel):
         return self.source.name
 
     @property
-    def source_config(self) -> SourceConfig:
-        """Return the SourceConfig from the source."""
-        return self.source.config
+    def source_spec(self) -> SourceSpec:
+        """Return the SourceSpec from the source."""
+        return self.source.spec
 
     @property
     def field_names(self) -> list[str]:
@@ -155,7 +153,7 @@ class SourceTestkit(BaseModel):
 
 
 class LinkedSourcesTestkit(BaseModel):
-    """Container for multiple related SourceConfig testkits with entity tracking."""
+    """Container for multiple related source testkits with entity tracking."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -274,7 +272,7 @@ class LinkedSourcesTestkit(BaseModel):
         )
 
     def write_to_location(self) -> Self:
-        """Write the data to the SourceConfig's location."""
+        """Write the data to the source's location."""
         for source_testkit in self.sources.values():
             source_testkit.write_to_location()
 
@@ -488,7 +486,7 @@ def source_factory(
 ) -> SourceTestkit:
     """Generate a complete source testkit from configured features.
 
-    SourceConfigs created with the factory system can only use a RelationalDBLocation,
+    Sources created with the factory system can only use a RelationalDBLocation,
     and the data at that location will be stored in a single table.
 
     Args:

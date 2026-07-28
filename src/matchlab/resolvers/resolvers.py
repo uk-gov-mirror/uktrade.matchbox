@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.core.config import ResolverConfig
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.resolution import materialise_resolution
 from matchlab.models import Model
@@ -15,6 +14,7 @@ from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 from matchlab.resolvers.components import Components
 from matchlab.results import ResolverMatches
 from matchlab.sources import Source
+from matchlab.specs import ResolverSpec
 from matchlab.steps import Step
 from matchlab.views import View
 
@@ -126,9 +126,9 @@ class Resolver(Step):
         return f"{self.kind}({self.resolver_class.__name__})"
 
     @property
-    def config(self) -> ResolverConfig:
-        """The serialisable configuration for this resolver."""
-        return ResolverConfig(
+    def spec(self) -> ResolverSpec:
+        """The serialisable spec for this resolver."""
+        return ResolverSpec(
             resolver_class=self.resolver_class.__name__,
             resolver_settings=self.resolver_settings.model_dump(mode="json"),
         )

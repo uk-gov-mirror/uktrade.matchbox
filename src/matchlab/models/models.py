@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.core.config import ModelConfig, ModelType
 from matchlab.models import dedupers, linkers
 from matchlab.models.dedupers.base import Deduper, DeduperSettings
 from matchlab.models.linkers.base import Linker, LinkerSettings
 from matchlab.results import normalise_model_scores
+from matchlab.specs import ModelSpec, ModelType
 from matchlab.steps import Step
 from matchlab.views import View
 
@@ -87,9 +87,9 @@ class Model(Step):
         return f"{self.kind}({self.model_class.__name__})"
 
     @property
-    def config(self) -> ModelConfig:
-        """The serialisable configuration for this model."""
-        return ModelConfig(
+    def spec(self) -> ModelSpec:
+        """The serialisable spec for this model."""
+        return ModelSpec(
             model_type=self.model_type,
             model_class=self.model_class.__name__,
             model_settings=self.model_settings.model_dump(mode="json"),

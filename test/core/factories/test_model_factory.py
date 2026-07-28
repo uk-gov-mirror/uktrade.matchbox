@@ -321,7 +321,7 @@ def test_model_factory_basic_creation(
 
 
 @pytest.mark.parametrize(
-    ("source_config", "expected_checks"),
+    ("source_params", "expected_checks"),
     [
         pytest.param(
             {
@@ -385,17 +385,17 @@ def test_model_factory_basic_creation(
         ),
     ],
 )
-def test_model_factory_with_sources(source_config: dict, expected_checks: dict) -> None:
+def test_model_factory_with_sources(source_params: dict, expected_checks: dict) -> None:
     """Test model factory creation using sources."""
     # Create source data
     linked = linked_sources_factory()
     all_true_sources = list(linked.true_entities)
 
     # Get sources based on config
-    left_testkit = linked.sources[source_config["left_name"]]
+    left_testkit = linked.sources[source_params["left_name"]]
     right_testkit = (
-        linked.sources[source_config["right_name"]]
-        if source_config["right_name"]
+        linked.sources[source_params["right_name"]]
+        if source_params["right_name"]
         else None
     )
 
@@ -403,8 +403,8 @@ def test_model_factory_with_sources(source_config: dict, expected_checks: dict) 
     model = model_factory(
         left_testkit=left_testkit,
         right_testkit=right_testkit,
-        true_entities=all_true_sources[source_config["true_entities_slice"]],
-        score_range=source_config["score_range"],
+        true_entities=all_true_sources[source_params["true_entities_slice"]],
+        score_range=source_params["score_range"],
     )
 
     # Basic type checks

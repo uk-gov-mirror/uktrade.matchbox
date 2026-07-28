@@ -275,7 +275,7 @@ class SourceKeyMixin:
             source = sources.get(source_name)
 
             if source is None:
-                raise ValueError(f"SourceConfig not found: {source_name}")
+                raise ValueError(f"Source testkit not found: {source_name}")
 
             # Get rows for this entity in this source
             df = source.data.to_pandas()

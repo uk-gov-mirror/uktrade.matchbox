@@ -109,7 +109,7 @@ def test_source_factory_row_id_integrity() -> None:
 
 
 def test_source_factory_mock_properties(sqlite_in_memory_warehouse: Engine) -> None:
-    """Test that properties set in source_factory match generated SourceConfig."""
+    """Test that properties set in source_factory match generated SourceSpec."""
     # Create source with specific features and name
     features = [
         FeatureConfig(
@@ -133,21 +133,21 @@ def test_source_factory_mock_properties(sqlite_in_memory_warehouse: Engine) -> N
         location_name=location_name,
         engine=sqlite_in_memory_warehouse,
     )
-    source_config = source_testkit.source_config
+    source_spec = source_testkit.source_spec
 
     assert source_testkit.source.location.name == location_name
 
     # Every generated feature is selected by the extract, and so is part of identity
     assert source_testkit.field_names == [feature.name for feature in features]
     for feature in features:
-        assert feature.name in source_config.extract_transform
+        assert feature.name in source_spec.extract_transform
 
     # Check default step name and default key field
     assert source_testkit.source.name == name
-    assert source_config.key_field == "key"
+    assert source_spec.key_field == "key"
 
     # Verify source properties are preserved through model_dump
-    dump = source_config.model_dump()
+    dump = source_spec.model_dump()
     assert dump["key_field"] == "key"
     assert "index_fields" not in dump
 

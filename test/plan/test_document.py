@@ -101,8 +101,8 @@ def _transfer(document: PlanDocument) -> PlanDocument:
     return PlanDocument.model_validate_json(document.model_dump_json())
 
 
-#: A valid source config, for tests about a node's shape rather than its settings.
-_SOURCE_CONFIG = {
+#: A valid source spec, for tests about a node's shape rather than its settings.
+_SOURCE_SPEC = {
     "name": "crn",
     "extract_transform": "select pk from crn",
     "key_field": "pk",
@@ -194,8 +194,8 @@ def test_a_document_carries_no_labels_only_source_names(warehouse: Engine) -> No
     document = dump(_plan(warehouse))
 
     assert not any(hasattr(node, "name") for node in document.steps)
-    sources = [node.config for node in document.steps if node.kind == "source"]
-    assert {config.name for config in sources} == {"crn", "dh"}
+    sources = [node.spec for node in document.steps if node.kind == "source"]
+    assert {spec.name for spec in sources} == {"crn", "dh"}
 
     rebuilt = load(_transfer(document), clients={"warehouse": warehouse})
     assert lineage.number(rebuilt) == {
@@ -233,7 +233,7 @@ def test_a_document_carries_no_client_or_credentials(warehouse: Engine) -> None:
 def test_location_change_same_fingerprint(
     warehouse: Engine,
 ) -> None:
-    """A location says how to rebuild, so it travels on the node and not in the config.
+    """A location says how to rebuild, so it travels on the node and not in the spec.
 
     Renaming a warehouse changes no byte any source produces.
     """
@@ -302,7 +302,7 @@ def test_location_source_only() -> None:
     """A location reference binds a client, and only a source needs one bound."""
     with pytest.raises(ValueError, match="must name the location"):
         PlanDocument.model_validate(
-            {"steps": [{"kind": "source", "config": _SOURCE_CONFIG, "inputs": []}]}
+            {"steps": [{"kind": "source", "spec": _SOURCE_SPEC, "inputs": []}]}
         )
 
     with pytest.raises(ValueError, match="view step must not name a location"):
@@ -311,7 +311,7 @@ def test_location_source_only() -> None:
                 "steps": [
                     {
                         "kind": "view",
-                        "config": {},
+                        "spec": {},
                         "inputs": [],
                         "location": _LOCATION_REF,
                     }
@@ -333,19 +333,19 @@ def test_edges_are_positions_pointing_backwards(warehouse: Engine) -> None:
         assert all(target < position for target in node.inputs)
 
 
-def test_a_config_describes_settings_and_never_edges(warehouse: Engine) -> None:
-    """The split that makes a config safe to hash and a document able to rebuild."""
+def test_a_spec_describes_settings_and_never_edges(warehouse: Engine) -> None:
+    """The split that makes a spec safe to hash and a document able to rebuild."""
     document = dump(_plan(warehouse))
 
     for node in document.steps:
-        config = node.config.model_dump(mode="json")
+        spec = node.spec.model_dump(mode="json")
         if node.kind == "view":
-            assert set(config) == {"cleaning", "group"}
+            assert set(spec) == {"cleaning", "group"}
         if node.kind == "model":
-            assert set(config) == {"model_type", "model_class", "model_settings"}
+            assert set(spec) == {"model_type", "model_class", "model_settings"}
         # A source's own name is settings, not an edge: it prefixes its columns.
         if node.kind == "source":
-            assert config["name"] in {"crn", "dh"}
+            assert spec["name"] in {"crn", "dh"}
 
 
 def test_a_setting_that_points_at_an_input_travels_as_a_position(
@@ -361,7 +361,7 @@ def test_a_setting_that_points_at_an_input_travels_as_a_position(
 
     assert apex.kind == "resolver"
     # `1` is the second input, and JSON has stringified the key.
-    assert apex.config.resolver_settings == {"thresholds": {"1": 0.5}}
+    assert apex.spec.resolver_settings == {"thresholds": {"1": 0.5}}
 
     rebuilt = load(document, clients={"warehouse": warehouse})
     assert rebuilt.resolver_settings.thresholds == {1: 0.5}
@@ -373,21 +373,21 @@ def test_a_document_rejects_an_edge_that_points_forwards() -> None:
         PlanDocument.model_validate(
             {
                 "steps": [
-                    {"kind": "view", "config": {}, "inputs": [1]},
-                    {"kind": "view", "config": {}, "inputs": []},
+                    {"kind": "view", "spec": {}, "inputs": [1]},
+                    {"kind": "view", "spec": {}, "inputs": []},
                 ]
             }
         )
 
 
-def test_config_is_parsed_by_kind_not_guessed() -> None:
-    """`ViewConfig` has no required fields, so a plain union would swallow anything."""
+def test_spec_is_parsed_by_kind_not_guessed() -> None:
+    """`ViewSpec` has no required fields, so a plain union would swallow anything."""
     document = PlanDocument.model_validate(
         {
             "steps": [
                 {
                     "kind": "model",
-                    "config": {
+                    "spec": {
                         "model_type": "deduper",
                         "model_class": "NaiveDeduper",
                         "model_settings": {"unique_fields": ["company"]},
@@ -397,7 +397,7 @@ def test_config_is_parsed_by_kind_not_guessed() -> None:
             ]
         }
     )
-    assert document.steps[0].config.model_class == "NaiveDeduper"
+    assert document.steps[0].spec.model_class == "NaiveDeduper"
 
 
 def test_load_rejects_a_step_wired_to_the_wrong_kind(warehouse: Engine) -> None:

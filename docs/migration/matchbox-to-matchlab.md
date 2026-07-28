@@ -30,7 +30,7 @@ pip install matchlab
 |---|---|
 | `matchbox.client.*` | `matchlab.*` |
 | `matchbox.common.*` | `matchlab.core.*` |
-| `matchbox.common.dtos` | `matchlab.core.config` |
+| `matchbox.common.dtos` | `matchlab.specs` |
 | `matchbox.server.*` | *(gone)* |
 | `matchbox.client._handler` | *(gone)* |
 

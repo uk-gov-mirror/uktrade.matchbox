@@ -2,13 +2,12 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from enum import StrEnum
 from typing import ClassVar, Final
 
 import polars as pl
 import pyarrow as pa
 from pydantic import BaseModel, ConfigDict
-
-from matchlab.core.config import ResolverType
 
 SCHEMA_CLUSTERS: Final[pa.Schema] = pa.schema(
     [
@@ -17,6 +16,18 @@ SCHEMA_CLUSTERS: Final[pa.Schema] = pa.schema(
     ]
 )
 """The shape of a resolver's output: cluster assignments."""
+
+
+class ResolverType(StrEnum):
+    """Enumeration of supported resolver methodology types.
+
+    Lives with `ResolverMethod` rather than in `matchlab.specs` because it is not part
+    of any spec: a `ResolverSpec` identifies a methodology by its registered
+    `resolver_class`, so this never reaches a fingerprint or a document. It is a class
+    attribute for methodologies to declare what family they belong to, and nothing more.
+    """
+
+    COMPONENTS = "components"
 
 
 class ResolverSettings(BaseModel, ABC):

@@ -9,10 +9,10 @@ Nothing is computed until `collect()`. Collection walks the plan upstream-first 
 runs only the steps whose artifact is not already stored.
 
 **Fingerprints identify artifacts.** A step's fingerprint combines its kind, its
-configuration, and its inputs' fingerprints — so for everything downstream of a
+spec, and its inputs' fingerprints — so for everything downstream of a
 source it is derivable from the *plan alone*, before any work happens, and `collect`
 can skip a cached step without running it. Sources are the exception: raw data enters
-there, so a source's configuration key includes a content hash of the data it read.
+there, so a source's spec key includes a content hash of the data it read.
 Constructing a fresh `Source` therefore re-reads the warehouse (the documented way to
 refresh), while an existing `Source` object memoises its read.
 """
@@ -99,48 +99,48 @@ class Step(ABC):
 
     @property
     @abstractmethod
-    def config(self) -> BaseModel:
+    def spec(self) -> BaseModel:
         """This step's settings, as a serialisable model.
 
-        One model per step kind, in `matchlab.core.config`. It must carry everything
-        this step's output depends on and nothing else — that is the invariant
-        `_config_key` rests on, and the one to check when adding a setting. Omit
-        something that changes the output and collect will hand back a stale artifact
-        without re-running (see `_fingerprint`).
+        One model per step kind, in `matchlab.specs`. It must carry everything this
+        step's output depends on and nothing else — that is the invariant `_spec_key`
+        rests on, and the one to check when adding a setting. Omit something that
+        changes the output and collect will hand back a stale artifact without
+        re-running (see `_fingerprint`).
 
-        Configs describe a step's own settings, not its inputs'. Edges live on
+        Specs describe a step's own settings, not its inputs'. Edges live on
         `upstream`, and `_fingerprint` already folds in the parents' fingerprints.
         """
         ...
 
-    def _config_key(self) -> bytes:
-        """Bytes identifying this step's configuration.
+    def _spec_key(self) -> bytes:
+        """Bytes identifying this step's spec.
 
         `Source` extends this with a content hash of the data it read, so that the
-        fingerprint tracks the warehouse. For every other kind the config is the
+        fingerprint tracks the warehouse. For every other kind the spec is the
         whole story.
         """
-        return json.dumps(self.config.model_dump(mode="json"), sort_keys=True).encode()
+        return json.dumps(self.spec.model_dump(mode="json"), sort_keys=True).encode()
 
     def _fingerprint(self) -> Fingerprint:
-        """Address this step by kind, configuration and inputs.
+        """Address this step by kind, spec and inputs.
 
         The key is derived from the *plan*, not from the step's output. That is what
         makes it computable before the step runs, which is what lets `_ensure` skip
         work: an output digest would only be knowable once the work was already done.
         Sources are the exception — they fold a hash of the data they read into
-        `_config_key`, because no configuration reveals that the warehouse moved.
+        `_spec_key`, because no spec reveals that the warehouse moved.
 
         The trade-off is that the key can disagree with the bytes in both directions:
 
-        * config omits something that changes the output — a **stale hit**, because
+        * the spec omits something that changes the output — a **stale hit**, because
           `_ensure` never runs the step and reads the old artifact. `SplinkLinker`
           without an explicit seed is a live example. The only defence is that every
-          `_config_key` covers everything its step's output depends on; treat that as
+          `_spec_key` covers everything its step's output depends on; treat that as
           the invariant to protect when adding a step or a setting.
-        * config includes something that doesn't change the output — a **spurious
-          miss**, re-running the step and everything below it. No config does this
-          today, and the way to keep it that way is to record settings only: a config
+        * the spec includes something that doesn't change the output — a **spurious
+          miss**, re-running the step and everything below it. No spec does this
+          today, and the way to keep it that way is to record settings only: a spec
           that described an *input* would, since identity already arrives via the
           parent fingerprint. A setting that must point at an input points at its
           position, which is not redundant — it decides which input the setting
@@ -159,7 +159,7 @@ class Step(ABC):
         of every artifact on write, and the loss of a work-set knowable before running.
         See PLAN.md, "Known limitations", for the full ledger.
         """
-        parts: list[bytes] = [self.kind.encode(), self._config_key()]
+        parts: list[bytes] = [self.kind.encode(), self._spec_key()]
         for parent in self.upstream:
             if parent._fp is None:  # pragma: no cover - collect orders upstream first
                 raise RuntimeError(
@@ -258,7 +258,7 @@ class Step(ABC):
 
         Returns:
             One fingerprint per step in `lineage()`. A set, because two steps in one
-            plan can address the same artifact — identical configuration over identical
+            plan can address the same artifact — identical specs over identical
             inputs is the same bytes, and it is stored once.
 
         Raises:

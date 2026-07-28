@@ -121,12 +121,12 @@ matchlab/
   lineage.py                   # pure functions over a root node (topo, walk, draw)
   sources.py                   # Source — a leaf; imports no plan machinery
   document.py                  # dump/load — a plan as a portable, derived document
+  specs.py                     # step specs rescued from dtos.py — what a fingerprint hashes
   views.py  models.py  resolvers.py  results.py  locations.py
   adapters/                    # base.py (ABC) + duckdb.py — storage only
   core/                        # was matchbox.common (survivors)
     arrow.py  datatypes.py  hash.py  dsu.py  logging.py
     resolution.py              # materialise_resolution, leaf_id, root_id
-    config.py                  # config models rescued from dtos.py
     eval.py  factories/
   eval/  cli/                  # cli shrunk: run a pipeline, eval TUI
 ```
@@ -136,16 +136,16 @@ Deleted wholesale: `matchbox/server/**`, `client/_handler/**`, `client/_settings
 `server/postgresql/utils/{query,insert}.py`.
 
 **DTO split:** `dtos.py` mixes *transport* objects (`Collection`, `Run`, `UploadStage`,
-`StepPath`, permissions → **deleted**) with *config* models (`SourceConfig`,
-`ModelConfig`, `QueryConfig`, `ResolverConfig`, `Step`). The config models survive in
-`core/config.py` without HTTP baggage.
+`StepPath`, permissions → **deleted**) with *spec* models (`SourceSpec`, `ModelSpec`,
+`QueryConfig`, `ResolverSpec`, `Step`). The spec models survive in `specs.py` without
+HTTP baggage.
 
 They are not, though, "the serialisable DAG" — that was the original framing and it
-was half right. A config is what a fingerprint hashes, so it must carry a step's
+was half right. A spec is what a fingerprint hashes, so it must carry a step's
 settings and *not* its edges; a serialisable DAG needs the edges. `document.py` holds
 the other half: `PlanDocument` carries the nodes and the edges between them, each node
-holding the config unchanged. See "Configs describe settings; documents describe
-plans" below.
+holding the spec unchanged. See "Specs describe settings; documents describe plans"
+below.
 
 ## Adapter contract (storage, not an engine)
 
@@ -226,7 +226,7 @@ Current local suite: **324 passing, 0 skipped** (2026-07-24).
    is replaced.
 
 **Improvement over the earlier design:** fingerprints are now derived from the *plan*
-(kind + config + inputs' fingerprints), so `collect` checks the cache **before** running
+(kind + spec + inputs' fingerprints), so `collect` checks the cache **before** running
 a step rather than after. Sources stay data-fingerprinted — raw data enters there — so a
 fresh `Source` re-reads the warehouse (the documented way to refresh) while an existing
 one memoises. Cross-session caching now works: rebuild the same plan in a new process
@@ -329,7 +329,7 @@ carried-over pure functions. These port nearly verbatim.
    `test_resolver_factory.py` (5) run on the plan API. `clean_to_model_factory` was
    *deleted* rather than ported — its only surviving callers were `scenarios.py` and
    the server tests, so `model_factory` is now the single entry point (−103 lines).
-   `Model.config` was not reintroduced: the three call sites only wanted
+   `Model.spec` was not reintroduced: the three call sites only wanted
    `config.type`, which the plan node exposes as `model_type`. Resolver tests for
    `into_dag` / `fake_run` / DAG-detachment are gone with the machinery they tested.
 
@@ -363,7 +363,7 @@ top level; `matchbox.common` → `matchlab.core`. Tests follow: `test/common` �
 **DTO split done.** `dtos.py` 781 → 456 lines: auth/identity (`User`, `LoginResponse`,
 `Group`, `PermissionType`), HTTP envelopes (`OKMessage`, `ErrorResponse`,
 `ResourceOperationStatus`), uploads, server addressing (`StepPath`, `Run`,
-`Collection`) and `Match` all deleted; the config models that *are* the serialisable
+`Collection`) and `Match` all deleted; the spec models that *are* the serialisable
 plan survive.
 
 **Dependencies pruned.** Dropped `httpx`, `psycopg`, `cryptography`, `email-validator`,
@@ -393,7 +393,7 @@ rest executes for real. Porting `ResolverMatches` caught a **third Phase A regre
   shadowing builtins.
 * `core/dtos.py` → `core/config.py`, **781 → 269 lines**. It holds no transfer objects
   any more — it is the serialisable description of a plan's steps. Dropped the last
-  vestigial models (`Step`, `StepType`, `QueryConfig`, `ResolverConfig`, `ModelConfig`,
+  vestigial models (`Step`, `StepType`, `QueryConfig`, `ResolverSpec`, `ModelSpec`,
   `JsonObject`), all unused; `MatchboxName` → `Name`, `validate_matchbox_name` →
   `validate_name`. (The config `Step` also clashed conceptually with the plan node
   `Step`.)
@@ -472,7 +472,7 @@ Deleted: `index_fields`, `SourceField`, `infer_types`, `Location.infer_types`,
 carries a plain `polars.DataType`. Keys are cast to string on read rather than validated.
 `index_fields` remains as a *property* read from the extract, so it cannot drift.
 
-This closed a live bug found the same morning: `_config_key` hashed only the index, so
+This closed a live bug found the same morning: `_spec_key` hashed only the index, so
 changing a selected-but-unindexed column left the fingerprint unmoved — the source
 cache-hit, never re-stored, and every downstream view read the stale value. With
 identity as the extract, that class is structurally impossible.
@@ -497,23 +497,23 @@ default for collapsing a column. The old design could not have done this:
 collapsing rows destroyed the row-to-leaf mapping. Here leaves travel through
 `identifiers()`, read from the adapter, never through the view frame.
 
-### Configs are symmetric, and typed
+### Specs are symmetric, and typed
 
-Phase B deleted `QueryConfig`/`ModelConfig`/`ResolverConfig` as unused, leaving one
-typed config and three anonymous dict literals inside `_config_key`. Restored as
-`ViewConfig`, `ModelConfig`, `ResolverConfig`; every step has a `config` property and
-`Step._config_key` is concrete over it, with `Source` overriding only to append its
+Phase B deleted `QueryConfig`/`ModelSpec`/`ResolverSpec` as unused, leaving one
+typed spec and three anonymous dict literals inside `_spec_key`. Restored as
+`ViewSpec`, `ModelSpec`, `ResolverSpec`; every step has a `spec` property and
+`Step._spec_key` is concrete over it, with `Source` overriding only to append its
 data hash.
 
-The invariant now lives somewhere reviewable: **a config carries everything its step's
+The invariant now lives somewhere reviewable: **a spec carries everything its step's
 output depends on, and nothing else.** That rule explains the one asymmetry —
-`SourceConfig` records its own name because a source's name prefixes its columns and
+`SourceSpec` records its own name because a source's name prefixes its columns and
 tags its rows, while no other step's name reaches its own output. Where a name is
-load-bearing to a consumer it lives in the *consumer's* config, which is why
-`ResolverConfig.inputs` stays: thresholds are keyed by model name. (Superseded — those
-thresholds key by input position now, and `ResolverConfig.inputs` is gone with them.)
+load-bearing to a consumer it lives in the *consumer's* spec, which is why
+`ResolverSpec.inputs` stays: thresholds are keyed by model name. (Superseded — those
+thresholds key by input position now, and `ResolverSpec.inputs` is gone with them.)
 
-`SourceConfig` also lost six methods that predated the split — `parents` and
+`SourceSpec` also lost six methods that predated the split — `parents` and
 `dependencies` had zero callers, and `prefix`/`qualify_field`/`f` never touched `self`
 (they took the source's name as an argument, because on the server the config didn't
 know it). They are `Source` methods now.
@@ -552,9 +552,9 @@ a generated string is never worth trusting, because it cannot encode settings. T
 models differing only in `model_settings` derive the same name no matter how clever the
 scheme. Deleted in favour of positions; see below.
 
-#### Configs describe settings; documents describe plans (2026-07-25)
+#### Specs describe settings; documents describe plans (2026-07-25)
 
-`ModelConfig.left`/`right` existed for serialisation, and were simultaneously a
+`ModelSpec.left`/`right` existed for serialisation, and were simultaneously a
 spurious miss in the fingerprint. That contradiction was not a bug in either — it was
 one model being asked to do two incompatible jobs:
 
@@ -568,7 +568,7 @@ Split, rather than compromised. `matchlab.document` holds the second job:
 
 ```
 PlanDocument.steps: (StepNode, ...)   # lineage.walk order
-StepNode: kind, config, inputs: (int, ...), name: str | None
+StepNode: kind, spec, inputs: (int, ...), name: str | None
 ```
 
 Nodes refer to each other by **position**, which settles a question the naming work
@@ -581,9 +581,9 @@ nesting each step's inputs inside it would inline a shared view once per consume
 
 Consequences:
 
-* Configs are now settings-only, so the spurious-miss column empties. `ViewConfig`
+* Specs are now settings-only, so the spurious-miss column empties. `ViewSpec`
   lost `sources` and `resolver` (no runtime consumers at all — they fed the
-  fingerprint and described edges), `ModelConfig` lost `left`/`right`. `ResolverConfig`
+  fingerprint and described edges), `ModelSpec` lost `left`/`right`. `ResolverSpec`
   lost `inputs` a step later, when thresholds moved to input positions — after which
   the column is empty.
 * `StepNode.name` records the name the *author published under*, null otherwise —
@@ -611,9 +611,9 @@ The end of the thread. Two changes retire the last of the naming machinery.
 0.9}` — you already hold the model, so there is nothing to retype and a typo is a
 `NameError` rather than a failure at collect time. `Resolver._positions` translates to
 an index at construction, the only place that knows both the models and their order.
-Positions rather than names because a name is not identity: `ResolverConfig.inputs`
+Positions rather than names because a name is not identity: `ResolverSpec.inputs`
 existed solely to make a rename move the resolver's fingerprint, and with it gone
-**no config anywhere records a name but its own** (`SourceConfig`, which is semantic).
+**no spec anywhere records a name but its own** (`SourceSpec`, which is semantic).
 The spurious-miss column is empty.
 
 The methodology layer keys by position too, so `resolvers/components.py` imports no
@@ -824,6 +824,49 @@ based cache policy is wanted later for the shared cache directory, that is what 
 (`last_used` on `artifacts`, plus a `trim(max_bytes=, older_than=)`) — a cache policy,
 expressed in the terms a cache actually has, with labels as pins. Not reachability.
 
+#### Configs became specs, and left `core` (2026-07-28)
+
+Two problems with `matchlab.core.config`, neither cosmetic.
+
+**It was in the wrong layer.** `core/schemas.py` states the membership rule for `core`
+in its own docstring: things live there because *both* a producer and an adapter need
+them, and `core` is the only layer both can depend on without inverting. `config.py`
+failed that test outright. Its importers were `document.py`, `sources.py`, `views.py`,
+`models/models.py` and `resolvers/*` — the whole plan layer, and nothing else. No
+adapter touched it; nothing else in `core` touched it. One model per plan-layer module
+(`SourceSpec`↔`sources.py`, `ViewSpec`↔`views.py`, …) is domain vocabulary, not
+shared substrate, and putting it under `core` invited the module to become the
+catch-all `schemas.py` explicitly guards against. It is now `matchlab/specs.py`,
+alongside `steps.py` (which declares the abstract property and hashes it) and
+`document.py` (which holds the edges the spec deliberately excludes). Those three are
+one idea split three ways, and were split across a package boundary for no reason.
+
+**"Config" was the wrong word, three times over.** Singular `config.py` promises
+application settings — precisely what `_settings.py` was, and it was deleted in Phase B
+for being HTTP/auth config that nothing imported. "Settings" was already taken by the
+inner `model_settings`/`resolver_settings` dumps and by the real `ResolverSettings`/
+`DeduperSettings`/`LinkerSettings` classes, so "config" and "settings" named two
+different levels of the same nesting. And pydantic's `model_config = ConfigDict(...)`
+appears in every class body, giving three unrelated senses of the word per file.
+*Spec* collides with none of them and says the right thing: a spec is the specification
+a fingerprint is taken over, not a knob you turn per environment.
+
+So: `SourceSpec`/`ViewSpec`/`ModelSpec`/`ResolverSpec` → `*Spec`,
+`Step.config` → `Step.spec`, `Step._config_key` → `_spec_key`, and in the document,
+`StepConfig`/`_CONFIG_TYPES`/`StepNode.config` → `StepSpec`/`_SPEC_TYPES`/
+`StepNode.spec`. The document's JSON key changed with it, which is a format change and
+fine only because nothing has been released. Headings above use the new word for the
+same concept; the decisions they record are unchanged.
+
+**`ResolverType` moved to `resolvers/base.py`.** It had been sitting in a module whose
+stated membership rule is "what a fingerprint hashes", and it is not hashed: a
+`ResolverSpec` identifies a methodology by its registered `resolver_class`, so
+`resolver_type` appears in no spec, no fingerprint and no document. It is only ever a
+`ClassVar` on `ResolverMethod` subclasses, and it now lives beside that declaration and
+is exported from `matchlab.resolvers`.
+
+Suite unchanged at 415 passing, which is the point — this moved names, not behaviour.
+
 ### Loose ends closed
 
 * **`test/warehouse/test_locations.py` un-skipped.** It never needed Docker:
@@ -886,7 +929,7 @@ you can re-run; for that, the edges and client-reattachment problems remain.
 
 * **TODO(fingerprints)** — see Known limitations below. Unchanged by Phase D, except
   that the observable-interface hazard now has a name: `View.identifiers()`.
-* **The CLI** — still waiting on plan serialisation. The typed configs from Phase D are
+* **The CLI** — still waiting on plan serialisation. The typed specs from Phase D are
   most of what a serialiser needs; what's missing is edges (steps refer to each other by
   name, and a name is not a node) and a decision about how location clients are
   reattached on load. **The eval TUI no longer waits on it** — see below.
@@ -1027,15 +1070,15 @@ Polars shape, for the eval path rather than collection.
 
 ### Fingerprints are input-addressed, not output-addressed
 
-`Step._fingerprint()` is `H(kind, config, parents' fingerprints)` — derived from the
+`Step._fingerprint()` is `H(kind, spec, parents' fingerprints)` — derived from the
 **plan**, not from what the step produces. This is deliberate and load-bearing: the key
 has to exist *before* the step runs, because that is the only way `_ensure` can call
 `adapter.has(fp)` and skip the work. An output digest is only knowable once the work is
 already done, which is too late to avoid it.
 
-Sources are the deliberate exception. `Source._config_key()` folds
+Sources are the deliberate exception. `Source._spec_key()` folds
 `hash_arrow_table(hashes)` — a hash of the data it read — into the key, because no
-amount of configuration reveals that the warehouse moved underneath you. Data enters the
+amount of specification reveals that the warehouse moved underneath you. Data enters the
 plan at sources, so that is the one place content-addressing belongs. (Not to be
 confused with `core/resolution.py`'s `leaf_id`/`root_id`, which *are* content-addressed:
 those are record and cluster identity inside the data, a different hash for a different
@@ -1043,22 +1086,22 @@ job.)
 
 The cost is that the key can disagree with the bytes, in both directions:
 
-* **Stale hit** — config omits something that changes the output, so the step is never
+* **Stale hit** — the spec omits something that changes the output, so the step is never
   re-run and the old artifact is read instead. This is the dangerous direction, and the
-  only defence is the discipline that every `_config_key` covers everything its step's
+  only defence is the discipline that every `_spec_key` covers everything its step's
   output depends on. Live instance: `SplinkLinker` training functions that sample
   (`estimate_u_using_random_sampling`) are non-deterministic unless given a `seed` in
   `arguments`. Same settings, same fingerprint, different edges — first write wins,
   silently. Documented on `SplinkSettings`.
-* **Spurious miss** — config includes something that *doesn't* change the output, so
+* **Spurious miss** — the spec includes something that *doesn't* change the output, so
   work is redone for nothing. **There is currently no instance of this.** Every field
-  in every config either changes the step's output or is the step's own semantic name
-  (`SourceConfig.name`, which prefixes its columns). No config records an input's name,
+  in every spec either changes the step's output or is the step's own semantic name
+  (`SourceSpec.name`, which prefixes its columns). No spec records an input's name,
   and settings that point at an input use its position, which does change the output —
   it decides which model a threshold applies to. Worth protecting: the way this
   reappears is somebody recording a *description of an input* rather than a setting.
 * **No early cutoff** — a `View` whose SQL is reformatted but semantically unchanged
-  invalidates everything below it, because the cascade is keyed on config all the way
+  invalidates everything below it, because the cascade is keyed on the spec all the way
   down rather than stopping where the data stops changing.
 
 `_purge` keeps the stored artifacts themselves consistent, and is necessary rather than
@@ -1066,7 +1109,7 @@ cosmetic: `source_leaves`, `model_edges` and `resolution` are shared tables writ
 plain `INSERT`, so without it a second store would duplicate rows rather than replace
 them.
 
-**Fixed once already (2026-07-24).** `Source._config_key` hashed only `hashes`, which
+**Fixed once already (2026-07-24).** `Source._spec_key` hashed only `hashes`, which
 content-addresses rows by their *index fields*. Any other column the extract/transform
 selected — indexed on company and postcode, town riding along for a cleaning expression
 — was invisible to the fingerprint, so changing it in the warehouse produced a cache hit,
@@ -1095,7 +1138,7 @@ The honest ledger — an output digest governs **propagation**, never **admissio
 | Early cutoff | **gained** — the actual benefit |
 | Storage dedup for equivalent artifacts | gained |
 | Rename tolerance (re-runs the step, spares the subtree) | gained |
-| Stale hits from dishonest config keys | **unchanged** — a step whose action key hits still never runs, so its digest is never consulted. Seeding Splink stays mandatory. |
+| Stale hits from dishonest spec keys | **unchanged** — a step whose action key hits still never runs, so its digest is never consulted. Seeding Splink stays mandatory. |
 | Work-set knowable before running | **lost** — past the first miss a child's key depends on output that doesn't exist yet, foreclosing a future `.explain()` |
 
 Implementation is smaller than it sounds. Redefine `_fp` to mean *artifact address =
@@ -1120,7 +1163,7 @@ Two hazards:
   corruption.
 
 **Verdict (2026-07-24): not now.** With the stale-hit claim withdrawn, the remaining win
-is early cutoff in a narrow band — config changes are mostly normalised away already by
+is early cutoff in a narrow band — spec changes are mostly normalised away already by
 `json.dumps(sort_keys=True)`, so it comes down to warehouse churn in columns that
 cleaning projects away, and only when cleaning is an explicit projection. Not worth a new
 silent-corruption surface plus the loss of a precomputable work-set until someone has
@@ -1138,5 +1181,5 @@ felt the re-run cost with a profile behind it.
   across the move to identity-based lineage.
 * **GC correctness** — fingerprint sharing between distinct nodes makes sweep-vs-delete
   the critical detail.
-* **`common` untangling** — the DTO transport-vs-config split remains the load-bearing
+* **`common` untangling** — the DTO transport-vs-spec split remains the load-bearing
   cut in Phase B.

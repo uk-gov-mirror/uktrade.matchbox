@@ -404,8 +404,8 @@ def test_linked_sources_entity_count_behavior(
     # Each source should have its specified number of entities
     source_a_entities = [e for e in linked.true_entities if "source_a" in e.keys]
     source_b_entities = [e for e in linked.true_entities if "source_b" in e.keys]
-    assert len(source_a_entities) == 5, "SourceConfig A should have 5 entities"
-    assert len(source_b_entities) == 10, "SourceConfig B should have 10 entities"
+    assert len(source_a_entities) == 5, "Source A should have 5 entities"
+    assert len(source_b_entities) == 10, "Source B should have 10 entities"
 
     # Test factory parameter override
     with pytest.warns(UserWarning, match="factory parameter will be used"):
@@ -420,9 +420,5 @@ def test_linked_sources_entity_count_behavior(
     override_source_b = [
         e for e in linked_override.true_entities if "source_b" in e.keys
     ]
-    assert len(override_source_a) == 15, (
-        "SourceConfig A should be overridden to 15 entities"
-    )
-    assert len(override_source_b) == 15, (
-        "SourceConfig B should be overridden to 15 entities"
-    )
+    assert len(override_source_a) == 15, "Source A should be overridden to 15 entities"
+    assert len(override_source_b) == 15, "Source B should be overridden to 15 entities"

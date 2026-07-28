@@ -1,10 +1,9 @@
 """Source — the leaf of a plan.
 
 A source reads rows from a warehouse and content-addresses them. It takes no inputs,
-so it is where raw data (and therefore non-determinism) enters a plan: its
-configuration key includes a hash of the data it read, which is what makes a freshly
-constructed `Source` pick up warehouse changes while an existing object memoises its
-read.
+so it is where raw data (and therefore non-determinism) enters a plan: its spec key
+includes a hash of the data it read, which is what makes a freshly constructed `Source`
+pick up warehouse changes while an existing object memoises its read.
 
 **The extract/transform is the whole declaration.** Every column it returns is part of
 the record, so every column except the key contributes to that record's identity — two
@@ -26,11 +25,11 @@ import polars as pl
 import pyarrow.parquet as pq
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.core.config import SourceConfig
 from matchlab.core.db import QueryReturnClass, QueryReturnType
 from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
 from matchlab.core.logging import logger
 from matchlab.core.resolution import leaf_id
+from matchlab.specs import SourceSpec
 from matchlab.steps import Step
 from matchlab.views import View
 
@@ -106,16 +105,16 @@ class Source(Step):
         # Memoised warehouse read: (extract, hashes). Populated on first fingerprint.
         self._read: tuple[pl.DataFrame, pl.DataFrame] | None = None
 
-    # -- configuration ----------------------------------------------------------------
+    # -- spec -------------------------------------------------------------------------
 
     def __str__(self) -> str:
         """A source is drawn with its name, since it has one."""
         return f"{self.kind} '{self.name}'"
 
     @property
-    def config(self) -> SourceConfig:
-        """The serialisable configuration for this source."""
-        return SourceConfig(
+    def spec(self) -> SourceSpec:
+        """The serialisable spec for this source."""
+        return SourceSpec(
             name=self.name,
             extract_transform=self.extract_transform,
             key_field=self.key_field,
@@ -265,8 +264,8 @@ class Source(Step):
 
     # -- Step contract ----------------------------------------------------------------
 
-    def _config_key(self) -> bytes:
-        """Configuration plus a content hash of the data read.
+    def _spec_key(self) -> bytes:
+        """The spec plus a content hash of the data read.
 
         Including the data hash is what lets a plan detect that the warehouse changed:
         a new `Source` object re-reads and gets a different key, invalidating
@@ -280,7 +279,7 @@ class Source(Step):
         never re-stored, and downstream views kept reading the stale value.
         """
         _, hashes = self._read_warehouse()
-        return super()._config_key() + hash_arrow_table(hashes.to_arrow())
+        return super()._spec_key() + hash_arrow_table(hashes.to_arrow())
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         extract, _ = self._read_warehouse()

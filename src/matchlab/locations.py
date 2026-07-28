@@ -64,7 +64,7 @@ def build_location(location_class: str, name: str, client: Any) -> Location:  # 
     """Build a registered location class, bound to a name and a client.
 
     How `matchlab.document` rebuilds the locations a plan reads. Both arguments come
-    from outside any config: the class because a `SourceConfig` deliberately says
+    from outside any spec: the class because a `SourceSpec` deliberately says
     nothing about where its rows came from, the client because a document carries no
     credentials.
 
@@ -230,7 +230,7 @@ class RelationalDBLocation(Location):
 
         We are NOT attempting a full sanitisation of the SQL statement
         # Validation is done purely to stop accidental mistakes, not malicious actors
-        # Users should only run indexing using SourceConfigs they trust and have read,
+        # Users should only run indexing using sources they trust and have read,
         # using least privilege credentials
 
         Args:

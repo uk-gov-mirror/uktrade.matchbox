@@ -13,8 +13,8 @@ from matchlab.adapters import Adapter, Fingerprint
 from matchlab.steps import Step
 
 
-class _FakeConfig(BaseModel):
-    """Minimal config so FakeStep satisfies the Step contract."""
+class _FakeSpec(BaseModel):
+    """Minimal spec so FakeStep satisfies the Step contract."""
 
     name: str
 
@@ -36,8 +36,8 @@ class FakeStep(Step):
         return self.label
 
     @property
-    def config(self) -> BaseModel:
-        return _FakeConfig(name=self.label)
+    def spec(self) -> BaseModel:
+        return _FakeSpec(name=self.label)
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:  # pragma: no cover
         raise AssertionError("FakeStep never executes")

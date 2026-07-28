@@ -27,8 +27,8 @@ from sqlglot import expressions, parse_one
 from sqlglot import select as sqlglot_select
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.core.config import ViewConfig
 from matchlab.core.db import QueryReturnClass, QueryReturnType
+from matchlab.specs import ViewSpec
 from matchlab.steps import Step
 
 if TYPE_CHECKING:
@@ -93,9 +93,9 @@ class View(Step):
     # -- Step contract ----------------------------------------------------------------
 
     @property
-    def config(self) -> ViewConfig:
-        """The serialisable configuration for this view."""
-        return ViewConfig(cleaning=self.cleaning, group=self.group)
+    def spec(self) -> ViewSpec:
+        """The serialisable spec for this view."""
+        return ViewSpec(cleaning=self.cleaning, group=self.group)
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         adapter.store_view(fp, self._compute(adapter))
