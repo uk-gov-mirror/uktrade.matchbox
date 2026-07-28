@@ -29,8 +29,8 @@ POSTCODE = "regexp_replace(upper({0}), '\\s+', '', 'g')"
 
 def build() -> "Source":
     """Build the plan. Nothing runs until it's collected."""
-    location = RelationalDBLocation(name="warehouse").set_client(
-        create_engine(f"sqlite:///{DB}")
+    location = RelationalDBLocation(
+        name="warehouse", client=create_engine(f"sqlite:///{DB}")
     )
 
     def source(name: str, key: str, name_col: str, postcode_col: str) -> Source:

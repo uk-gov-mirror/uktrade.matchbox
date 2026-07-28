@@ -61,7 +61,7 @@ def _linked(n_true_entities: int, seed: int, engine: Engine | None) -> Scenario:
         n_true_entities=n_true_entities, engine=engine, seed=seed
     )
     for testkit in linked.sources.values():
-        testkit.write_to_location(set_client=engine)
+        testkit.write_to_location(client=engine)
     return Scenario(linked=linked, engine=engine)
 
 

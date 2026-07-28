@@ -1,14 +1,15 @@
-"""Interface to locations where source data is stored."""
+"""Interface to locations where source data is stored.
+
+Location classes are registered by name.
+"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
-from copy import deepcopy
 from enum import StrEnum
-from functools import wraps
-from typing import TYPE_CHECKING, Any, Literal, ParamSpec, Self, TypeVar, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
 
 import polars as pl
 import sqlglot
@@ -19,118 +20,108 @@ from sqlalchemy import Connection, Engine
 from sqlalchemy.exc import OperationalError
 from sqlglot.errors import ParseError
 
-from matchlab.core.config import LocationConfig, LocationType
 from matchlab.core.db import (
     QueryReturnClass,
     QueryReturnType,
     sql_to_df,
 )
-from matchlab.core.exceptions import (
-    ExtractTransformError,
-    SourceClientError,
-)
+from matchlab.core.exceptions import ExtractTransformError
 from matchlab.core.logging import logger
 
 if TYPE_CHECKING:
     from adbc_driver_manager.dbapi import Connection as AdbcConnection
 
-T = TypeVar("T")
-P = ParamSpec("P")
+#: The ADBC client class, if the driver manager is installed. Kept as a tuple so that
+#: nothing downstream has to name `AdbcConnection` at runtime.
+_ADBC_CLIENT_CLASSES: tuple[type, ...] = ()
+
+try:
+    from adbc_driver_manager.dbapi import Connection as _AdbcConnection
+
+    _ADBC_CLIENT_CLASSES = (_AdbcConnection,)
+except ImportError:  # pragma: no cover - exercised only without the optional driver
+    pass
 
 
 class ClientType(StrEnum):
-    """Enumeration of valid location clients."""
+    """Enumeration of the client libraries a relational location can be driven by."""
 
     SQLALCHEMY = "sqlalchemy"
     ADBC = "adbc"
 
 
-CLIENT_CLASSES: dict[ClientType, type | tuple[type, ...]] = {
-    ClientType.SQLALCHEMY: Engine
-}
-
-try:
-    from adbc_driver_manager.dbapi import Connection as AdbcConnection
-
-    CLIENT_CLASSES[ClientType.ADBC] = AdbcConnection
-except ImportError:
-    pass
+_LOCATION_CLASSES: dict[str, type[Location]] = {}
 
 
-def requires_client(method: Callable[..., T]) -> Callable[..., T]:
-    """Decorator that checks if client is set before executing a method.
+def add_location_class(location_class: type[Location]) -> None:
+    """Register a custom location so it can be named in a plan document."""
+    if not issubclass(location_class, Location):
+        raise ValueError("The argument is not a subclass of Location.")
+    _LOCATION_CLASSES[location_class.__name__] = location_class
 
-    A helper method for Location subclasses.
+
+def build_location(location_class: str, name: str, client: Any) -> Location:  # noqa: ANN401
+    """Build a registered location class, bound to a name and a client.
+
+    How `matchlab.document` rebuilds the locations a plan reads. Both arguments come
+    from outside any config: the class because a `SourceConfig` deliberately says
+    nothing about where its rows came from, the client because a document carries no
+    credentials.
 
     Raises:
-        SourceClientError: If the client is not set.
+        ValueError: If no location class of that name is registered here.
     """
-
-    @wraps(method)
-    def wrapper(self: Location, *args: Any, **kwargs: Any) -> T:
-        if self.client is None:
-            raise SourceClientError
-        return method(self, *args, **kwargs)
-
-    return wrapper
+    if location_class not in _LOCATION_CLASSES:
+        raise ValueError(
+            f"No location class named '{location_class}' is registered. Register it "
+            "with `add_location_class` before loading a document that names it."
+        )
+    return _LOCATION_CLASSES[location_class](name=name, client=client)
 
 
 class Location(ABC):
-    """A location for a data source."""
+    """A named place data is read from, bound to the client that reads it."""
 
-    def __init__(self, name: str) -> None:
-        """Initialise location."""
-        self.config = LocationConfig(type=self.location_type, name=name)
-        self._client = None
+    client_classes: ClassVar[tuple[type, ...]]
+    """The client types this location can be driven by, checked on construction."""
 
-    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
-        """Create a deep copy of the Location object."""
-        obj_copy = type(self)(name=deepcopy(self.config.name, memo))
+    def __init__(self, name: str, client: Any) -> None:  # noqa: ANN401
+        """Initialise a location.
 
-        # Both objects should share the same client
-        if self.client:
-            obj_copy.set_client(self.client)
+        Args:
+            name: How a plan refers to this location. A handle for the client, not a
+                setting — it never reaches a fingerprint.
+            client: The already-configured client to read through. Required: a location
+                without one can answer nothing, not even which SQL dialect it speaks.
 
-        return obj_copy
-
-    @property
-    def client(self) -> Engine | None:
-        """Retrieve client."""
-        return self._client
-
-    def set_client(self, client: Any) -> Self:  # noqa: ANN401
-        """Set client for location and return the location."""
-        # Validate against all possible client types
-        if not isinstance(client, tuple(CLIENT_CLASSES.values())):
+        Raises:
+            ValueError: If the client is not a type this location can use.
+        """
+        if not isinstance(client, self.client_classes):
             raise ValueError(
-                f"Type {client.__class__} is not valid for {self.__class__}"
+                f"{type(client).__name__} is not a valid client for "
+                f"{type(self).__name__}. Expected one of: "
+                f"{', '.join(accepted.__name__ for accepted in self.client_classes)}."
             )
+        self.name = name
         self._client = client
-        return self
+
+    def __str__(self) -> str:
+        """Identify the location by class and name."""
+        return f"{type(self).__name__} '{self.name}'"
 
     @property
-    @abstractmethod
-    def location_type(self) -> LocationType:
-        """Output location type string."""
-        ...
-
-    @property
-    @abstractmethod
-    def client_type(self) -> ClientType:
-        """Client type string."""
-        ...
+    def client(self) -> Any:  # noqa: ANN401
+        """The client this location reads through. Set once, at construction."""
+        return self._client
 
     @abstractmethod
     def connect(self) -> bool:
-        """Establish connection to the data location.
-
-        Raises:
-            AttributeError: If the client is not set.
-        """
+        """Check the location can actually be reached."""
         ...
 
     @abstractmethod
-    def validate_extract_transform(self, extract_transform: str) -> bool:
+    def validate_extract_transform(self, extract_transform: str) -> None:
         """Validate ET logic against this location's query language.
 
         Raises:
@@ -146,6 +137,7 @@ class Location(ABC):
         rename: dict[str, str] | Callable | None = None,
         return_type: QueryReturnType = QueryReturnType.POLARS,
         keys: tuple[str, list[str]] | None = None,
+        schema_overrides: dict[str, pl.DataType] | None = None,
     ) -> Iterator[QueryReturnClass]:
         """Execute ET logic against location and return batches.
 
@@ -162,33 +154,35 @@ class Location(ABC):
             keys: Rule to only retrieve rows by specific keys.
                 The key of the dictionary is a field name on which to filter.
                 Filters source entries where the key field is in the dict values.
-
-        Raises:
-            AttributeError: If the cliet is not set.
+            schema_overrides: Types to force on the columns that come back, rather
+                than letting the client infer them.
         """
         ...
-
-    @classmethod
-    def from_config(cls, config: LocationConfig) -> Self:
-        """Initialise location from a location config."""
-        LocClass = location_type_to_class(config.type)
-        return LocClass(name=config.name)
 
 
 class RelationalDBLocation(Location):
     """A location for a relational database."""
 
-    client: Engine | AdbcConnection | None
-    location_type: LocationType = LocationType.RDBMS
+    client_classes: ClassVar[tuple[type, ...]] = (Engine, *_ADBC_CLIENT_CLASSES)
 
     @property
-    def client_type(self) -> ClientType | None:
-        """Determine client type from the client."""
-        if isinstance(self.client, Engine):
-            return ClientType.SQLALCHEMY
-        elif isinstance(self.client, AdbcConnection):
-            return ClientType.ADBC
-        return None
+    def client(self) -> Engine | AdbcConnection:
+        """The SQLAlchemy engine or ADBC connection this location reads through."""
+        return self._client
+
+    @property
+    def client_type(self) -> ClientType:
+        """Determine client type from the client.
+
+        Tested against `Engine` rather than against the ADBC class, so this stays
+        answerable when the ADBC driver manager is not installed — construction has
+        already rejected anything that is neither.
+        """
+        return (
+            ClientType.SQLALCHEMY
+            if isinstance(self.client, Engine)
+            else ClientType.ADBC
+        )
 
     @contextmanager
     def _get_connection(self) -> Generator[Connection | AdbcConnection, None, None]:
@@ -205,7 +199,6 @@ class RelationalDBLocation(Location):
             finally:
                 connection.close()
 
-    @requires_client
     def connect(self) -> bool:  # noqa: D102
         try:
             with self._get_connection() as conn:
@@ -213,6 +206,24 @@ class RelationalDBLocation(Location):
                 return True
         except OperationalError:
             return False
+
+    @property
+    def _sqlglot_dialect(self) -> str | None:
+        """The dialect to parse extract/transform SQL as, if we recognise it."""
+        if self.client_type == ClientType.SQLALCHEMY:
+            client_dialect = self.client.dialect.name
+        else:
+            vendor = self.client.adbc_get_info().get("vendor_name")
+            client_dialect = vendor.lower() if vendor else None
+
+        match client_dialect:
+            case "postgresql":
+                return "postgres"
+            case "sqlite":
+                return "sqlite"
+            case _:
+                logger.warning("Could not validate specific dialect.")
+                return None
 
     def validate_extract_transform(self, extract_transform: str) -> None:  # noqa: D102
         """Check that the SQL statement only contains a single data-extracting command.
@@ -234,26 +245,10 @@ class RelationalDBLocation(Location):
                 "SQL statement is empty or only contains whitespace."
             )
 
-        # Attempt to make the SQLGlot validation more targeted
-        sqlglot_dialect: str | None = None
-        client_dialect: str | None = None
-
-        if self.client and self.client_type == ClientType.SQLALCHEMY:
-            client_dialect = self.client.dialect.name
-        elif self.client and self.client_type == ClientType.ADBC:
-            client_dialect = self.client.adbc_get_info().get("vendor_name")
-            client_dialect = client_dialect.lower() if client_dialect else None
-
-        match client_dialect:
-            case "postgresql":
-                sqlglot_dialect = "postgres"
-            case "sqlite":
-                sqlglot_dialect = "sqlite"
-            case _:
-                logger.warning("Could not validate specific dialect.")
-
         try:
-            expressions = sqlglot.parse(extract_transform, dialect=sqlglot_dialect)
+            expressions = sqlglot.parse(
+                extract_transform, dialect=self._sqlglot_dialect
+            )
         except ParseError as e:
             raise ExtractTransformError("SQL statement could not be parsed.") from e
 
@@ -316,7 +311,6 @@ class RelationalDBLocation(Location):
         schema_overrides: dict[str, pl.DataType] | None = None,
     ) -> Generator[ArrowTable, None, None]: ...
 
-    @requires_client
     def execute(  # noqa: D102
         self,
         extract_transform: str,
@@ -357,10 +351,4 @@ class RelationalDBLocation(Location):
             )
 
 
-def location_type_to_class(location_type: LocationType) -> type[Location]:
-    """Map location type string to the corresponding class."""
-    match location_type:
-        case LocationType.RDBMS:
-            return RelationalDBLocation
-        case _:
-            raise ValueError("Location type not recognised.")
+add_location_class(RelationalDBLocation)

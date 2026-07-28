@@ -34,12 +34,6 @@ from pydantic import (
 )
 
 
-class LocationType(StrEnum):
-    """Enumeration of location types."""
-
-    RDBMS = "rdbms"
-
-
 class ModelType(StrEnum):
     """Enumeration of supported model types."""
 
@@ -53,22 +47,17 @@ class ResolverType(StrEnum):
     COMPONENTS = "components"
 
 
-class LocationConfig(BaseModel):
-    """Metadata for a location."""
-
-    model_config = ConfigDict(frozen=True)
-
-    type: LocationType
-    name: str
-
-
 class SourceConfig(BaseModel):
-    """Configuration of a source: where its rows come from, and what keys them.
+    """Configuration of a source: what it extracts, and what keys it.
 
     There is no separate list of indexed fields. The extract/transform is the single
     declaration of what a source *is* — every column it returns is part of the record,
     and therefore part of that record's identity. A column you do not want to affect
     identity is a column you should not select.
+
+    **Not where the rows came from.** A source's key already folds in a content hash of
+    what it actually read, so anything a location could change about the output is
+    caught by the data itself.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -79,11 +68,6 @@ class SourceConfig(BaseModel):
             "part of the output: it prefixes every column this source contributes "
             "and tags its rows in a resolution."
         )
-    )
-    location_config: LocationConfig = Field(
-        description=(
-            "The location of the source. Used to run the extract/tansform logic."
-        ),
     )
     extract_transform: str = Field(
         description=(

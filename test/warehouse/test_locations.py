@@ -15,15 +15,17 @@ from polars.testing import assert_frame_equal
 from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
 
-from matchlab.core.config import (
-    LocationType,
-)
 from matchlab.core.exceptions import ExtractTransformError
 from matchlab.core.factories.sources import (
     FeatureConfig,
     source_factory,
 )
-from matchlab.locations import ClientType, RelationalDBLocation
+from matchlab.locations import (
+    ClientType,
+    RelationalDBLocation,
+    add_location_class,
+    build_location,
+)
 
 #: What the `warehouse` fixture hands back — the client types a location accepts.
 WarehouseClient: TypeAlias = Engine | AdbcConnection
@@ -41,19 +43,59 @@ def test_relational_db_location_instantiation(
     warehouse: WarehouseClient,
     expected_client_type: ClientType,
 ) -> None:
-    """Test that RelationalDBLocation can be instantiated with valid parameters."""
-    location = RelationalDBLocation(name="dbname")
-    assert location.config.type == LocationType.RDBMS
-    assert location.config.name == "dbname"
+    """A location is named and clientful from the moment it exists."""
+    location = RelationalDBLocation(name="dbname", client=warehouse)
 
-    # Client can be set and validated
-    assert location.client is None
-
-    with pytest.raises(ValueError):
-        location.set_client(12)
-
-    assert location.set_client(warehouse).client == warehouse
+    assert location.name == "dbname"
+    assert location.client is warehouse
     assert location.client_type == expected_client_type
+
+
+def test_a_location_rejects_a_client_it_cannot_drive(
+    sqla_sqlite_warehouse: Engine,
+) -> None:
+    """Validation is the subclass's, so it knows what it can actually use."""
+    with pytest.raises(ValueError, match="not a valid client"):
+        RelationalDBLocation(name="dbname", client=12)
+
+    # And a client cannot be swapped afterwards, which would silently invalidate
+    # anything already validated against the old one's dialect.
+    location = RelationalDBLocation(name="dbname", client=sqla_sqlite_warehouse)
+    with pytest.raises(AttributeError):
+        location.client = sqla_sqlite_warehouse
+
+
+def test_a_location_class_is_found_by_its_registered_name(
+    sqla_sqlite_warehouse: Engine,
+) -> None:
+    """Documents name location classes the way they name dedupers and resolvers."""
+    rebuilt = build_location(
+        "RelationalDBLocation", name="elsewhere", client=sqla_sqlite_warehouse
+    )
+    assert isinstance(rebuilt, RelationalDBLocation)
+    assert rebuilt.name == "elsewhere"
+    assert rebuilt.client is sqla_sqlite_warehouse
+
+    with pytest.raises(ValueError, match="No location class named 'Nowhere'"):
+        build_location("Nowhere", name="x", client=sqla_sqlite_warehouse)
+
+
+def test_a_custom_location_class_can_be_registered(
+    sqla_sqlite_warehouse: Engine,
+) -> None:
+    """The registry is open, so a document can travel to a codebase we don't ship."""
+
+    class CustomLocation(RelationalDBLocation):
+        pass
+
+    with pytest.raises(ValueError, match="not a subclass of Location"):
+        add_location_class(int)
+
+    add_location_class(CustomLocation)
+    assert isinstance(
+        build_location("CustomLocation", name="dbname", client=sqla_sqlite_warehouse),
+        CustomLocation,
+    )
 
 
 @pytest.mark.parametrize(
@@ -63,7 +105,7 @@ def test_relational_db_location_instantiation(
 )
 def test_relational_db_connect(warehouse: WarehouseClient) -> None:
     """Test connecting to database."""
-    location = RelationalDBLocation(name="dbname").set_client(warehouse)
+    location = RelationalDBLocation(name="dbname", client=warehouse)
     assert location.connect() is True
 
 
@@ -154,23 +196,15 @@ def test_relational_db_extract_transform(
         invalid_clients = [sqla_postgres_warehouse]
         valid_clients = [sqla_sqlite_warehouse]
 
-    # Dialect-agnostic check
-    if dialects == "none":
-        with pytest.raises(ExtractTransformError):
-            RelationalDBLocation(name="dbname").validate_extract_transform(sql)
-    elif dialects == "all":
-        RelationalDBLocation(name="dbname").validate_extract_transform(sql)
-
-    # Dialect-specific checks
     for client in valid_clients:
-        RelationalDBLocation(name="dbname").set_client(
-            client
-        ).validate_extract_transform(sql)
+        RelationalDBLocation(name="dbname", client=client).validate_extract_transform(
+            sql
+        )
 
     for client in invalid_clients:
         with pytest.raises(ExtractTransformError):
-            RelationalDBLocation(name="dbname").set_client(
-                client
+            RelationalDBLocation(
+                name="dbname", client=client
             ).validate_extract_transform(sql)
 
 
@@ -193,7 +227,7 @@ def test_relational_db_execute(
         features=features, n_true_entities=10, engine=sqla_sqlite_warehouse
     ).write_to_location()
 
-    location = RelationalDBLocation(name="dbname").set_client(warehouse)
+    location = RelationalDBLocation(name="dbname", client=warehouse)
 
     sql = f"select key, upper(company) up_company, employees from {source_testkit.name}"
 
@@ -240,7 +274,7 @@ def test_relational_db_execute(
 )
 def test_relational_db_execute_invalid(warehouse: WarehouseClient) -> None:
     """Test that invalid queries are handled correctly when executing."""
-    location = RelationalDBLocation(name="dbname").set_client(warehouse)
+    location = RelationalDBLocation(name="dbname", client=warehouse)
 
     # Invalid SQL query
     sql = "SELECT * FROM nonexistent_table"

@@ -279,9 +279,25 @@ with `index_fields` above. `description` annotated steps for other people to rea
 server; with nothing to serialise it to and nothing to display it in, it was a field you
 could set and never observe.
 
+**`Location.set_client`.** A location took its client separately because it used to be
+half of a server-side row, rebuilt from a config and given a client afterwards. Pass it
+to the constructor instead:
+
+```python
+# Matchbox
+location = RelationalDBLocation(name="warehouse")
+location.set_client(engine)
+
+# matchlab
+location = RelationalDBLocation(name="warehouse", client=engine)
+```
+
+A location is now clientful and immutable from the moment it exists, so
+`SourceClientError` and every "is the client set?" check went with it.
+
 ## Exceptions
 
-The exception hierarchy shrank from 40 classes to 8, and dropped the `Matchbox` prefix
+The exception hierarchy shrank from 40 classes to 6, and dropped the `Matchbox` prefix
 on everything but the base:
 
 | Matchbox | matchlab |
@@ -290,9 +306,9 @@ on everything but the base:
 | `MatchboxStepNotFoundError` | `StepNotFound` |
 | `MatchboxArrowSchemaMismatch` | `SchemaMismatch` |
 | `MatchboxSourceExtractTransformError` | `ExtractTransformError` |
-| `MatchboxSourceClientError` | `SourceClientError` |
+| `MatchboxSourceClientError` | *gone* — a `Location` takes its client in `__init__`, so it can never be used without one |
 | `MatchboxSourceTableError` | `SourceTableError` |
-| `MatchboxNameError` | `NameValidationError` |
+| `MatchboxNameError` | *gone* — `Source` validates its own name |
 | `MatchboxRuntimeError` | `DataTypeError` |
 
 Everything else was an HTTP status carrier and went with the server.

@@ -233,11 +233,7 @@ class Resolver(Step):
         """Return `(root, leaf)` for evaluation."""
         return self.resolution().select("root", "leaf").unique()
 
-    def get_matches(
-        self,
-        source_filter: list[str] | None = None,
-        location_names: list[str] | None = None,
-    ) -> ResolverMatches:
+    def get_matches(self, source_filter: list[str] | None = None) -> ResolverMatches:
         """Return the matches this resolver produced, optionally filtered."""
         resolution = self.resolution()
         available = {source.name: source for source in self.sources}
@@ -245,12 +241,6 @@ class Resolver(Step):
         names = list(available)
         if source_filter:
             names = [name for name in names if name in source_filter]
-        if location_names:
-            names = [
-                name
-                for name in names
-                if available[name].location.config.name in location_names
-            ]
         if not names:
             raise StepNotFound("No compatible source was found")
 

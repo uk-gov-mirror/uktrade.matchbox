@@ -27,7 +27,7 @@ with _engine.begin() as conn:
     conn.execute(text("CREATE TABLE crn (pk TEXT, company TEXT)"))
     conn.execute(text("INSERT INTO crn VALUES ('a1','acme'),('a2','acme')"))
 
-_location = RelationalDBLocation(name="warehouse").set_client(_engine)
+_location = RelationalDBLocation(name="warehouse", client=_engine)
 _source = Source(
     location=_location,
     name="crn",

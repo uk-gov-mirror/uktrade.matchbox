@@ -5,7 +5,6 @@ from faker import Faker
 from sqlalchemy import Engine
 
 from matchlab.core.arrow import SCHEMA_INDEX
-from matchlab.core.config import LocationConfig, LocationType
 from matchlab.core.factories.entities import (
     FeatureConfig,
     ReplaceRule,
@@ -152,9 +151,7 @@ def test_source_factory_mock_properties(sqlite_in_memory_warehouse: Engine) -> N
     )
     source_config = source_testkit.source_config
 
-    # Location should be consistent
-    expected_location = LocationConfig(type=LocationType.RDBMS, name=location_name)
-    assert source_config.location_config == expected_location
+    assert source_testkit.source.location.name == location_name
 
     # Every generated feature is selected by the extract, and so is part of identity
     assert source_testkit.field_names == [feature.name for feature in features]
@@ -167,7 +164,6 @@ def test_source_factory_mock_properties(sqlite_in_memory_warehouse: Engine) -> N
 
     # Verify source properties are preserved through model_dump
     dump = source_config.model_dump()
-    assert str(dump["location_config"]["name"]) == location_name
     assert dump["key_field"] == "key"
     assert "index_fields" not in dump
 

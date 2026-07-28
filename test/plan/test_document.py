@@ -54,8 +54,7 @@ def adapter() -> Iterator[DuckDBAdapter]:
 
 
 def _source(warehouse: Engine, name: str) -> Source:
-    location = RelationalDBLocation(name="warehouse")
-    location.set_client(warehouse)
+    location = RelationalDBLocation(name="warehouse", client=warehouse)
     return Source(
         location=location,
         name=name,
@@ -100,6 +99,17 @@ def _plan(warehouse: Engine) -> Resolver:
 def _transfer(document: PlanDocument) -> PlanDocument:
     """Send a document over the wire and back — JSON is the transfer format."""
     return PlanDocument.model_validate_json(document.model_dump_json())
+
+
+#: A valid source config, for tests about a node's shape rather than its settings.
+_SOURCE_CONFIG = {
+    "name": "crn",
+    "extract_transform": "select pk from crn",
+    "key_field": "pk",
+}
+
+#: A valid location reference, likewise.
+_LOCATION_REF = {"location_class": "RelationalDBLocation", "name": "warehouse"}
 
 
 # -- the round trip -------------------------------------------------------------------
@@ -214,10 +224,100 @@ def test_a_document_carries_no_client_or_credentials(warehouse: Engine) -> None:
     serialised = document.model_dump_json()
 
     assert "sqlite" not in serialised  # the engine's URL never leaves
-    assert '"name":"warehouse"' in serialised  # but the location it needs is named
+    assert '"name":"warehouse"' in serialised  # but the client it needs is named
 
     with pytest.raises(ValueError, match="has no client"):
         load(document, clients={})
+
+
+def test_location_change_same_fingerprint(
+    warehouse: Engine,
+) -> None:
+    """A location says how to rebuild, so it travels on the node and not in the config.
+
+    Renaming a warehouse changes no byte any source produces.
+    """
+    original = _plan(warehouse)
+    original.collect()
+
+    document = _transfer(dump(original))
+    renamed = load(
+        document.model_copy(
+            update={
+                "steps": tuple(
+                    node.model_copy(
+                        update={
+                            "location": node.location.model_copy(
+                                update={"name": "somewhere_else"}
+                            )
+                        }
+                    )
+                    if node.kind == "source"
+                    else node
+                    for node in document.steps
+                )
+            }
+        ),
+        clients={"somewhere_else": warehouse},
+    )
+    renamed.collect()
+
+    assert [step._fp for step in lineage.walk(renamed)] == [
+        step._fp for step in lineage.walk(original)
+    ]
+    sources = [step for step in lineage.walk(renamed) if isinstance(step, Source)]
+    assert {source.location.name for source in sources} == {"somewhere_else"}
+
+
+def test_document_custom_location(
+    warehouse: Engine,
+) -> None:
+    """Documents can represent custom locations."""
+    document = dump(_plan(warehouse))
+    broken = document.model_copy(
+        update={
+            "steps": tuple(
+                node.model_copy(
+                    update={
+                        "location": node.location.model_copy(
+                            update={"location_class": "S3Location"}
+                        )
+                    }
+                )
+                if node.kind == "source"
+                else node
+                for node in document.steps
+            )
+        }
+    )
+
+    # It parses — a document may legitimately name a class this codebase lacks.
+    assert _transfer(broken)
+
+    with pytest.raises(ValueError, match="No location class named 'S3Location'"):
+        load(broken, clients={"warehouse": warehouse})
+
+
+def test_location_source_only() -> None:
+    """A location reference binds a client, and only a source needs one bound."""
+    with pytest.raises(ValueError, match="must name the location"):
+        PlanDocument.model_validate(
+            {"steps": [{"kind": "source", "config": _SOURCE_CONFIG, "inputs": []}]}
+        )
+
+    with pytest.raises(ValueError, match="view step must not name a location"):
+        PlanDocument.model_validate(
+            {
+                "steps": [
+                    {
+                        "kind": "view",
+                        "config": {},
+                        "inputs": [],
+                        "location": _LOCATION_REF,
+                    }
+                ]
+            }
+        )
 
 
 # -- what the document says -----------------------------------------------------------

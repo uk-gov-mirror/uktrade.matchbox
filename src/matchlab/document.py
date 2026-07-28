@@ -17,10 +17,15 @@ the edges, which a fingerprint already covers by folding in its parents'. Puttin
 in one model meant either a config that lied about identity — a rename invalidating a
 subtree that produces identical bytes — or a document that could not be rebuilt.
 
+Edges are not the only thing that lands on this side of the split. A source's
+`LocationRef` says which location class to build and under what name, so that `load`
+can attach a client — and neither fact changes a byte the source produces, which is why
+a `SourceConfig` records nothing about where its rows came from.
+
 **What a document cannot carry:**
 
-* *Clients.* `LocationConfig` describes where data lives, not how to connect. `load`
-  takes the clients and attaches them, so credentials never enter a document.
+* *Clients.* A document names the locations its sources read and stops there. `load`
+  takes the clients and attaches them by name, so credentials never enter a document.
 * *Code.* `model_class` and `resolver_class` are registry names, so the target
   environment must have the same classes registered (`add_model_class`). A document is
   portable across environments, not across codebases.
@@ -47,7 +52,7 @@ from matchlab.core.config import (
     ViewConfig,
 )
 from matchlab.lineage import walk
-from matchlab.locations import Location
+from matchlab.locations import build_location
 from matchlab.models import Model
 from matchlab.resolvers import Resolver
 from matchlab.sources import Source
@@ -72,6 +77,19 @@ _CONFIG_TYPES: dict[str, type[BaseModel]] = {
 }
 
 
+class LocationRef(BaseModel):
+    """Everything needed to rebuild a source's location."""
+
+    model_config = ConfigDict(frozen=True)
+
+    location_class: str = Field(
+        description="The registered name of the Location subclass to build."
+    )
+    name: str = Field(
+        description="The key `load` looks up in `clients` to find this location's."
+    )
+
+
 class StepNode(BaseModel):
     """One step: what kind it is, how it is configured, and what it reads."""
 
@@ -89,6 +107,23 @@ class StepNode(BaseModel):
             "folds parents in, and the order a linker's left and right arrive in."
         ),
     )
+    location: LocationRef | None = Field(
+        default=None,
+        description=(
+            "For a source, how to rebuild the location it reads. Here rather than in "
+            "the config because it describes reconstruction rather than output — see "
+            "`LocationRef`. Every other kind of step leaves it unset."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_location(self) -> StepNode:
+        """A source names a location; nothing else has one to name."""
+        if self.kind == "source" and self.location is None:
+            raise ValueError("A source step must name the location it reads.")
+        if self.kind != "source" and self.location is not None:
+            raise ValueError(f"A {self.kind} step must not name a location.")
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -163,6 +198,13 @@ def _node(step: Step, inputs: tuple[int, ...]) -> StepNode:
         kind=cast(StepKind, step.kind),
         config=cast(StepConfig, step.config),
         inputs=inputs,
+        location=(
+            LocationRef(
+                location_class=type(step.location).__name__, name=step.location.name
+            )
+            if isinstance(step, Source)
+            else None
+        ),
     )
 
 
@@ -175,14 +217,15 @@ def load(document: PlanDocument, clients: Mapping[str, Any]) -> Step:
     Args:
         document: A dumped plan.
         clients: Location name to client, for every location the document's sources
-            name. A `RelationalDBLocation` takes a SQLAlchemy engine.
+            name. A `RelationalDBLocation` takes a SQLAlchemy engine or an ADBC
+            connection.
 
     Returns:
         The plan's apex — the last step in the document.
 
     Raises:
-        ValueError: If the document is empty, names a location with no client, or
-            wires a step to an input of the wrong kind.
+        ValueError: If the document is empty, names a location with no client or an
+            unregistered location class, or wires a step to an input of the wrong kind.
     """
     if not document.steps:
         raise ValueError("A plan document needs at least one step")
@@ -200,17 +243,19 @@ def _rebuild(
     match node.kind:
         case "source":
             config = _expect(node, position, SourceConfig)
-            name = config.location_config.name
-            if name not in clients:
+            reference = cast(LocationRef, node.location)
+            if reference.name not in clients:
                 raise ValueError(
-                    f"Source '{config.name}' reads location '{name}', which has no "
-                    f"client. Pass one in `clients`: {{'{name}': engine}}."
+                    f"Source '{config.name}' reads location '{reference.name}', which "
+                    f"has no client. Pass one in `clients`: "
+                    f"{{'{reference.name}': engine}}."
                 )
-            location = Location.from_config(config.location_config).set_client(
-                clients[name]
-            )
             return Source(
-                location=location,
+                location=build_location(
+                    reference.location_class,
+                    name=reference.name,
+                    client=clients[reference.name],
+                ),
                 name=config.name,
                 extract_transform=config.extract_transform,
                 key_field=config.key_field,

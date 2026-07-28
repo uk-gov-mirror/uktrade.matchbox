@@ -44,8 +44,7 @@ def adapter() -> Iterator[DuckDBAdapter]:
 
 @pytest.fixture
 def resolver(warehouse: Engine) -> Resolver:
-    location = RelationalDBLocation(name="warehouse")
-    location.set_client(warehouse)
+    location = RelationalDBLocation(name="warehouse", client=warehouse)
     source = Source(
         location=location,
         name="crn",
@@ -157,8 +156,7 @@ async def test_a_store_can_be_reviewed_without_the_plan(
     cached at collect time, which is the data the matching actually saw.
     """
     store = DuckDBAdapter(tmp_path / "run.duckdb")
-    location = RelationalDBLocation(name="warehouse")
-    location.set_client(warehouse)
+    location = RelationalDBLocation(name="warehouse", client=warehouse)
     source = Source(
         location=location,
         name="crn",

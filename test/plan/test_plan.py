@@ -59,8 +59,7 @@ def adapter() -> Iterator[DuckDBAdapter]:
 
 
 def _source(warehouse: Engine, name: str) -> Source:
-    location = RelationalDBLocation(name="warehouse")
-    location.set_client(warehouse)
+    location = RelationalDBLocation(name="warehouse", client=warehouse)
     return Source(
         location=location,
         name=name,
@@ -205,8 +204,7 @@ def test_building_downstream_only_runs_the_new_steps(warehouse: Engine) -> None:
 
 
 def _crn_source(warehouse: Engine, extract_transform: str) -> Source:
-    location = RelationalDBLocation(name="warehouse")
-    location.set_client(warehouse)
+    location = RelationalDBLocation(name="warehouse", client=warehouse)
     return Source(
         location=location,
         name="crn",
@@ -265,8 +263,7 @@ def test_a_source_name_must_be_able_to_prefix_a_column(
     A source's name qualifies every column it contributes, and those land in cleaning
     SQL. `crn-x_company` parses as subtraction, `crn.x_company` as table.column.
     """
-    location = RelationalDBLocation(name="warehouse")
-    location.set_client(warehouse)
+    location = RelationalDBLocation(name="warehouse", client=warehouse)
     with pytest.raises(ValueError, match="can't prefix a column name"):
         Source(
             location=location,
@@ -278,8 +275,7 @@ def test_a_source_name_must_be_able_to_prefix_a_column(
 
 def test_a_reserved_word_is_a_fine_source_name(warehouse: Engine) -> None:
     """The name is only ever a prefix, so `select_company` is unambiguous."""
-    location = RelationalDBLocation(name="warehouse")
-    location.set_client(warehouse)
+    location = RelationalDBLocation(name="warehouse", client=warehouse)
     source = Source(
         location=location,
         name="select",
@@ -303,8 +299,7 @@ def test_keys_are_read_as_strings(warehouse: Engine) -> None:
         conn.execute(text("CREATE TABLE nums (id INTEGER, company TEXT)"))
         conn.execute(text("INSERT INTO nums VALUES (1,'acme'),(2,'beta')"))
 
-    location = RelationalDBLocation(name="warehouse")
-    location.set_client(warehouse)
+    location = RelationalDBLocation(name="warehouse", client=warehouse)
     source = Source(
         location=location,
         name="nums",

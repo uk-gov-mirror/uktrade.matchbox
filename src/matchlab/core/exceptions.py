@@ -34,10 +34,6 @@ class SchemaMismatch(MatchlabError):
         super().__init__(f"Schema mismatch. Expected:\n{expected}\nGot:\n{actual}")
 
 
-class SourceClientError(MatchlabError):
-    """A location was used before a client was set on it."""
-
-
 class ExtractTransformError(MatchlabError):
     """A source's extract/transform SQL is not valid."""
 

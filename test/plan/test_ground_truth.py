@@ -60,7 +60,7 @@ def test_dedupe_recovers_the_true_entities(warehouse: Engine) -> None:
     """A perfect deduper must resolve each source's records to its true entities."""
     linked = linked_sources_factory(n_true_entities=10, engine=warehouse)
     for testkit in linked.sources.values():
-        testkit.write_to_location(set_client=warehouse)
+        testkit.write_to_location(client=warehouse)
 
     testkit = model_factory(
         left_testkit=linked.sources["crn"],
@@ -75,7 +75,7 @@ def test_link_recovers_the_true_entities(warehouse: Engine) -> None:
     """A perfect linker must join one entity's records across two sources."""
     linked = linked_sources_factory(n_true_entities=10, engine=warehouse)
     for tk in linked.sources.values():
-        tk.write_to_location(set_client=warehouse)
+        tk.write_to_location(client=warehouse)
 
     testkit = model_factory(
         left_testkit=linked.sources["crn"],
@@ -95,7 +95,7 @@ def test_resolution_covers_every_record(warehouse: Engine) -> None:
     """No record may be dropped: the resolution is complete over the source."""
     linked = linked_sources_factory(n_true_entities=6, engine=warehouse)
     for tk in linked.sources.values():
-        tk.write_to_location(set_client=warehouse)
+        tk.write_to_location(client=warehouse)
 
     testkit = model_factory(
         left_testkit=linked.sources["crn"],
@@ -128,7 +128,7 @@ def test_clusters_never_merge_distinct_entities(warehouse: Engine) -> None:
     """Precision: no cluster may contain records from two different true entities."""
     linked = linked_sources_factory(n_true_entities=12, engine=warehouse)
     for tk in linked.sources.values():
-        tk.write_to_location(set_client=warehouse)
+        tk.write_to_location(client=warehouse)
 
     testkit = model_factory(
         left_testkit=linked.sources["crn"],

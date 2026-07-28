@@ -17,8 +17,10 @@ Postgres, SQLite, DuckDB, and so on.
 from sqlalchemy import create_engine
 from matchlab import RelationalDBLocation
 
-warehouse = RelationalDBLocation(name="warehouse")
-warehouse.set_client(create_engine("postgresql://user:pass@localhost:5432/db"))
+warehouse = RelationalDBLocation(
+    name="warehouse",
+    client=create_engine("postgresql://user:pass@localhost:5432/db"),
+)
 ```
 
 **Somewhere to keep results.** matchlab stores what it computes in an

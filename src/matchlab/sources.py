@@ -117,7 +117,6 @@ class Source(Step):
         """The serialisable configuration for this source."""
         return SourceConfig(
             name=self.name,
-            location_config=self.location.config,
             extract_transform=self.extract_transform,
             key_field=self.key_field,
         )

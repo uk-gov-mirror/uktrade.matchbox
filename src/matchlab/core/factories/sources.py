@@ -144,14 +144,19 @@ class SourceTestkit(BaseModel):
         """Thin wrapper to build a cleaned view over this testkit's Source."""
         return self.source.view(*args, **kwargs)
 
-    def write_to_location(self, set_client: Any | None = None) -> Self:  # noqa: ANN401
-        """Write the data to the SourceConfig's location.
+    def write_to_location(self, client: Any | None = None) -> Self:  # noqa: ANN401
+        """Write the data to the source's location.
 
         Args:
-            set_client: client to replace existing source client
+            client: Write through this client instead of the source's own, rebuilding
+                the source's location around it. Testkits are generated against an
+                in-memory SQLite engine by default, so a test that wants a real
+                warehouse repoints one here.
         """
-        if set_client:
-            self.source.location.set_client(set_client)
+        if client:
+            self.source.location = type(self.source.location)(
+                name=self.source.location.name, client=client
+            )
 
         pl.from_arrow(self.data).write_database(
             table_name=self.source.name,
@@ -599,7 +604,7 @@ def source_factory(
 
     # Create source config
     source = Source(
-        location=RelationalDBLocation(name=location_name).set_client(engine),
+        location=RelationalDBLocation(name=location_name, client=engine),
         name=name,
         extract_transform=select(
             cast(column("key"), "string").as_("key"),
@@ -657,7 +662,7 @@ def source_from_tuple(
 
     # Create source config
     source = Source(
-        location=RelationalDBLocation(name=location_name).set_client(engine),
+        location=RelationalDBLocation(name=location_name, client=engine),
         name=name,
         extract_transform=select(
             cast(column("key"), "string").as_("key"),
@@ -861,8 +866,8 @@ def linked_sources_factory(
 
         # Create source config
         source = Source(
-            location=RelationalDBLocation(str(parameters.name)).set_client(
-                parameters.engine
+            location=RelationalDBLocation(
+                name=str(parameters.name), client=parameters.engine
             ),
             name=parameters.name,
             extract_transform=select(
