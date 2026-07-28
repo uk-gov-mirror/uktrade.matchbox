@@ -219,6 +219,34 @@ class DuckDBAdapter(Adapter):
             "SELECT key, leaf FROM source_leaves WHERE fp = ?", [fp]
         ).pl()
 
+    # -- identifiers ------------------------------------------------------------------
+
+    def read_identifiers(  # noqa: D102
+        self,
+        source_fp: Fingerprint,
+        source_name: str,
+        resolver_fp: Fingerprint | None = None,
+    ) -> pl.DataFrame:
+        if self._kind(source_fp) != "source":
+            raise KeyError(f"No stored source for fingerprint {source_fp.hex()}")
+
+        if resolver_fp is None:
+            return self.conn.execute(
+                "SELECT leaf AS id, CAST(? AS VARCHAR) AS source, key, leaf "
+                "FROM source_leaves WHERE fp = ?",
+                [source_name, source_fp],
+            ).pl()
+
+        if self._kind(resolver_fp) != "resolver":
+            raise KeyError(f"No stored resolver for fingerprint {resolver_fp.hex()}")
+        # Both predicates in the query: `source` is what keeps this from scanning every
+        # source's rows, and `resolution` holds one generation per collect of the plan.
+        return self.conn.execute(
+            "SELECT root AS id, source, key, leaf "
+            "FROM resolution WHERE fp = ? AND source = ?",
+            [resolver_fp, source_name],
+        ).pl()
+
     # -- models -----------------------------------------------------------------------
 
     def store_model(self, fp: Fingerprint, edges: pl.DataFrame) -> None:  # noqa: D102

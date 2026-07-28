@@ -187,12 +187,20 @@ class Resolver(Step):
         # Every leaf reachable through this resolver's inputs — including records no
         # model formed an edge over. materialise_resolution carries those forward
         # (the merge-forward / fall-through requirement).
+
+        # Deduplicate what is read. Linking every pair of n sources gives n(n-1)
+        # (model, view) pairs but only a handful of distinct readings between them:
+        # they share an upstream resolver and cover the same sources, so asking per pair
+        # repeats the same query a quadratic number of times. `dict.fromkeys` dedupes
+        # while keeping lineage order, so the frame is built the same way every run.
+        reads = dict.fromkeys(
+            read
+            for model in self.inputs
+            for view in model.inputs
+            for read in view._identifier_reads
+        )
         upstream = pl.concat(
-            [
-                view.identifiers(adapter)
-                for model in self.inputs
-                for view in model.inputs
-            ],
+            [adapter.read_identifiers(*read) for read in reads],
             how="vertical",
         ).unique()
 

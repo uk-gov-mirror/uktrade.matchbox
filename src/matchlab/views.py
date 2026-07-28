@@ -36,6 +36,11 @@ if TYPE_CHECKING:
     from matchlab.resolvers import Resolver
     from matchlab.sources import Source
 
+#: What one source's identifiers are read with: `(source_fp, source_name, resolver_fp)`,
+#: the arguments of `Adapter.read_identifiers`. Deduplicating these is deduplicating the
+#: queries, which is why they travel as a value rather than as a call.
+IdentifierRead = tuple["Fingerprint | None", str, "Fingerprint | None"]
+
 
 class View(Step):
     """A cleaned view over sources, optionally resolved through a resolver."""
@@ -97,6 +102,19 @@ class View(Step):
 
     # -- data -------------------------------------------------------------------------
 
+    @property
+    def _identifier_reads(self) -> tuple[IdentifierRead, ...]:
+        """The `Adapter.read_identifiers` arguments this view's records come from.
+
+        One per source, naming what is read rather than reading it. Separate from
+        `identifiers` because a downstream resolver wants the *set* of these across
+        every view feeding it, and two views that clean the same source through the
+        same resolver differently read exactly the same rows — so quoting them lets
+        the resolver ask once instead of once per consuming model.
+        """
+        resolver_fp = self.resolver._fp if self.resolver is not None else None
+        return tuple((source._fp, source.name, resolver_fp) for source in self.sources)
+
     def identifiers(self, adapter: Adapter) -> pl.DataFrame:
         """Return `(id, source, key, leaf)` for every record this view reads.
 
@@ -104,28 +122,10 @@ class View(Step):
         source leaf. This is the *upstream resolution* a downstream resolver needs to
         carry every reachable leaf forward — including records no model matched.
         """
-        frames: list[pl.DataFrame] = []
-        for source in self.sources:
-            if self.resolver is not None:
-                resolution = adapter.read_resolver(self.resolver._fp)
-                frames.append(
-                    resolution.filter(pl.col("source") == source.name).select(
-                        pl.col("root").alias("id"),
-                        pl.lit(source.name).alias("source"),
-                        pl.col("key"),
-                        pl.col("leaf"),
-                    )
-                )
-            else:
-                frames.append(
-                    adapter.read_source_leaves(source._fp).select(
-                        pl.col("leaf").alias("id"),
-                        pl.lit(source.name).alias("source"),
-                        pl.col("key"),
-                        pl.col("leaf"),
-                    )
-                )
-        return pl.concat(frames, how="vertical")
+        return pl.concat(
+            [adapter.read_identifiers(*read) for read in self._identifier_reads],
+            how="vertical",
+        )
 
     def _compute(self, adapter: Adapter) -> pl.DataFrame:
         """Build the cleaned frame from stored source extracts and identifiers."""

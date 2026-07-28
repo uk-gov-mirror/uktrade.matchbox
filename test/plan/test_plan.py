@@ -449,6 +449,92 @@ def test_collecting_a_view_directly_materialises_it(
     assert frame.height == 3
 
 
+# -- identifiers ----------------------------------------------------------------------
+
+
+@pytest.fixture
+def identifier_reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, bytes | None]]:
+    """Record the `(source_name, resolver_fp)` of every `read_identifiers` call."""
+    calls: list[tuple[str, bytes | None]] = []
+    original = DuckDBAdapter.read_identifiers
+
+    def counting(
+        self: DuckDBAdapter,
+        source_fp: bytes,
+        source_name: str,
+        resolver_fp: bytes | None = None,
+    ) -> pl.DataFrame:
+        calls.append((source_name, resolver_fp))
+        return original(self, source_fp, source_name, resolver_fp)
+
+    monkeypatch.setattr(DuckDBAdapter, "read_identifiers", counting)
+    return calls
+
+
+def _fan_out_plan(warehouse: Engine) -> tuple[Resolver, list[Model]]:
+    """Three models over one shared view, so the resolver sees repeated readings.
+
+    `Resolver._execute` walks `(model, view)` pairs — four of them here. Only two
+    distinct readings exist between them, which is what it must collapse to. Linking
+    every pair of n sources makes that ratio quadratic.
+    """
+    crn = _source(warehouse, "crn")
+    dh = _source(warehouse, "dh")
+    view = crn.view(cleaning={"name": "crn_company"})
+    models = [
+        view.dedupe(
+            model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
+        ),
+        view.link(
+            dh,
+            model_class=DeterministicLinker,
+            model_settings={"comparisons": f"l.name = r.{dh.f('company')}"},
+        ),
+        view.dedupe(
+            model_class=NaiveDeduper, model_settings={"unique_fields": ["name", "id"]}
+        ),
+    ]
+    return models[0].resolve(*models[1:]), models
+
+
+def test_a_resolver_reads_identifiers_once_per_source_not_once_per_model(
+    warehouse: Engine,
+    adapter: DuckDBAdapter,
+    identifier_reads: list[tuple[str, bytes | None]],
+) -> None:
+    apex, models = _fan_out_plan(warehouse)
+    assert sum(len(model.inputs) for model in apex.inputs) == 4  # the pairs it walks
+
+    # Collect the models first so their own reads are done and cleared; what the apex
+    # collect records is then the resolver's alone.
+    for model in models:
+        model.collect()
+    identifier_reads.clear()
+    apex.collect()
+
+    assert sorted(identifier_reads) == [("crn", None), ("dh", None)]
+
+
+def test_deduplicating_the_readings_keeps_every_record(warehouse: Engine) -> None:
+    """The merge-forward guarantee, which the dedup must not weaken.
+
+    Every reachable leaf has to reach the resolution — including records no model
+    matched. A reading dropped here loses clusters silently rather than failing, so
+    assert on the records rather than on the call count.
+    """
+    apex, _models = _fan_out_plan(warehouse)
+
+    resolution = apex.collect().resolution()
+
+    assert dict(resolution.group_by("source").len().iter_rows()) == {"crn": 3, "dh": 2}
+    assert set(resolution.filter(pl.col("source") == "crn")["key"]) == {
+        "a1",
+        "a2",
+        "a3",
+    }
+    assert set(resolution.filter(pl.col("source") == "dh")["key"]) == {"b1", "b2"}
+
+
 # -- lineage navigation ---------------------------------------------------------------
 
 

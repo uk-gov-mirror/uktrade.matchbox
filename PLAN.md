@@ -970,15 +970,56 @@ the session, and `PlanDocument` could not carry the flag.
 **Not done, deliberately:** no `cache=False` opt-out. Storing is unconditional until
 optimisation is designed systematically rather than bolted on.
 
-**What this does not touch:** `View.identifiers()`. It depends only on a view's sources
-and resolver — never on `cleaning` or `group` — and the stored frame has dropped
-`source`, `key` and `leaf` by the time it is written, which `group=True` makes
-irreversible. So it cannot be cached under the view's fingerprint and cannot live in the
-view's artifact. It is a *query* over `resolution` and `source_leaves`, both already
-stored, and the fix is to push it into the adapter — separate change. Today
-`Resolver._execute` calls it once per `(model, view)` pair, `n(n-1)` for all-pairs
-linking, each a full scan; that is O(n²) against this change's O(n), so it dominates at
-scale.
+**Left to a separate change:** `View.identifiers()` — done next, below.
+
+### Identifiers are a query, not a computation
+
+`View.identifiers()` read a whole `resolution` back and filtered it in Polars, inside a
+per-source loop, and `Resolver._execute` called it once per `(model, view)` pair. Now
+`Adapter.read_identifiers(source_fp, source_name, resolver_fp)` filters in SQL, and the
+resolver deduplicates the *readings* rather than the rows.
+
+It is a query and not an artifact for a reason worth keeping. What comes back depends
+only on the source and resolver read — never on how a view cleans them — so caching it
+under a view's fingerprint would over-partition, recomputing on every cleaning edit for
+data that did not change. And it cannot live inside the view's artifact either: the
+cleaned frame has dropped `source`, `key` and `leaf` by the time it is stored, which
+`group=True` makes irreversible. Both readings are already-stored tables — `resolution`
+and `source_leaves` — so there was never anything to compute, only a filter in the wrong
+place.
+
+The fan-out is the other half. Linking every pair of n sources gives `n(n-1)`
+`(model, view)` pairs but only a handful of distinct readings between them: they share an
+upstream resolver and cover the same sources. `.unique()` deduplicated the resulting
+*rows*, having already paid for every read. `dict.fromkeys` over `View._identifier_reads`
+deduplicates the reads instead, keeping lineage order so the frame is built identically
+each run.
+
+Measured on the resolver's read path alone, 13M-row warehouse, `examples/companies`
+(4 sources, 6 pairwise links, 12 `(model, view)` pairs → 4 distinct readings):
+
+| | time | rows pulled into Polars |
+|---|---|---|
+| full scan + Polars filter | 10.88s | 156,000,000 |
+| pushed-down query | **1.83s** | **13,000,000** |
+
+Output identical — 13,000,000 unique rows either way, verified row-for-row against a
+verbatim reimplementation of the old code across all 8 views, exact order included.
+
+**No index on `resolution(fp)`.** Tried and rejected: on four generations of 1.3M rows,
+an ART index on the BLOB fingerprint made the unfiltered query 2.5× *slower*
+(0.035s → 0.088s) and the file 3.6× larger (24.4MB → 87.0MB). DuckDB's ART is for point
+lookups and constraint enforcement; at 25% selectivity a vectorised scan with a predicate
+wins. The source pushdown is the whole win — 0.035s → 0.012s, identical with or without
+an index.
+
+*Considered, not done:* one table per fingerprint for `resolution`, as the adapter
+already does for extracts and views. Marginally fastest and smallest, would make `_purge`
+a `DROP TABLE`, and is viable because every access to `resolution` is already scoped to a
+single fp. ~20% over the above; not worth the migration yet.
+
+**Still reads whole resolutions:** `DuckDBAdapter.sample()` — same read-then-filter-in-
+Polars shape, for the eval path rather than collection.
 
 ---
 

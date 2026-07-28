@@ -81,6 +81,37 @@ class Adapter(ABC):
         """Return the `(key, leaf)` assignment for a stored source."""
         ...
 
+    # -- identifiers ------------------------------------------------------------------
+
+    @abstractmethod
+    def read_identifiers(
+        self,
+        source_fp: Fingerprint,
+        source_name: str,
+        resolver_fp: Fingerprint | None = None,
+    ) -> pl.DataFrame:
+        """Return `(id, source, key, leaf)` for one source's records.
+
+        `id` is `resolver_fp`'s root cluster when reading through a resolver, otherwise
+        the source's own leaf. This is the *upstream resolution* a downstream resolver
+        needs in order to carry every reachable leaf forward, including records no model
+        matched.
+
+        A query rather than an artifact. Nothing here is computed: both
+        readings are projections of tables this store already holds — `source_leaves`
+        and `resolution`. There is correspondingly nothing to cache, and caching it
+        under a view's fingerprint would be wrong anyway, since what is returned depends
+        only on the source and resolver read and not on how a view cleans them.
+
+        Args:
+            source_fp: Fingerprint of the stored source whose records are wanted.
+            source_name: The source's name, which is returned in the `source` column
+                and tags each row for the resolution below.
+            resolver_fp: Fingerprint of the resolver to read through, or `None` to read
+                the source's own leaves.
+        """
+        ...
+
     # -- models -----------------------------------------------------------------------
 
     @abstractmethod

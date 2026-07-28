@@ -111,6 +111,60 @@ def test_resolver_round_trip(adapter: DuckDBAdapter) -> None:
     assert out.equals(_resolution().sort("leaf"))
 
 
+# -- identifiers ----------------------------------------------------------------------
+
+
+def test_identifiers_read_a_source_directly(adapter: DuckDBAdapter) -> None:
+    """Without a resolver, a record's `id` is its own leaf."""
+    adapter.store_source(FP_SRC, "key", _extract(), _leaves())
+
+    out = adapter.read_identifiers(FP_SRC, "crn").sort("key")
+
+    assert out.columns == ["id", "source", "key", "leaf"]
+    assert out["id"].to_list() == [1, 2, 3]
+    assert out["leaf"].to_list() == [1, 2, 3]
+    assert out["source"].to_list() == ["crn"] * 3
+    assert out.schema["id"] == pl.UInt64
+    assert out.schema["source"] == pl.Utf8
+
+
+def test_identifiers_read_through_a_resolver(adapter: DuckDBAdapter) -> None:
+    """Through a resolver, `id` is the root cluster and `leaf` still names the row."""
+    adapter.store_source(FP_SRC, "key", _extract(), _leaves())
+    adapter.store_resolver(FP_RESOLVER, _resolution())
+
+    out = adapter.read_identifiers(FP_SRC, "crn", FP_RESOLVER).sort("key")
+
+    assert out.columns == ["id", "source", "key", "leaf"]
+    # k1/k2 were clustered together upstream, so they share an id but keep their leaves.
+    assert out["id"].to_list() == [10, 10]
+    assert out["leaf"].to_list() == [1, 2]
+
+
+def test_identifiers_filter_to_the_source_asked_for(adapter: DuckDBAdapter) -> None:
+    """The whole point: one source's rows, not every source in the resolution.
+
+    `_resolution()` holds crn and dh together. Reading crn must not return dh's rows —
+    a plan linking every pair of sources asks for this once per pair, so returning the
+    whole table and filtering afterwards is what made it quadratic.
+    """
+    adapter.store_source(FP_SRC, "key", _extract(), _leaves())
+    adapter.store_resolver(FP_RESOLVER, _resolution())
+
+    assert adapter.read_identifiers(FP_SRC, "crn", FP_RESOLVER).height == 2
+    assert adapter.read_identifiers(FP_SRC, "dh", FP_RESOLVER).height == 2
+    assert adapter.read_identifiers(FP_SRC, "nope", FP_RESOLVER).height == 0
+
+
+def test_identifiers_reject_a_missing_artifact(adapter: DuckDBAdapter) -> None:
+    with pytest.raises(KeyError):
+        adapter.read_identifiers(FP_SRC, "crn")
+
+    adapter.store_source(FP_SRC, "key", _extract(), _leaves())
+    with pytest.raises(KeyError):
+        adapter.read_identifiers(FP_SRC, "crn", FP_RESOLVER)
+
+
 def test_store_resolver_rejects_bad_schema(adapter: DuckDBAdapter) -> None:
     bad = pl.DataFrame({"root": [1], "leaf": [2]})  # missing key/source
     with pytest.raises(SchemaMismatch):
