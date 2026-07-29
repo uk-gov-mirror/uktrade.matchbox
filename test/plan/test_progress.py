@@ -36,6 +36,7 @@ from matchlab.adapters import (
     StoreStats,
 )
 from matchlab.core import logging as mlog
+from matchlab.core.kinds import StepKind
 from matchlab.lineage import StepState, StepStatus, draw
 from matchlab.progress import Progress, report
 from matchlab.steps import Step
@@ -52,10 +53,11 @@ class StoringStep(Step):
 
     Carries a `label` purely so these tests can tell nodes apart, as `FakeStep` in
     `test_lineage` does. Real steps have no such thing — they are drawn by kind and
-    identified by position.
+    identified by position. It stores through `store_view`, so `VIEW` is the kind that
+    matches what it actually writes.
     """
 
-    kind: ClassVar[str] = "fake"
+    kind: ClassVar[StepKind] = StepKind.VIEW
 
     def __init__(self, label: str = "fake", upstream: tuple[Step, ...] = ()) -> None:
         self.label = label

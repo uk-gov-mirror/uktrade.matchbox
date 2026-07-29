@@ -17,6 +17,7 @@ from matchlab.adapters import (
     format_bytes,
 )
 from matchlab.core.exceptions import SchemaMismatch
+from matchlab.core.kinds import StepKind
 from matchlab.eval.judgements import Judgement
 from matchlab.eval.metrics import precision_recall
 
@@ -138,7 +139,7 @@ def test_byte_formatting(count: int, signed: bool, expected: str) -> None:
 
 
 def test_stats_describe_themselves() -> None:
-    stats = StoreStats(location="somewhere", bytes=2048, artifacts={"view": 3})
+    stats = StoreStats(location="somewhere", bytes=2048, artifacts={StepKind.VIEW: 3})
 
     assert stats.describe() == "Store 2.0 KB, 3 artifacts"
     assert (
@@ -148,7 +149,7 @@ def test_stats_describe_themselves() -> None:
 
 
 def test_an_empty_store_describes_itself_without_a_plural() -> None:
-    one = StoreStats(location="x", bytes=0, artifacts={"source": 1})
+    one = StoreStats(location="x", bytes=0, artifacts={StepKind.SOURCE: 1})
 
     assert StoreStats(location="x", bytes=0).describe() == "Store 0 B, 0 artifacts"
     assert one.describe() == "Store 0 B, 1 artifact"

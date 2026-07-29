@@ -27,6 +27,7 @@ import pyarrow.parquet as pq
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.db import QueryReturnClass, QueryReturnType
 from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
+from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.resolution import leaf_id
 from matchlab.specs import SourceSpec
@@ -49,7 +50,7 @@ _IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 class Source(Step):
     """A warehouse table, extracted and content-addressed."""
 
-    kind: ClassVar[str] = "source"
+    kind: ClassVar[StepKind] = StepKind.SOURCE
 
     def __init__(
         self,

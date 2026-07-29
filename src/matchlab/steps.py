@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from matchlab import lineage
 from matchlab.adapters import Adapter, DuckDBAdapter, Fingerprint
 from matchlab.core.hash import HASH_FUNC
+from matchlab.core.kinds import StepKind
 from matchlab.lineage import StepStatus
 from matchlab.progress import report
 
@@ -58,7 +59,7 @@ def default_adapter() -> Adapter:
 class Step(ABC):
     """A node in a lazy plan."""
 
-    kind: ClassVar[str]
+    kind: ClassVar[StepKind]
 
     def __init__(self, upstream: tuple[Step, ...] = ()) -> None:
         """Initialise a plan node with its direct inputs.

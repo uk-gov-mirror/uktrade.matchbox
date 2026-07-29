@@ -41,10 +41,11 @@ a `SourceSpec` records nothing about where its rows came from.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from matchlab.core.kinds import StepKind
 from matchlab.lineage import walk
 from matchlab.locations import build_location
 from matchlab.models import Model
@@ -63,17 +64,16 @@ if TYPE_CHECKING:
 
     from matchlab.steps import Step
 
-StepKind = Literal["source", "view", "model", "resolver"]
 StepSpec = SourceSpec | ViewSpec | ModelSpec | ResolverSpec
 
 SpecT = TypeVar("SpecT", bound=BaseModel)
 StepT = TypeVar("StepT", bound="Step")
 
-_SPEC_TYPES: dict[str, type[BaseModel]] = {
-    "source": SourceSpec,
-    "view": ViewSpec,
-    "model": ModelSpec,
-    "resolver": ResolverSpec,
+_SPEC_TYPES: dict[StepKind, type[BaseModel]] = {
+    StepKind.SOURCE: SourceSpec,
+    StepKind.VIEW: ViewSpec,
+    StepKind.MODEL: ModelSpec,
+    StepKind.RESOLVER: ResolverSpec,
 }
 
 
@@ -119,9 +119,9 @@ class StepNode(BaseModel):
     @model_validator(mode="after")
     def _check_location(self) -> StepNode:
         """A source names a location; nothing else has one to name."""
-        if self.kind == "source" and self.location is None:
+        if self.kind is StepKind.SOURCE and self.location is None:
             raise ValueError("A source step must name the location it reads.")
-        if self.kind != "source" and self.location is not None:
+        if self.kind is not StepKind.SOURCE and self.location is not None:
             raise ValueError(f"A {self.kind} step must not name a location.")
         return self
 
@@ -136,6 +136,8 @@ class StepNode(BaseModel):
         """
         if not isinstance(data, dict):
             return data
+        # `kind` is still whatever the input carried — a plain string, from JSON. It
+        # finds its entry anyway: a `StrEnum` member hashes and compares as its value.
         kind, spec = data.get("kind"), data.get("spec")
         if isinstance(spec, dict) and kind in _SPEC_TYPES:
             return {**data, "spec": _SPEC_TYPES[kind].model_validate(spec)}
@@ -195,7 +197,7 @@ def _node(step: Step, inputs: tuple[int, ...]) -> StepNode:
             "needs an entry in `_SPEC_TYPES`."
         )
     return StepNode(
-        kind=cast(StepKind, step.kind),
+        kind=step.kind,
         spec=cast(StepSpec, step.spec),
         inputs=inputs,
         location=(
@@ -241,7 +243,7 @@ def _rebuild(
 ) -> Step:
     """Rebuild one step from its node and its already-rebuilt inputs."""
     match node.kind:
-        case "source":
+        case StepKind.SOURCE:
             spec = _expect(node, position, SourceSpec)
             reference = cast(LocationRef, node.location)
             if reference.name not in clients:
@@ -261,7 +263,7 @@ def _rebuild(
                 key_field=spec.key_field,
             )
 
-        case "view":
+        case StepKind.VIEW:
             spec = _expect(node, position, ViewSpec)
             sources = tuple(step for step in inputs if isinstance(step, Source))
             resolvers = [step for step in inputs if isinstance(step, Resolver)]
@@ -277,7 +279,7 @@ def _rebuild(
                 group=spec.group,
             )
 
-        case "model":
+        case StepKind.MODEL:
             spec = _expect(node, position, ModelSpec)
             views = _all_of(node, position, inputs, View)
             if not 1 <= len(views) <= 2:
@@ -292,12 +294,18 @@ def _rebuild(
                 model_settings=spec.model_settings,
             )
 
-        case "resolver":
+        case StepKind.RESOLVER:
             spec = _expect(node, position, ResolverSpec)
             return Resolver(
                 *_all_of(node, position, inputs, Model),
                 resolver_class=spec.resolver_class,
                 resolver_settings=spec.resolver_settings,
+            )
+
+        case _:  # pragma: no cover - every member of StepKind is handled above
+            raise ValueError(
+                f"No rebuild for a {node.kind} step. A new kind of step needs an arm "
+                "here as well as an entry in `_SPEC_TYPES`."
             )
 
 

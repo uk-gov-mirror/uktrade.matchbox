@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from matchlab import lineage
 from matchlab.adapters import Adapter, Fingerprint
+from matchlab.core.kinds import StepKind
 from matchlab.steps import Step
 
 
@@ -22,11 +23,13 @@ class _FakeSpec(BaseModel):
 class FakeStep(Step):
     """A plan node that computes nothing.
 
-    Carries a `label` purely so these tests can tell nodes apart. Real steps have no
-    such thing — they are identified by position.
+    Carries a `label` purely so these tests can tell nodes apart, and overrides
+    `__str__` to draw it. Real steps have no such thing — they are identified by
+    position, and drawn by kind. The kind itself is arbitrary here: nothing in
+    `lineage` reads it, and `Step.kind` admits only real ones.
     """
 
-    kind: ClassVar[str] = "fake"
+    kind: ClassVar[StepKind] = StepKind.VIEW
 
     def __init__(self, label: str = "fake", upstream: tuple[Step, ...] = ()) -> None:
         self.label = label

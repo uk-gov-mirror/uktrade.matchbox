@@ -33,6 +33,7 @@ from collections.abc import Iterable, Mapping
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 
+from matchlab.core.kinds import StepKind
 from matchlab.eval.judgements import Judgement
 
 Fingerprint = bytes
@@ -61,7 +62,7 @@ class StoreStats(BaseModel):
 
     location: str
     bytes: int
-    artifacts: dict[str, int] = Field(default_factory=dict)
+    artifacts: dict[StepKind, int] = Field(default_factory=dict)
     labels: int = 0
 
     @property

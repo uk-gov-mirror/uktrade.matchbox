@@ -16,6 +16,7 @@ import duckdb
 import polars as pl
 
 from matchlab.adapters.base import Adapter, Fingerprint, StoreStats, TrimResult
+from matchlab.core.kinds import StepKind
 from matchlab.core.resolution import root_id_of
 from matchlab.core.schemas import (
     SCHEMA_CLUSTER_EXPANSION,
@@ -163,14 +164,16 @@ class DuckDBAdapter(Adapter):
     def _register(self, name: str, df: pl.DataFrame) -> None:
         self.conn.register(name, df.to_arrow())
 
-    def _kind(self, fp: Fingerprint) -> str | None:
+    def _kind(self, fp: Fingerprint) -> StepKind | None:
         row = self.conn.execute(
             "SELECT kind FROM artifacts WHERE fp = ?", [fp]
         ).fetchone()
-        return row[0] if row else None
+        return StepKind(row[0]) if row else None
 
-    def _register_artifact(self, fp: Fingerprint, kind: str) -> None:
-        self.conn.execute("INSERT OR REPLACE INTO artifacts VALUES (?, ?)", [fp, kind])
+    def _register_artifact(self, fp: Fingerprint, kind: StepKind) -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO artifacts VALUES (?, ?)", [fp, kind.value]
+        )
 
     def _purge(self, fp: Fingerprint) -> None:
         """Remove any existing artifact for `fp`, so stores are idempotent.
@@ -184,15 +187,15 @@ class DuckDBAdapter(Adapter):
         kind = self._kind(fp)
         if kind is None:
             return
-        if kind == "source":
+        if kind is StepKind.SOURCE:
             self.conn.execute(f'DROP TABLE IF EXISTS "{self._extract_table(fp)}"')
             self.conn.execute("DELETE FROM source_leaves WHERE fp = ?", [fp])
             self.conn.execute("DELETE FROM source_meta WHERE fp = ?", [fp])
-        elif kind == "view":
+        elif kind is StepKind.VIEW:
             self.conn.execute(f'DROP TABLE IF EXISTS "{self._view_table(fp)}"')
-        elif kind == "model":
+        elif kind is StepKind.MODEL:
             self.conn.execute("DELETE FROM model_edges WHERE fp = ?", [fp])
-        elif kind == "resolver":
+        elif kind is StepKind.RESOLVER:
             self.conn.execute("DELETE FROM resolution WHERE fp = ?", [fp])
             self.conn.execute("DELETE FROM resolution_sources WHERE fp = ?", [fp])
         self.conn.execute("DELETE FROM artifacts WHERE fp = ?", [fp])
@@ -297,15 +300,15 @@ class DuckDBAdapter(Adapter):
         self.conn.unregister("_reg_leaves")
 
         self.conn.execute("INSERT INTO source_meta VALUES (?, ?)", [fp, key_field])
-        self._register_artifact(fp, "source")
+        self._register_artifact(fp, StepKind.SOURCE)
 
     def read_source_extract(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
-        if self._kind(fp) != "source":
+        if self._kind(fp) is not StepKind.SOURCE:
             raise KeyError(f"No stored source for fingerprint {fp.hex()}")
         return self.conn.execute(f'SELECT * FROM "{self._extract_table(fp)}"').pl()
 
     def read_source_leaves(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
-        if self._kind(fp) != "source":
+        if self._kind(fp) is not StepKind.SOURCE:
             raise KeyError(f"No stored source for fingerprint {fp.hex()}")
         return self.conn.execute(
             "SELECT key, leaf FROM source_leaves WHERE fp = ?", [fp]
@@ -319,7 +322,7 @@ class DuckDBAdapter(Adapter):
         source_name: str,
         resolver_fp: Fingerprint | None = None,
     ) -> pl.DataFrame:
-        if self._kind(source_fp) != "source":
+        if self._kind(source_fp) is not StepKind.SOURCE:
             raise KeyError(f"No stored source for fingerprint {source_fp.hex()}")
 
         if resolver_fp is None:
@@ -329,7 +332,7 @@ class DuckDBAdapter(Adapter):
                 [source_name, source_fp],
             ).pl()
 
-        if self._kind(resolver_fp) != "resolver":
+        if self._kind(resolver_fp) is not StepKind.RESOLVER:
             raise KeyError(f"No stored resolver for fingerprint {resolver_fp.hex()}")
         # Both predicates in the query: `source` is what keeps this from scanning every
         # source's rows, and `resolution` holds one generation per collect of the plan.
@@ -458,10 +461,10 @@ class DuckDBAdapter(Adapter):
             [fp],
         )
         self.conn.unregister("_reg_edges")
-        self._register_artifact(fp, "model")
+        self._register_artifact(fp, StepKind.MODEL)
 
     def read_model(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
-        if self._kind(fp) != "model":
+        if self._kind(fp) is not StepKind.MODEL:
             raise KeyError(f"No stored model for fingerprint {fp.hex()}")
         return self.conn.execute(
             "SELECT left_id, right_id, score FROM model_edges WHERE fp = ?", [fp]
@@ -477,10 +480,10 @@ class DuckDBAdapter(Adapter):
             "AS SELECT * FROM _reg_view"
         )
         self.conn.unregister("_reg_view")
-        self._register_artifact(fp, "view")
+        self._register_artifact(fp, StepKind.VIEW)
 
     def read_view(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
-        if self._kind(fp) != "view":
+        if self._kind(fp) is not StepKind.VIEW:
             raise KeyError(f"No stored view for fingerprint {fp.hex()}")
         return self.conn.execute(f'SELECT * FROM "{self._view_table(fp)}"').pl()
 
@@ -512,10 +515,10 @@ class DuckDBAdapter(Adapter):
                 "INSERT INTO resolution_sources VALUES (?, ?, ?)",
                 [fp, source_name, source_fp],
             )
-        self._register_artifact(fp, "resolver")
+        self._register_artifact(fp, StepKind.RESOLVER)
 
     def read_resolver(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
-        if self._kind(fp) != "resolver":
+        if self._kind(fp) is not StepKind.RESOLVER:
             raise KeyError(f"No stored resolver for fingerprint {fp.hex()}")
         return self.conn.execute(
             "SELECT root, leaf, key, source FROM resolution WHERE fp = ?", [fp]

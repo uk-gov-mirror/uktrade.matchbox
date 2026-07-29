@@ -8,6 +8,7 @@ import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.exceptions import StepNotFound
+from matchlab.core.kinds import StepKind
 from matchlab.core.resolution import materialise_resolution
 from matchlab.models import Model
 from matchlab.resolvers.base import ResolverMethod, ResolverSettings
@@ -37,7 +38,7 @@ add_resolver_class(Components)
 class Resolver(Step):
     """Clusters computed over one or more models' edges."""
 
-    kind: ClassVar[str] = "resolver"
+    kind: ClassVar[StepKind] = StepKind.RESOLVER
 
     def __init__(
         self,

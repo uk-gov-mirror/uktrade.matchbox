@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
+from matchlab.core.kinds import StepKind
 from matchlab.models import dedupers, linkers
 from matchlab.models.dedupers.base import Deduper, DeduperSettings
 from matchlab.models.linkers.base import Linker, LinkerSettings
@@ -36,7 +37,7 @@ def add_model_class(model_class: type[Linker] | type[Deduper]) -> None:
 class Model(Step):
     """A deduper or linker over one or two cleaned views."""
 
-    kind: ClassVar[str] = "model"
+    kind: ClassVar[StepKind] = StepKind.MODEL
 
     def __init__(
         self,

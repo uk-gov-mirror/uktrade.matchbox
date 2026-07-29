@@ -28,6 +28,7 @@ from sqlglot import select as sqlglot_select
 
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.db import QueryReturnClass, QueryReturnType
+from matchlab.core.kinds import StepKind
 from matchlab.specs import ViewSpec
 from matchlab.steps import Step
 
@@ -45,7 +46,7 @@ IdentifierRead = tuple["Fingerprint | None", str, "Fingerprint | None"]
 class View(Step):
     """A cleaned view over sources, optionally resolved through a resolver."""
 
-    kind: ClassVar[str] = "view"
+    kind: ClassVar[StepKind] = StepKind.VIEW
 
     def __init__(
         self,
