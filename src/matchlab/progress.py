@@ -53,28 +53,24 @@ in whether a tree is drawn, nor in what the per-step records say.
 Nothing here decides *what* runs; `Step.collect` does that and reports what happened.
 """
 
-from __future__ import annotations
-
 import logging
 import time
+from collections.abc import Iterable, Sequence
 from contextlib import ExitStack
 from contextvars import Token
 from types import TracebackType
 from typing import TYPE_CHECKING
 
-from rich.console import Group
+from rich.console import Group, RenderableType
 from rich.live import Live
 from rich.text import Text
 
+from matchlab.adapters import Adapter, StoreStats
 from matchlab.core import logging as mlog
 from matchlab.lineage import StepState, StepStatus, draw, render
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
-
-    from rich.console import RenderableType
-
-    from matchlab.adapters import Adapter, StoreStats
+    # `matchlab.steps` imports this module
     from matchlab.steps import Step
 
 #: The slice of a plan a frame shows, and a note of what it leaves out — `None` when
@@ -122,8 +118,8 @@ class Progress:
 
     def __init__(
         self,
-        root: Step,
-        steps: Sequence[Step],
+        root: "Step",
+        steps: Sequence["Step"],
         *,
         live: bool = False,
         nested: bool = False,
@@ -189,7 +185,7 @@ class Progress:
 
     # -- events ---------------------------------------------------------------------
 
-    def begin(self, step: Step) -> None:
+    def begin(self, step: "Step") -> None:
         """Mark `step` as the one now running, and publish its position.
 
         Publishing the position is what attributes the records the step's own code
@@ -205,7 +201,7 @@ class Progress:
         self._focus = self._rows.get(id(step))
         self._refresh()
 
-    def end(self, step: Step, status: StepStatus) -> None:
+    def end(self, step: "Step", status: StepStatus) -> None:
         """Record how `step` finished, how long it took, and log a line for it."""
         elapsed = (
             time.perf_counter() - self._running_since
@@ -231,7 +227,7 @@ class Progress:
 
     # -- lifecycle ------------------------------------------------------------------
 
-    def __enter__(self) -> Progress:
+    def __enter__(self) -> "Progress":
         """Start reporting, putting the plan on screen or in the log."""
         global _REPORTING  # noqa: PLW0603 - one report per console
         self._started = time.perf_counter()
@@ -431,8 +427,8 @@ def _legend(states: Iterable[StepState]) -> Text:
 
 
 def report(
-    root: Step,
-    steps: Sequence[Step],
+    root: "Step",
+    steps: Sequence["Step"],
     interactive: bool | None,
     adapter: Adapter | None = None,
 ) -> Progress:

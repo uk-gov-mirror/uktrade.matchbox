@@ -14,15 +14,13 @@ structurally identical but distinct nodes are two plan entries.
 drives it during a collection; nothing here executes anything.
 """
 
-from __future__ import annotations
-
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
+    # `matchlab.steps` imports this module
     from matchlab.steps import Step
 
 
@@ -99,7 +97,7 @@ class StepState:
         return " ".join(parts)
 
 
-def walk(root: Step) -> list[Step]:
+def walk(root: "Step") -> list["Step"]:
     """Return `root` and every transitive input, in topological order.
 
     Upstream steps always precede the steps that consume them, so executing the
@@ -128,7 +126,7 @@ def walk(root: Step) -> list[Step]:
     return ordered
 
 
-def number(root: Step) -> dict[int, int]:
+def number(root: "Step") -> dict[int, int]:
     """Map each step in `root`'s plan to the position it is known by.
 
     A step is referred to by position — in logs, in `draw()`, and in a document.
@@ -144,7 +142,7 @@ def number(root: Step) -> dict[int, int]:
 
 
 def draw(
-    root: Step,
+    root: "Step",
     state: Mapping[int, StepState] | None = None,
     *,
     markup: bool = False,
@@ -154,7 +152,7 @@ def draw(
 
 
 def render(
-    root: Step,
+    root: "Step",
     state: Mapping[int, StepState] | None = None,
     *,
     markup: bool = False,
@@ -194,7 +192,7 @@ def render(
     #: another copy of it, so the first row is the one worth looking at.
     rows: dict[int, int] = {}
 
-    def draw_step(step: Step, prefix: str, connector: str) -> None:
+    def draw_step(step: "Step", prefix: str, connector: str) -> None:
         if state is None:
             marker = "●" if step.is_collected else "○"
             style, annotation = "", ""

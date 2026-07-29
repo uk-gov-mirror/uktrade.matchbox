@@ -17,8 +17,6 @@ the time it is stored. It is read back from the source leaves and the upstream
 resolution instead, both of which are already stored.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import duckdb
@@ -33,6 +31,7 @@ from matchlab.specs import ViewSpec
 from matchlab.steps import Step
 
 if TYPE_CHECKING:
+    # Each of these modules imports this one
     from matchlab.models import Model
     from matchlab.resolvers import Resolver
     from matchlab.sources import Source
@@ -50,8 +49,8 @@ class View(Step):
 
     def __init__(
         self,
-        *sources: Source,
-        resolver: Resolver | None = None,
+        *sources: "Source",
+        resolver: "Resolver | None" = None,
         cleaning: dict[str, str] | None = None,
         group: bool = False,
     ) -> None:
@@ -175,7 +174,7 @@ class View(Step):
         self,
         model_class: Any,  # noqa: ANN401 - a Deduper subclass
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-    ) -> Model:
+    ) -> "Model":
         """Deduplicate this view."""
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle
 
@@ -183,10 +182,10 @@ class View(Step):
 
     def link(
         self,
-        other: Source | View,
+        other: "Source | View",
         model_class: Any,  # noqa: ANN401 - a Linker subclass
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-    ) -> Model:
+    ) -> "Model":
         """Link this view to another source or view.
 
         `other` is viewed for you if it is a source, so the right-hand side of a link

@@ -13,8 +13,6 @@ do not want to affect identity is a column you should not select, and a type you
 pinned is a `cast` in the SELECT.
 """
 
-from __future__ import annotations
-
 import re
 import tempfile
 from collections.abc import Callable, Generator, Iterable
@@ -30,12 +28,14 @@ from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
 from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.resolution import leaf_id
+from matchlab.locations import Location
 from matchlab.specs import SourceSpec
 from matchlab.steps import Step
 from matchlab.views import View
 
 if TYPE_CHECKING:
-    from matchlab.locations import Location
+    # `matchlab.models` reaches this module through `matchlab.views`, so `Model` can
+    # only ever be a type-time name here; annotations that use it are quoted.
     from matchlab.models import Model
 
 
@@ -306,7 +306,7 @@ class Source(Step):
         self,
         model_class: Any,  # noqa: ANN401 - a Deduper subclass
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-    ) -> Model:
+    ) -> "Model":
         """Deduplicate this source's records.
 
         Shorthand for `self.view().dedupe(...)` — a view is only worth building
@@ -318,10 +318,10 @@ class Source(Step):
 
     def link(
         self,
-        other: Source | View,
+        other: "Source | View",
         model_class: Any,  # noqa: ANN401 - a Linker subclass
         model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-    ) -> Model:
+    ) -> "Model":
         """Link this source to another source or view.
 
         Shorthand for `self.view().link(...)`. `other` is viewed too if it is a

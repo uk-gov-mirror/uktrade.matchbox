@@ -1,7 +1,5 @@
 """Model — a deduper or linker producing scored candidate edges."""
 
-from __future__ import annotations
-
 import inspect
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -18,6 +16,7 @@ from matchlab.steps import Step
 from matchlab.views import View
 
 if TYPE_CHECKING:
+    # `matchlab.resolvers` imports this module
     from matchlab.resolvers import Resolver
     from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 
@@ -68,7 +67,7 @@ class Model(Step):
         )
 
         if isinstance(model_settings, dict):
-            settings_class = self.model_instance.__annotations__["settings"]
+            settings_class = self.model_class.model_fields["settings"].annotation
             self.model_settings = settings_class(**model_settings)
         else:
             self.model_settings = model_settings
@@ -127,10 +126,10 @@ class Model(Step):
 
     def resolve(
         self,
-        *other_models: Model,
-        resolver_class: type[ResolverMethod] | str = "Components",
-        resolver_settings: ResolverSettings | dict[str, Any] | None = None,
-    ) -> Resolver:
+        *other_models: "Model",
+        resolver_class: "type[ResolverMethod] | str" = "Components",
+        resolver_settings: "ResolverSettings | dict[str, Any] | None" = None,
+    ) -> "Resolver":
         """Resolve this model (and any others) into clusters."""
         from matchlab.resolvers import Resolver  # noqa: PLC0415 - avoids a cycle
 

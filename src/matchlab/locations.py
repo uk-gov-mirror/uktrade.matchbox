@@ -3,8 +3,6 @@
 Location classes are registered by name.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
@@ -37,17 +35,17 @@ class ClientType(StrEnum):
     ADBC = "adbc"
 
 
-_LOCATION_CLASSES: dict[str, type[Location]] = {}
+_LOCATION_CLASSES: dict[str, "type[Location]"] = {}
 
 
-def add_location_class(location_class: type[Location]) -> None:
+def add_location_class(location_class: "type[Location]") -> None:
     """Register a custom location so it can be named in a plan document."""
     if not issubclass(location_class, Location):
         raise ValueError("The argument is not a subclass of Location.")
     _LOCATION_CLASSES[location_class.__name__] = location_class
 
 
-def build_location(location_class: str, name: str, client: Any) -> Location:  # noqa: ANN401
+def build_location(location_class: str, name: str, client: Any) -> "Location":  # noqa: ANN401
     """Build a registered location class, bound to a name and a client.
 
     How `matchlab.document` rebuilds the locations a plan reads. Both arguments come

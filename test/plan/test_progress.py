@@ -12,8 +12,6 @@ Fake steps throughout: a real plan's timings and step kinds are irrelevant here,
 the point is to pin the reporting independently of what is being reported.
 """
 
-from __future__ import annotations
-
 import io
 import logging
 import re

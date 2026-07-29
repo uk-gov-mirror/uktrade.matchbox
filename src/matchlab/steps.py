@@ -17,12 +17,11 @@ Constructing a fresh `Source` therefore re-reads the warehouse (the documented w
 refresh), while an existing `Source` object memoises its read.
 """
 
-from __future__ import annotations
-
 import json
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, ClassVar, Self
+from typing import ClassVar, Self
 
+import polars as pl
 from platformdirs import user_cache_path
 from pydantic import BaseModel
 
@@ -32,9 +31,6 @@ from matchlab.core.hash import HASH_FUNC
 from matchlab.core.kinds import StepKind
 from matchlab.lineage import StepStatus
 from matchlab.progress import report
-
-if TYPE_CHECKING:
-    import polars as pl
 
 CACHE_DIR = user_cache_path("matchlab")
 
@@ -61,7 +57,7 @@ class Step(ABC):
 
     kind: ClassVar[StepKind]
 
-    def __init__(self, upstream: tuple[Step, ...] = ()) -> None:
+    def __init__(self, upstream: "tuple[Step, ...]" = ()) -> None:
         """Initialise a plan node with its direct inputs.
 
         Steps have no names. They are identified by **position** — where they fall in
@@ -241,7 +237,7 @@ class Step(ABC):
                 reporter.end(step, status)
         return self
 
-    def lineage(self) -> list[Step]:
+    def lineage(self) -> list["Step"]:
         """Return this step and all its inputs, upstream-first."""
         return lineage.walk(self)
 

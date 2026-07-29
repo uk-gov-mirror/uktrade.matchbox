@@ -28,8 +28,6 @@ enforces). The server handled the pathological multi-mapping case via leaf-level
 COALESCE; the client does not need to, and does not.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 
 import polars as pl

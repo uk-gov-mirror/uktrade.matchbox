@@ -25,8 +25,6 @@ what the caller has said it may, and never a published resolution. See the guide
 "Reclaiming storage".
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 
@@ -75,7 +73,7 @@ class StoreStats(BaseModel):
         """
         return format_bytes(self.bytes)
 
-    def describe(self, since: StoreStats | None = None) -> str:
+    def describe(self, since: "StoreStats | None" = None) -> str:
         """One clause saying what the store costs, for a collect to print.
 
         Args:

@@ -39,9 +39,8 @@ a `SourceSpec` records nothing about where its rows came from.
   rows, different fingerprints, and it re-runs. Both are the intended behaviour.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from collections.abc import Mapping
+from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -57,17 +56,13 @@ from matchlab.specs import (
     SourceSpec,
     ViewSpec,
 )
+from matchlab.steps import Step
 from matchlab.views import View
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    from matchlab.steps import Step
 
 StepSpec = SourceSpec | ViewSpec | ModelSpec | ResolverSpec
 
 SpecT = TypeVar("SpecT", bound=BaseModel)
-StepT = TypeVar("StepT", bound="Step")
+StepT = TypeVar("StepT", bound=Step)
 
 _SPEC_TYPES: dict[StepKind, type[BaseModel]] = {
     StepKind.SOURCE: SourceSpec,
@@ -117,7 +112,7 @@ class StepNode(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _check_location(self) -> StepNode:
+    def _check_location(self) -> "StepNode":
         """A source names a location; nothing else has one to name."""
         if self.kind is StepKind.SOURCE and self.location is None:
             raise ValueError("A source step must name the location it reads.")
@@ -156,7 +151,7 @@ class PlanDocument(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _check_edges(self) -> PlanDocument:
+    def _check_edges(self) -> "PlanDocument":
         """Reject a document whose edges do not point backwards at real steps."""
         for position, node in enumerate(self.steps):
             for target in node.inputs:

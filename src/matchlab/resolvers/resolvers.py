@@ -1,8 +1,6 @@
 """Resolve — collapse model edges into clusters and materialise the resolution."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from typing import Any, ClassVar, Self
 
 import polars as pl
 
@@ -18,9 +16,6 @@ from matchlab.sources import Source
 from matchlab.specs import ResolverSpec
 from matchlab.steps import Step
 from matchlab.views import View
-
-if TYPE_CHECKING:
-    pass
 
 _RESOLVER_CLASSES: dict[str, type[ResolverMethod]] = {}
 
@@ -72,7 +67,7 @@ class Resolver(Step):
         )
         settings = resolver_settings if resolver_settings is not None else {}
         if isinstance(settings, dict):
-            settings_class = self.resolver_class.__annotations__["settings"]
+            settings_class = self.resolver_class.model_fields["settings"].annotation
             self.resolver_settings = settings_class(
                 **{
                     field: self._positions(field, value)

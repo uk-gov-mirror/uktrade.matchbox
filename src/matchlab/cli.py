@@ -3,14 +3,11 @@
 Two commands, because there are only two things a terminal does better than a Python
 prompt: tell you what version you have, and give you a full-screen reviewer.
 
-There is no `matchlab run`. Matchbox had one because a pipeline lived on a server and
-had to be fetched by name; here the pipeline *is* Python, and `python pipeline.py` runs
-it.
 
-`review` takes either a `module:attribute` naming a resolver in your code — the shape
-uvicorn and celery use — or, with `--store`, just the label of a resolution already
-published. The second needs no plan and no warehouse: a stored resolution knows which
-source artifacts it covers, and their extracts hold the values.
+`review` takes either a `module:attribute` naming a resolver in your code - or, with
+`--store`, just the label of a resolution already published. The second needs no plan
+and no warehouse: a stored resolution knows which source artifacts it covers, and their
+extracts hold the values.
 """
 
 import argparse

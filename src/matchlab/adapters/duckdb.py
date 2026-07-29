@@ -6,8 +6,6 @@ already materialised (merge-forward), and reads are plain table scans. Analysts 
 point their own SQL at the `resolution` table — it is the whole point.
 """
 
-from __future__ import annotations
-
 import os
 from collections.abc import Iterable, Mapping
 from pathlib import Path

@@ -11,8 +11,6 @@ from, so a test can collect the plan and assert the result against the planted
 entities.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 
 from sqlalchemy import Engine, create_engine
