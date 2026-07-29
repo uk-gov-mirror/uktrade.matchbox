@@ -38,12 +38,12 @@ CREATE TABLE IF NOT EXISTS meta (
 -- and DuckDB's widest integer holds 16. An integer key would mean truncating the hash,
 -- and it would buy nothing: every `fp` predicate here is scalar equality, a store holds
 -- few fingerprints against many rows so the column dictionary-compresses to a code per
--- row, and each artifact is written in one statement so its rows sit contiguously and
--- BLOB min/max zonemaps prune whole row groups. Measured against a UBIGINT key over 20M
--- rows, the BLOB is no slower laid out that way and faster interleaved, where random
--- 64-bit keys do not compress. Truncation is a poor trade for that: unlike a leaf ID
--- collision, which shows up as a wrong merge in the data, a fingerprint collision makes
--- `_ensure` skip the step and read back a different one's artifact, silently.
+-- row, and the zonemaps prune whole row groups regardless (see `source_leaves` below).
+-- Measured against a UBIGINT key over 20M rows, the BLOB is no slower laid out that way
+-- and faster interleaved, where random 64-bit keys do not compress. Truncation is a bad
+-- trade for that: unlike a leaf ID collision, which shows up as a wrong merge in the
+-- data, a fingerprint collision makes `_ensure` skip the step and read back a different
+-- one's artifact, silently.
 CREATE TABLE IF NOT EXISTS artifacts (
     fp BLOB PRIMARY KEY, kind VARCHAR
 );
@@ -64,6 +64,22 @@ CREATE TABLE IF NOT EXISTS source_meta (
 CREATE TABLE IF NOT EXISTS resolution_sources (
     fp BLOB, source_name VARCHAR, source_fp BLOB
 );
+-- The three tables below hold every artifact of their kind side by side, and are the
+-- only ones here that grow with the data rather than with the plan. Every read of them
+-- is `WHERE fp = ?` for one artifact, and none carries an index, because the write path
+-- already sorts them: each artifact arrives as exactly one INSERT, so its rows are
+-- appended as one contiguous run and no row group (~122k rows) straddles two artifacts
+-- of any size. DuckDB keeps min/max statistics per row group, so a scan for one
+-- fingerprint skips the others' groups without decompressing them — on a digest, whose
+-- leading bytes are already random, the 8-byte prefix those statistics truncate to
+-- discriminates as well as the whole value would.
+--
+-- This is a property of how we write, not one the storage layer enforces. Writing an
+-- artifact in several statements, or interleaving two artifacts' writes, would scatter
+-- each across row groups whose min/max then span both fingerprints and prune nothing.
+-- Nothing else disturbs the layout: `_purge` marks rows deleted in place and a
+-- re-collect appends afresh, and `_rewrite` copies in scan order. Artifacts small enough
+-- to share a row group prune poorly, which costs what scanning them costs — nothing.
 CREATE TABLE IF NOT EXISTS source_leaves (
     fp BLOB, key VARCHAR, leaf UBIGINT
 );
