@@ -180,7 +180,7 @@ SCORED_LINKERS = [
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), SCORED_LINKERS)
-@patch.object(View, "_frame")
+@patch.object(View, "_read_cache")
 def test_scored_model_scores_generation(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:

@@ -55,7 +55,7 @@ DEDUPERS = [
 
 
 @pytest.mark.parametrize(("Deduper", "configure_deduper"), DEDUPERS)
-@patch.object(View, "_frame")
+@patch.object(View, "_read_cache")
 def test_no_deduplication(
     mock_query_run: Mock,
     Deduper: Deduper,
@@ -111,7 +111,7 @@ def test_no_deduplication(
 
 
 @pytest.mark.parametrize(("Deduper", "configure_deduper"), DEDUPERS)
-@patch.object(View, "_frame")
+@patch.object(View, "_read_cache")
 def test_exact_duplicate_deduplication(
     mock_query_run: Mock, Deduper: Deduper, configure_deduper: DeduperConfigurator
 ) -> None:

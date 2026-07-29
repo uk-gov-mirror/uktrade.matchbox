@@ -262,7 +262,7 @@ LINKERS = [
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(View, "_frame")
+@patch.object(View, "_read_cache")
 def test_exact_match_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -330,7 +330,7 @@ def test_exact_match_linking(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(View, "_frame")
+@patch.object(View, "_read_cache")
 def test_exact_match_with_duplicates_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -395,7 +395,7 @@ def test_exact_match_with_duplicates_linking(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(View, "_frame")
+@patch.object(View, "_read_cache")
 def test_partial_entity_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -465,7 +465,7 @@ def test_partial_entity_linking(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(View, "_frame")
+@patch.object(View, "_read_cache")
 def test_no_matching_entities_linking(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:

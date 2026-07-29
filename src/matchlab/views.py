@@ -147,7 +147,7 @@ class View(Step):
 
         return _apply_cleaning(frame, self.cleaning, group=self.group)
 
-    def _frame(self, adapter: Adapter) -> pl.DataFrame:
+    def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
         """Return the cleaned data from the stored table.
 
         Unconditional, because `collect` runs a step's inputs before the step itself —
@@ -166,7 +166,7 @@ class View(Step):
         """Return this view's data, collecting the plan first if needed."""
         if not self.is_collected:
             self.collect()
-        return to_dataframe(self._frame(self._require_adapter()), return_type)
+        return to_dataframe(self._read_cache(self._require_adapter()), return_type)
 
     # -- verbs ------------------------------------------------------------------------
 

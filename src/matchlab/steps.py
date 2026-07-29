@@ -21,7 +21,6 @@ import json
 from abc import ABC, abstractmethod
 from typing import ClassVar, Self
 
-import polars as pl
 from platformdirs import user_cache_path
 from pydantic import BaseModel
 
@@ -283,9 +282,3 @@ class Step(ABC):
     def _require_adapter(self) -> Adapter:
         """Return the adapter this step was collected into."""
         return self._collected()[0]
-
-    def _frame(self, adapter: Adapter) -> pl.DataFrame:
-        """Return this step's data. Overridden by kinds that feed other steps."""
-        raise NotImplementedError(
-            f"{type(self).__name__} does not produce a queryable frame."
-        )

@@ -96,8 +96,8 @@ class Model(Step):
         )
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
-        left = self.left._frame(adapter)
-        right = self.right._frame(adapter) if self.right else None
+        left = self.left._read_cache(adapter)
+        right = self.right._read_cache(adapter) if self.right else None
 
         if self.model_type == ModelType.LINKER:
             self.model_instance.prepare(left, right)
