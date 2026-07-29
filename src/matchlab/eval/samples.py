@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 import polars as pl
 from pydantic import BaseModel
 
+from matchlab.core.dataframes import qualify
 from matchlab.core.exceptions import SourceTableError
 from matchlab.eval.judgements import Judgement
 from matchlab.eval.metrics import precision_recall
@@ -165,8 +166,8 @@ def _stored_records(
     """
     key_field = adapter.source_key_field(source_fp)
     extract = adapter.read_source_extract(source_fp)
-    qualified = extract.select(pl.all().name.prefix(f"{name}_"))
-    qualified_key = f"{name}_{key_field}"
+    qualified = extract.select(pl.all().name.prefix(qualify(name)))
+    qualified_key = qualify(name, key_field)
     rows = qualified.filter(pl.col(qualified_key).cast(pl.Utf8).is_in(keys))
     values = [column for column in qualified.columns if column != qualified_key]
     return rows.with_columns(pl.col(qualified_key).cast(pl.Utf8)), qualified_key, values
@@ -262,7 +263,7 @@ def get_samples(
         samples_and_source = samples_by_source.join(
             rows, left_on="key", right_on=qualified_key
         )
-        source_fields.append((f"{source_step}_", values))
+        source_fields.append((qualify(source_step), values))
         results_by_source.append(samples_and_source[["root", "leaf", "key"] + values])
 
     if not results_by_source:

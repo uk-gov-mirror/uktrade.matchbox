@@ -13,7 +13,6 @@ do not want to affect identity is a column you should not select, and a type you
 pinned is a `cast` in the SELECT.
 """
 
-import re
 import tempfile
 from collections.abc import Callable, Generator, Iterable
 from pathlib import Path
@@ -23,7 +22,12 @@ import polars as pl
 import pyarrow.parquet as pq
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.core.dataframes import DataFrameClass, DataFrameType
+from matchlab.core.dataframes import (
+    DataFrameClass,
+    DataFrameType,
+    qualify,
+    validate_col_prefix,
+)
 from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
 from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
@@ -37,14 +41,6 @@ if TYPE_CHECKING:
     # `matchlab.models` reaches this module through `matchlab.views`, so `Model` can
     # only ever be a type-time name here; annotations that use it are quoted.
     from matchlab.models import Model
-
-
-# A source's name prefixes every column it contributes (`crn` gives `crn_company`),
-# and those land in cleaning SQL that sqlglot parses. `crn-x_company` would parse as
-# subtraction and `crn.x_company` as table.column, so the name has to be usable at the
-# start of an unquoted identifier. Reserved words are fine — the name is only ever a
-# prefix, never a bare identifier.
-_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 class Source(Step):
@@ -76,13 +72,7 @@ class Source(Step):
             ValueError: If the name could not prefix a SQL identifier, or if
                 `key_field` is not a column name.
         """
-        if not _IDENTIFIER.match(name):
-            raise ValueError(
-                f"Source name '{name}' can't prefix a column name. A source's name "
-                f"qualifies every column it contributes — '{name}_company' here — and "
-                "those appear in cleaning SQL, so it must start with a letter or "
-                "underscore and contain only letters, digits and underscores."
-            )
+        validate_col_prefix(name)
 
         # A source's name is not a way of finding it later, the way a published
         # resolution's is. It prefixes every column this source contributes and tags
@@ -128,25 +118,16 @@ class Source(Step):
     # be called once that has happened, which is how you refer to it in a cleaning
     # expression or a model's settings — before anything has been collected.
 
-    @property
-    def prefix(self) -> str:
-        """The column prefix this source's fields carry once queried."""
-        return f"{self.name}_"
-
-    def qualify_field(self, field: str) -> str:
-        """Prefix a single field name with this source's name."""
-        return self.prefix + field
-
     def f(self, fields: str | Iterable[str]) -> str | list[str]:
         """Prefix one or more field names with this source's name."""
         if isinstance(fields, str):
-            return self.qualify_field(fields)
-        return [self.qualify_field(field) for field in fields]
+            return qualify(self.name, fields)
+        return [qualify(self.name, field) for field in fields]
 
     @property
     def qualified_key(self) -> str:
         """This source's key field, prefixed with the source name."""
-        return self.qualify_field(self.key_field)
+        return qualify(self.name, self.key_field)
 
     @property
     def index_fields(self) -> list[str]:
@@ -156,11 +137,6 @@ class Source(Step):
         """
         extract, _ = self._read_warehouse()
         return sorted(column for column in extract.columns if column != self.key_field)
-
-    @property
-    def qualified_index_fields(self) -> list[str]:
-        """`index_fields`, prefixed with the source name."""
-        return [self.qualify_field(field) for field in self.index_fields]
 
     # -- warehouse access -------------------------------------------------------------
 
@@ -176,7 +152,7 @@ class Source(Step):
         if qualify_names:
 
             def rename(column: str) -> str:
-                return f"{self.name}_{column}"
+                return qualify(self.name, column)
 
         # Keys are always strings, whatever the warehouse returns them as. Every
         # other column is read as the warehouse types it — pin one with a `cast` in

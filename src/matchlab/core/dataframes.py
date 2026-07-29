@@ -1,5 +1,6 @@
-"""Dataframe types, conversion and SQL reading for matchlab."""
+"""Dataframe types, conversion, column naming and SQL reading for matchlab."""
 
+import re
 from collections.abc import Callable, Iterator
 from enum import StrEnum
 from typing import (
@@ -26,6 +27,36 @@ class DataFrameType(StrEnum):
 
 
 DataFrameClass: TypeAlias = ArrowTable | PandasDataFrame | PolarsDataFrame
+
+# A source's name prefixes every column it contributes (`crn` gives `crn_company`),
+# and those land in cleaning SQL that sqlglot parses. `crn-x_company` would parse as
+# subtraction and `crn.x_company` as table.column, so the name has to be usable at the
+# start of an unquoted identifier. Reserved words are fine — the name is only ever a
+# prefix, never a bare identifier.
+_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def validate_col_prefix(prefix: str) -> None:
+    """Ensure string is safe to use as a prefix in a dataframe column."""
+    if not _IDENTIFIER.match(prefix):
+        raise ValueError(
+            f"'{prefix}' can't prefix a column name. It must start with a letter or"
+            "underscore and contain only letters, digits and underscores."
+        )
+
+
+def qualify(source: str, field: str = "") -> str:
+    """The column name a source's field carries once qualified.
+
+    Args:
+        source: The source's name.
+        field: The field to qualify. Omit it for the bare prefix, which is what
+            `pl.all().name.prefix()` takes.
+
+    Returns:
+        The qualified column name.
+    """
+    return f"{source}_{field}"
 
 
 @overload

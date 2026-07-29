@@ -25,7 +25,12 @@ from sqlglot import expressions, parse_one
 from sqlglot import select as sqlglot_select
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.core.dataframes import DataFrameClass, DataFrameType, to_dataframe
+from matchlab.core.dataframes import (
+    DataFrameClass,
+    DataFrameType,
+    qualify,
+    to_dataframe,
+)
 from matchlab.core.kinds import StepKind
 from matchlab.specs import ViewSpec
 from matchlab.steps import Step
@@ -133,7 +138,7 @@ class View(Step):
 
         extracts = [
             adapter.read_source_extract(source._fp)
-            .select(pl.all().name.prefix(f"{source.name}_"))
+            .select(pl.all().name.prefix(qualify(source.name)))
             .with_columns(pl.lit(source.name).alias("source"))
             .rename({source.qualified_key: "key"})
             for source in self.sources
