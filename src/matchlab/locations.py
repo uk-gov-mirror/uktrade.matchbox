@@ -21,9 +21,9 @@ from sqlalchemy import Connection, Engine
 from sqlalchemy.exc import OperationalError
 from sqlglot.errors import ParseError
 
-from matchlab.core.db import (
-    QueryReturnClass,
-    QueryReturnType,
+from matchlab.core.dataframes import (
+    DataFrameClass,
+    DataFrameType,
     sql_to_df,
 )
 from matchlab.core.exceptions import ExtractTransformError
@@ -122,10 +122,10 @@ class Location(ABC):
         extract_transform: str,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
-        return_type: QueryReturnType = QueryReturnType.POLARS,
+        return_type: DataFrameType = DataFrameType.POLARS,
         keys: tuple[str, list[str]] | None = None,
         schema_overrides: dict[str, pl.DataType] | None = None,
-    ) -> Iterator[QueryReturnClass]:
+    ) -> Iterator[DataFrameClass]:
         """Execute ET logic against location and return batches.
 
         Args:
@@ -270,7 +270,7 @@ class RelationalDBLocation(Location):
         extract_transform: str,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
-        return_type: Literal[QueryReturnType.POLARS] = ...,
+        return_type: Literal[DataFrameType.POLARS] = ...,
         keys: tuple[str, list[str]] | None = None,
         schema_overrides: dict[str, pl.DataType] | None = None,
     ) -> Generator[PolarsDataFrame, None, None]: ...
@@ -281,7 +281,7 @@ class RelationalDBLocation(Location):
         extract_transform: str,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
-        return_type: Literal[QueryReturnType.PANDAS] = ...,
+        return_type: Literal[DataFrameType.PANDAS] = ...,
         keys: tuple[str, list[str]] | None = None,
         schema_overrides: dict[str, pl.DataType] | None = None,
     ) -> Generator[PandasDataFrame, None, None]: ...
@@ -292,7 +292,7 @@ class RelationalDBLocation(Location):
         extract_transform: str,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
-        return_type: Literal[QueryReturnType.ARROW] = ...,
+        return_type: Literal[DataFrameType.ARROW] = ...,
         keys: tuple[str, list[str]] | None = None,
         schema_overrides: dict[str, pl.DataType] | None = None,
     ) -> Generator[ArrowTable, None, None]: ...
@@ -302,10 +302,10 @@ class RelationalDBLocation(Location):
         extract_transform: str,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
-        return_type: QueryReturnType = QueryReturnType.POLARS,
+        return_type: DataFrameType = DataFrameType.POLARS,
         keys: tuple[str, list[str]] | None = None,
         schema_overrides: dict[str, pl.DataType] | None = None,
-    ) -> Generator[QueryReturnClass, None, None]:
+    ) -> Generator[DataFrameClass, None, None]:
         # Strip semicolon, as it can block extended query protocol
         # and slow some engines down
         extract_transform = extract_transform.replace(";", "")

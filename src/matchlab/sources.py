@@ -25,7 +25,7 @@ import polars as pl
 import pyarrow.parquet as pq
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.core.db import QueryReturnClass, QueryReturnType
+from matchlab.core.dataframes import DataFrameClass, DataFrameType
 from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
 from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
@@ -168,9 +168,9 @@ class Source(Step):
         self,
         qualify_names: bool = False,
         batch_size: int | None = None,
-        return_type: QueryReturnType = QueryReturnType.POLARS,
+        return_type: DataFrameType = DataFrameType.POLARS,
         keys: list[str] | None = None,
-    ) -> Generator[QueryReturnClass, None, None]:
+    ) -> Generator[DataFrameClass, None, None]:
         """Apply the extract/transform and yield the resulting rows in batches."""
         rename: Callable[[str], str] | None = None
         if qualify_names:
@@ -192,8 +192,8 @@ class Source(Step):
         )
 
     def sample(
-        self, n: int = 100, return_type: QueryReturnType = QueryReturnType.POLARS
-    ) -> QueryReturnClass:
+        self, n: int = 100, return_type: DataFrameType = DataFrameType.POLARS
+    ) -> DataFrameClass:
         """Peek at the first `n` rows without collecting."""
         return next(self.fetch(batch_size=n, return_type=return_type))
 
@@ -219,7 +219,7 @@ class Source(Step):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / f"{self.name}.parquet"
             writer = None
-            for batch in self.fetch(return_type=QueryReturnType.ARROW):
+            for batch in self.fetch(return_type=DataFrameType.ARROW):
                 if writer is None:
                     writer = pq.ParquetWriter(path, schema=batch.schema)
                 writer.write_table(batch)

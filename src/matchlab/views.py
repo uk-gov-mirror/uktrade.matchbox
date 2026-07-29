@@ -27,7 +27,7 @@ from sqlglot import expressions, parse_one
 from sqlglot import select as sqlglot_select
 
 from matchlab.adapters import Adapter, Fingerprint
-from matchlab.core.db import QueryReturnClass, QueryReturnType
+from matchlab.core.dataframes import DataFrameClass, DataFrameType, to_dataframe
 from matchlab.core.kinds import StepKind
 from matchlab.specs import ViewSpec
 from matchlab.steps import Step
@@ -163,13 +163,11 @@ class View(Step):
             )
         return adapter.read_view(self._fp)
 
-    def data(
-        self, return_type: QueryReturnType = QueryReturnType.POLARS
-    ) -> QueryReturnClass:
+    def data(self, return_type: DataFrameType = DataFrameType.POLARS) -> DataFrameClass:
         """Return this view's data, collecting the plan first if needed."""
         if not self.is_collected:
             self.collect()
-        return _convert(self._frame(self._require_adapter()), return_type)
+        return to_dataframe(self._frame(self._require_adapter()), return_type)
 
     # -- verbs ------------------------------------------------------------------------
 
@@ -235,15 +233,3 @@ def _apply_cleaning(
     with duckdb.connect(":memory:") as connection:
         connection.register("data", data)
         return connection.execute(query.sql(dialect="duckdb")).pl()
-
-
-def _convert(data: pl.DataFrame, return_type: QueryReturnType) -> QueryReturnClass:
-    match return_type:
-        case QueryReturnType.POLARS:
-            return data
-        case QueryReturnType.PANDAS:
-            return data.to_pandas()
-        case QueryReturnType.ARROW:
-            return data.to_arrow()
-        case _:
-            raise ValueError(f"Return type {return_type} is invalid")
