@@ -7,8 +7,6 @@ import polars as pl
 import pyarrow as pa
 
 from matchlab.core.dsu import DisjointSet
-from matchlab.core.logging import logger
-from matchlab.core.schemas import SCHEMA_MODEL_EDGES
 
 if TYPE_CHECKING:
     from matchlab.sources import Source
@@ -17,57 +15,6 @@ SCHEMA_QUERY_WITH_LEAVES: Final[pa.Schema] = pa.schema(
     [("id", pa.int64()), ("key", pa.large_string()), ("leaf_id", pa.int64())]
 )
 """The shape of a query result: root cluster IDs keyed to source keys and leaf IDs."""
-
-
-def normalise_model_scores(scores: pl.DataFrame) -> pl.DataFrame:
-    """Validate and normalise model output scores."""
-    if not isinstance(scores, pl.DataFrame):
-        raise ValueError(f"Expected a polars DataFrame, got {type(scores)}.")
-
-    expected_fields = set(SCHEMA_MODEL_EDGES.names)
-    if set(scores.columns) != expected_fields:
-        raise ValueError(
-            f"Expected {expected_fields}.\nFound {set(scores.column_names)}."
-        )
-
-    if scores.height == 0:
-        scores = pl.DataFrame(schema=pl.Schema(SCHEMA_MODEL_EDGES))
-
-    if not scores["score"].dtype.is_numeric():
-        raise ValueError(
-            "Score column must contain numeric values in the range [0.0, 1.0]."
-        )
-
-    normalised_scores = scores.with_columns(pl.col("score").cast(pl.Float32))
-    invalid_scores = normalised_scores.filter(
-        pl.col("score").is_null()
-        | pl.col("score").is_nan()
-        | (pl.col("score") < 0.0)
-        | (pl.col("score") > 1.0)
-    )
-    if invalid_scores.height:
-        min_score = normalised_scores["score"].min()
-        max_score = normalised_scores["score"].max()
-        raise ValueError(f"Score range misconfigured: [{min_score}, {max_score}]")
-
-    unique_scores = (
-        normalised_scores.with_columns(
-            pl.concat_list(
-                [pl.col("left_id").cast(pl.Utf8), pl.col("right_id").cast(pl.Utf8)]
-            )
-            .list.sort()
-            .list.join("_")
-            .alias("sorted_ids")
-        )
-        .sort("score", descending=True)  # sort so largest score comes first
-        .unique(
-            subset=["sorted_ids"], keep="first"
-        )  # keep first occurrence after sorting
-    ).drop("sorted_ids")
-    if len(scores) != len(unique_scores):
-        logger.warning("Duplicate pairs! Keeping only pairs with highest score.")
-
-    return unique_scores.cast(pl.Schema(SCHEMA_MODEL_EDGES))
 
 
 class ResolverMatches:

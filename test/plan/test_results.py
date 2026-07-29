@@ -4,10 +4,10 @@ from polars.testing import assert_frame_equal
 from sqlalchemy import Engine
 
 from matchlab.core.factories.sources import source_factory, source_from_tuple
+from matchlab.models.models import normalise_model_scores
 from matchlab.results import (
     SCHEMA_QUERY_WITH_LEAVES,
     ResolverMatches,
-    normalise_model_scores,
 )
 from matchlab.sources import Source
 

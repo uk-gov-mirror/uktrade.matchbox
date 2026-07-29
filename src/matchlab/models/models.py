@@ -7,10 +7,11 @@ import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.kinds import StepKind
+from matchlab.core.logging import logger
+from matchlab.core.schemas import SCHEMA_MODEL_EDGES
 from matchlab.models import dedupers, linkers
 from matchlab.models.dedupers.base import Deduper, DeduperSettings
 from matchlab.models.linkers.base import Linker, LinkerSettings
-from matchlab.results import normalise_model_scores
 from matchlab.specs import ModelSpec, ModelType
 from matchlab.steps import Step
 from matchlab.views import View
@@ -31,6 +32,57 @@ def add_model_class(model_class: type[Linker] | type[Deduper]) -> None:
     if not issubclass(model_class, Linker | Deduper):
         raise ValueError("The argument is not a subclass of Deduper or Linker.")
     _MODEL_CLASSES[model_class.__name__] = model_class
+
+
+def normalise_model_scores(scores: pl.DataFrame) -> pl.DataFrame:
+    """Validate and normalise model output scores."""
+    if not isinstance(scores, pl.DataFrame):
+        raise ValueError(f"Expected a polars DataFrame, got {type(scores)}.")
+
+    expected_fields = set(SCHEMA_MODEL_EDGES.names)
+    if set(scores.columns) != expected_fields:
+        raise ValueError(
+            f"Expected {expected_fields}.\nFound {set(scores.column_names)}."
+        )
+
+    if scores.height == 0:
+        scores = pl.DataFrame(schema=pl.Schema(SCHEMA_MODEL_EDGES))
+
+    if not scores["score"].dtype.is_numeric():
+        raise ValueError(
+            "Score column must contain numeric values in the range [0.0, 1.0]."
+        )
+
+    normalised_scores = scores.with_columns(pl.col("score").cast(pl.Float32))
+    invalid_scores = normalised_scores.filter(
+        pl.col("score").is_null()
+        | pl.col("score").is_nan()
+        | (pl.col("score") < 0.0)
+        | (pl.col("score") > 1.0)
+    )
+    if invalid_scores.height:
+        min_score = normalised_scores["score"].min()
+        max_score = normalised_scores["score"].max()
+        raise ValueError(f"Score range misconfigured: [{min_score}, {max_score}]")
+
+    unique_scores = (
+        normalised_scores.with_columns(
+            pl.concat_list(
+                [pl.col("left_id").cast(pl.Utf8), pl.col("right_id").cast(pl.Utf8)]
+            )
+            .list.sort()
+            .list.join("_")
+            .alias("sorted_ids")
+        )
+        .sort("score", descending=True)  # sort so largest score comes first
+        .unique(
+            subset=["sorted_ids"], keep="first"
+        )  # keep first occurrence after sorting
+    ).drop("sorted_ids")
+    if len(scores) != len(unique_scores):
+        logger.warning("Duplicate pairs! Keeping only pairs with highest score.")
+
+    return unique_scores.cast(pl.Schema(SCHEMA_MODEL_EDGES))
 
 
 class Model(Step):
