@@ -58,8 +58,8 @@ class PrefixedLoggerAdapter(logging.LoggerAdapter):
     def process(
         self,
         msg: Any,  # noqa: ANN401
-        kwargs: dict[str, Any],  # noqa: ANN401
-    ) -> tuple[Any, dict[str, Any]]:  # noqa: ANN401
+        kwargs: dict[str, Any],
+    ) -> tuple[Any, dict[str, Any]]:
         """Process the log message, adding a prefix if there is one.
 
         Args:

@@ -103,5 +103,5 @@ def truth() -> dict[str, int]:
 
 
 if __name__ == "__main__":
-    print(f"built {build()}")  # noqa: T201
-    print(f"{len(truth())} records across {len(TABLES)} sources")  # noqa: T201
+    print(f"built {build()}")
+    print(f"{len(truth())} records across {len(TABLES)} sources")

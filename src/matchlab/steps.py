@@ -39,13 +39,13 @@ _DEFAULT_ADAPTER: Adapter | None = None
 
 def set_default_adapter(adapter: Adapter | None) -> None:
     """Set the adapter used by `collect()` when none is passed. `None` resets it."""
-    global _DEFAULT_ADAPTER  # noqa: PLW0603 - module-level default, by design
+    global _DEFAULT_ADAPTER  # module-level default, by design
     _DEFAULT_ADAPTER = adapter
 
 
 def default_adapter() -> Adapter:
     """Return the default adapter, creating a DuckDB store in the cache dir if unset."""
-    global _DEFAULT_ADAPTER  # noqa: PLW0603 - module-level default, by design
+    global _DEFAULT_ADAPTER  # module-level default, by design
     if _DEFAULT_ADAPTER is None:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         _DEFAULT_ADAPTER = DuckDBAdapter(CACHE_DIR / "store.duckdb")
@@ -158,7 +158,7 @@ class Step(ABC):
         """
         parts: list[bytes] = [self.kind.encode(), self._spec_key()]
         for parent in self.upstream:
-            if parent._fp is None:  # pragma: no cover - collect orders upstream first
+            if parent._fp is None:  # collect orders upstream first
                 raise RuntimeError(
                     f"A {parent.kind} input of this {self.kind} has no fingerprint yet."
                 )

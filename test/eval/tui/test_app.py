@@ -101,7 +101,7 @@ async def test_a_judgement_reaches_the_adapter(
             await pilot.pause()
             if len(groups) > 1:
                 break
-        else:  # pragma: no cover - the fixture always has a multi-record cluster
+        else:  # the fixture always has a multi-record cluster
             pytest.fail("no multi-record cluster was offered")
 
     judgements, expansion = adapter.read_eval_data(tag="review-test")

@@ -135,7 +135,7 @@ def format_bytes(count: int, *, signed: bool = False) -> str:
             precision = 0 if unit == "B" else 1
             return f"{sign}{size:.{precision}f} {unit}"
         size /= 1024
-    raise AssertionError("unreachable: the loop returns at TB")  # pragma: no cover
+    raise AssertionError("unreachable: the loop returns at TB")
 
 
 class Adapter(ABC):

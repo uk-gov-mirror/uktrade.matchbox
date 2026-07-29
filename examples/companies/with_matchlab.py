@@ -105,9 +105,9 @@ if __name__ == "__main__":
     for row in resolution.iter_rows(named=True):
         groups.setdefault(row["root"], set()).add(row["key"])
 
-    print(f"{len(groups)} entities from {resolution.height} records\n")  # noqa: T201
+    print(f"{len(groups)} entities from {resolution.height} records\n")
     expected = truth()
     for keys in sorted(groups.values(), key=lambda k: sorted(k)[0]):
         entities = {expected[key] for key in keys}
         mark = "✓" if len(entities) == 1 else "✗"
-        print(f"  {mark} {sorted(keys)}")  # noqa: T201
+        print(f"  {mark} {sorted(keys)}")

@@ -175,10 +175,10 @@ if __name__ == "__main__":
 
     groups = resolve()
     total = sum(len(keys) for keys in groups.values())
-    print(f"{len(groups)} entities from {total} records\n")  # noqa: T201
+    print(f"{len(groups)} entities from {total} records\n")
 
     expected = truth()
     for keys in sorted(groups.values(), key=lambda k: sorted(k)[0]):
         entities = {expected[key] for key in keys}
         mark = "✓" if len(entities) == 1 else "✗"
-        print(f"  {mark} {sorted(keys)}")  # noqa: T201
+        print(f"  {mark} {sorted(keys)}")

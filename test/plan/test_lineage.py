@@ -42,7 +42,7 @@ class FakeStep(Step):
     def spec(self) -> BaseModel:
         return _FakeSpec(name=self.label)
 
-    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:  # pragma: no cover
+    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         raise AssertionError("FakeStep never executes")
 
 

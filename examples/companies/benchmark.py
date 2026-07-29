@@ -70,7 +70,7 @@ def generate(n_rows: int, seed: int = 42) -> dict[str, pl.DataFrame]:
             pl.col("town_idx"),
             pl.col("hash"),
             pl.int_ranges(0, pl.col("copies")).alias("copy"),
-        ).explode("copy")  # noqa: PD010
+        ).explode("copy")
 
         frames[source] = rows.select(
             pl.format(
@@ -151,7 +151,7 @@ def time_pipelines(n_rows: int) -> None:
     store.close()
 
     entities_lab = resolution["root"].n_unique()
-    print(  # noqa: T201
+    print(
         f"{actual:>10,} rows | by hand {hand:7.2f}s | matchlab {lab:7.2f}s "
         f"| re-collect {cached:6.2f}s | entities {entities_lab:,} "
         f"vs {len(groups_by_hand):,}"
@@ -160,6 +160,6 @@ def time_pipelines(n_rows: int) -> None:
 
 if __name__ == "__main__":
     sizes = [int(arg.replace("_", "")) for arg in sys.argv[1:]] or [10_000]
-    print(f"{'rows':>10} | {'by hand':>15} | {'matchlab':>16} | cached | entities")  # noqa: T201
+    print(f"{'rows':>10} | {'by hand':>15} | {'matchlab':>16} | cached | entities")
     for size in sizes:
         time_pipelines(size)

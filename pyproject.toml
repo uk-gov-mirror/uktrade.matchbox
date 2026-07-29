@@ -92,6 +92,7 @@ select = [
     "PLC",
     "SIM",
     "ANN",
+    "RUF100",
 ]
 ignore = []
 fixable = ["ALL"]
@@ -106,6 +107,9 @@ allow-star-arg-any = true
 
 [tool.ruff.lint.per-file-ignores]
 "**/{test,docs}/*" = ["D"]
+# Adapter methods inherit their docstrings from the Adapter ABC, which
+# griffe-inherited-docstrings renders into the docs.
+"src/matchlab/adapters/*" = ["D102"]
 # Examples should read like something a user would write, not like library code.
 "examples/**" = ["ANN", "D", "T201"]
 

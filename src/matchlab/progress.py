@@ -229,7 +229,7 @@ class Progress:
 
     def __enter__(self) -> "Progress":
         """Start reporting, putting the plan on screen or in the log."""
-        global _REPORTING  # noqa: PLW0603 - one report per console
+        global _REPORTING  # one report per console
         self._started = time.perf_counter()
         if self._adapter is not None:
             self._store_before = self._adapter.stats()
@@ -267,7 +267,7 @@ class Progress:
         traceback: TracebackType | None,
     ) -> None:
         """Stop reporting, leaving the finished tree on screen."""
-        global _REPORTING  # noqa: PLW0603 - one report per console
+        global _REPORTING  # one report per console
         # Whatever happened, this report is no longer the one tagging records — an
         # exception out of `collect` leaves the running step's `end` uncalled.
         self._release()

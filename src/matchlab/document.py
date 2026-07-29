@@ -297,7 +297,7 @@ def _rebuild(
                 resolver_settings=spec.resolver_settings,
             )
 
-        case _:  # pragma: no cover - every member of StepKind is handled above
+        case _:  # every member of StepKind is handled above
             raise ValueError(
                 f"No rebuild for a {node.kind} step. A new kind of step needs an arm "
                 "here as well as an entry in `_SPEC_TYPES`."
@@ -307,7 +307,7 @@ def _rebuild(
 def _expect(node: StepNode, position: int, spec_type: type[SpecT]) -> SpecT:
     """Narrow a node's spec to the type its kind implies."""
     if not isinstance(node.spec, spec_type):
-        raise ValueError(  # pragma: no cover - the validator parses spec by kind
+        raise ValueError(  # the validator parses spec by kind
             f"Step {position} ({node.kind}) has a "
             f"{type(node.spec).__name__}, expected {spec_type.__name__}."
         )

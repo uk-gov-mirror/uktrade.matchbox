@@ -200,7 +200,7 @@ class DuckDBAdapter(Adapter):
 
     # -- existence --------------------------------------------------------------------
 
-    def has(self, fp: Fingerprint) -> bool:  # noqa: D102
+    def has(self, fp: Fingerprint) -> bool:
         return self._kind(fp) is not None
 
     # -- introspection ----------------------------------------------------------------
@@ -268,7 +268,7 @@ class DuckDBAdapter(Adapter):
 
     # -- sources ----------------------------------------------------------------------
 
-    def store_source(  # noqa: D102
+    def store_source(
         self,
         fp: Fingerprint,
         key_field: str,
@@ -300,12 +300,12 @@ class DuckDBAdapter(Adapter):
         self.conn.execute("INSERT INTO source_meta VALUES (?, ?)", [fp, key_field])
         self._register_artifact(fp, StepKind.SOURCE)
 
-    def read_source_extract(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
+    def read_source_extract(self, fp: Fingerprint) -> pl.DataFrame:
         if self._kind(fp) is not StepKind.SOURCE:
             raise KeyError(f"No stored source for fingerprint {fp.hex()}")
         return self.conn.execute(f'SELECT * FROM "{self._extract_table(fp)}"').pl()
 
-    def read_source_leaves(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
+    def read_source_leaves(self, fp: Fingerprint) -> pl.DataFrame:
         if self._kind(fp) is not StepKind.SOURCE:
             raise KeyError(f"No stored source for fingerprint {fp.hex()}")
         return self.conn.execute(
@@ -314,7 +314,7 @@ class DuckDBAdapter(Adapter):
 
     # -- identifiers ------------------------------------------------------------------
 
-    def read_identifiers(  # noqa: D102
+    def read_identifiers(
         self,
         source_fp: Fingerprint,
         source_name: str,
@@ -429,7 +429,7 @@ class DuckDBAdapter(Adapter):
         database = self.conn.execute(
             "SELECT database_name FROM duckdb_databases() WHERE NOT internal LIMIT 1"
         ).fetchone()
-        if database is None:  # pragma: no cover - a connected store always has one
+        if database is None:  # a connected store always has one
             return
 
         self.conn.execute("CHECKPOINT")
@@ -444,7 +444,7 @@ class DuckDBAdapter(Adapter):
 
     # -- models -----------------------------------------------------------------------
 
-    def store_model(self, fp: Fingerprint, edges: pl.DataFrame) -> None:  # noqa: D102
+    def store_model(self, fp: Fingerprint, edges: pl.DataFrame) -> None:
         check_schema_subset(SCHEMA_MODEL_EDGES, edges.to_arrow().schema)
         self._purge(fp)
         edges = edges.select(
@@ -461,7 +461,7 @@ class DuckDBAdapter(Adapter):
         self.conn.unregister("_reg_edges")
         self._register_artifact(fp, StepKind.MODEL)
 
-    def read_model(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
+    def read_model(self, fp: Fingerprint) -> pl.DataFrame:
         if self._kind(fp) is not StepKind.MODEL:
             raise KeyError(f"No stored model for fingerprint {fp.hex()}")
         return self.conn.execute(
@@ -470,7 +470,7 @@ class DuckDBAdapter(Adapter):
 
     # -- views ------------------------------------------------------------------------
 
-    def store_view(self, fp: Fingerprint, table: pl.DataFrame) -> None:  # noqa: D102
+    def store_view(self, fp: Fingerprint, table: pl.DataFrame) -> None:
         self._purge(fp)
         self._register("_reg_view", table)
         self.conn.execute(
@@ -480,14 +480,14 @@ class DuckDBAdapter(Adapter):
         self.conn.unregister("_reg_view")
         self._register_artifact(fp, StepKind.VIEW)
 
-    def read_view(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
+    def read_view(self, fp: Fingerprint) -> pl.DataFrame:
         if self._kind(fp) is not StepKind.VIEW:
             raise KeyError(f"No stored view for fingerprint {fp.hex()}")
         return self.conn.execute(f'SELECT * FROM "{self._view_table(fp)}"').pl()
 
     # -- resolvers --------------------------------------------------------------------
 
-    def store_resolver(  # noqa: D102
+    def store_resolver(
         self,
         fp: Fingerprint,
         resolution: pl.DataFrame,
@@ -515,7 +515,7 @@ class DuckDBAdapter(Adapter):
             )
         self._register_artifact(fp, StepKind.RESOLVER)
 
-    def read_resolver(self, fp: Fingerprint) -> pl.DataFrame:  # noqa: D102
+    def read_resolver(self, fp: Fingerprint) -> pl.DataFrame:
         if self._kind(fp) is not StepKind.RESOLVER:
             raise KeyError(f"No stored resolver for fingerprint {fp.hex()}")
         return self.conn.execute(
@@ -524,9 +524,7 @@ class DuckDBAdapter(Adapter):
 
     # -- evaluation -------------------------------------------------------------------
 
-    def store_judgement(  # noqa: D102
-        self, judgement: Judgement, user_name: str = "local"
-    ) -> None:
+    def store_judgement(self, judgement: Judgement, user_name: str = "local") -> None:
         shown_id = _mint_cluster_id(judgement.shown)
         self._upsert_expansion(shown_id, judgement.shown)
 
@@ -545,7 +543,7 @@ class DuckDBAdapter(Adapter):
             [root, sorted(int(leaf) for leaf in leaves)],
         )
 
-    def read_eval_data(  # noqa: D102
+    def read_eval_data(
         self, tag: str | None = None
     ) -> tuple[pl.DataFrame, pl.DataFrame]:
         if tag is None:
@@ -571,7 +569,7 @@ class DuckDBAdapter(Adapter):
 
         return judgements, expansion
 
-    def sample(  # noqa: D102
+    def sample(
         self, resolver_fp: Fingerprint, n: int, seed: int | None = None
     ) -> pl.DataFrame:
         resolution = self.read_resolver(resolver_fp)
@@ -584,18 +582,18 @@ class DuckDBAdapter(Adapter):
 
     # -- lookups ----------------------------------------------------------------------
 
-    def publish(self, label: str, fp: Fingerprint) -> None:  # noqa: D102
+    def publish(self, label: str, fp: Fingerprint) -> None:
         self.conn.execute(
             "INSERT OR REPLACE INTO labels VALUES (?, ?, now())", [label, fp]
         )
 
-    def find(self, label: str) -> Fingerprint | None:  # noqa: D102
+    def find(self, label: str) -> Fingerprint | None:
         row = self.conn.execute(
             "SELECT fp FROM labels WHERE label = ?", [label]
         ).fetchone()
         return row[0] if row else None
 
-    def labels(self) -> list[str]:  # noqa: D102
+    def labels(self) -> list[str]:
         return [
             row[0]
             for row in self.conn.execute(
@@ -603,7 +601,7 @@ class DuckDBAdapter(Adapter):
             ).fetchall()
         ]
 
-    def source_key_field(self, fp: Fingerprint) -> str:  # noqa: D102
+    def source_key_field(self, fp: Fingerprint) -> str:
         row = self.conn.execute(
             "SELECT key_field FROM source_meta WHERE fp = ?", [fp]
         ).fetchone()
@@ -611,7 +609,7 @@ class DuckDBAdapter(Adapter):
             raise KeyError(f"No stored source for fingerprint {fp.hex()}")
         return row[0]
 
-    def resolution_sources(self, fp: Fingerprint) -> dict[str, Fingerprint]:  # noqa: D102
+    def resolution_sources(self, fp: Fingerprint) -> dict[str, Fingerprint]:
         return {
             name: source_fp
             for name, source_fp in self.conn.execute(
@@ -622,5 +620,5 @@ class DuckDBAdapter(Adapter):
 
     # -- lifecycle --------------------------------------------------------------------
 
-    def close(self) -> None:  # noqa: D102
+    def close(self) -> None:
         self.conn.close()

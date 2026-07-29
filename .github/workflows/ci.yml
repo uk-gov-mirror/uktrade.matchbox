@@ -41,6 +41,11 @@ jobs:
     - name: Format and lint
       run: just format
 
+    # `just format` fixes in place and exits 0, so without this the job passes
+    # while leaving the fix uncommitted — stale noqa directives never surface.
+    - name: Check for uncommitted fixes
+      run: git diff --exit-code
+
   build:
     runs-on: ubuntu-latest
 

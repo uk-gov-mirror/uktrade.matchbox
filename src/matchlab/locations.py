@@ -209,7 +209,7 @@ class RelationalDBLocation(Location):
                 logger.warning("Could not validate specific dialect.")
                 return None
 
-    def validate_extract_transform(self, extract_transform: str) -> None:  # noqa: D102
+    def validate_extract_transform(self, extract_transform: str) -> None:
         """Check that the SQL statement only contains a single data-extracting command.
 
         We are NOT attempting a full sanitisation of the SQL statement

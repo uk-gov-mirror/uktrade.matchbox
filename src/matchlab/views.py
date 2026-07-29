@@ -156,7 +156,7 @@ class View(Step):
         cost one computation instead of one per consumer, and it is what lets a plan
         rebuilt in a new process pick up a view stored by an earlier one.
         """
-        if self._fp is None:  # pragma: no cover - collect orders upstream first
+        if self._fp is None:  # collect orders upstream first
             raise RuntimeError(
                 "This view has not been collected. Call collect() first."
             )

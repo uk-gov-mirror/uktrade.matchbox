@@ -140,7 +140,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "version":
         from importlib.metadata import version  # noqa: PLC0415
 
-        print(version("matchlab"))  # noqa: T201 - the whole point of the command
+        print(version("matchlab"))
         return
 
     if args.log_file:

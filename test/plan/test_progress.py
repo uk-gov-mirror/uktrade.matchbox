@@ -883,7 +883,7 @@ def test_a_display_that_fails_to_start_borrows_nothing(
             pytest.raises(RuntimeError, match="no frame"),
             report(apex, apex.lineage(), interactive=True),
         ):
-            pass  # pragma: no cover - never entered
+            pass  # never entered
     finally:
         matchlab.removeHandler(handler)
 
