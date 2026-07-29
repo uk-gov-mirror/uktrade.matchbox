@@ -25,14 +25,25 @@ from matchlab.core.schemas import (
 )
 from matchlab.eval.judgements import Judgement
 
-#: Bumped whenever the stored shape changes. A store written by an older matchlab is
-#: recreated rather than half-read, which is the honest failure for a cache.
-_SCHEMA_VERSION = 4
+#: Bumped whenever the stored shape changes, or whenever stored IDs stop meaning what
+#: they did. A store written by an older matchlab is recreated rather than half-read,
+# which is the honest failure for a cache.
+_SCHEMA_VERSION = 5
 
 _SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS meta (
     schema_version INTEGER
 );
+-- `fp` is BLOB in every table below because a fingerprint is a 32-byte SHA-256 digest
+-- and DuckDB's widest integer holds 16. An integer key would mean truncating the hash,
+-- and it would buy nothing: every `fp` predicate here is scalar equality, a store holds
+-- few fingerprints against many rows so the column dictionary-compresses to a code per
+-- row, and each artifact is written in one statement so its rows sit contiguously and
+-- BLOB min/max zonemaps prune whole row groups. Measured against a UBIGINT key over 20M
+-- rows, the BLOB is no slower laid out that way and faster interleaved, where random
+-- 64-bit keys do not compress. Truncation is a poor trade for that: unlike a leaf ID
+-- collision, which shows up as a wrong merge in the data, a fingerprint collision makes
+-- `_ensure` skip the step and read back a different one's artifact, silently.
 CREATE TABLE IF NOT EXISTS artifacts (
     fp BLOB PRIMARY KEY, kind VARCHAR
 );

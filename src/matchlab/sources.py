@@ -217,8 +217,14 @@ class Source(Step):
                         f"Source '{self.name}' returns only its key field. The "
                         "extract/transform must select at least one other column."
                     )
+                # XXH3_128 rather than SHA-256, which this used to be: `leaf_id`
+                # slices the row hash to 8 bytes, so a cryptographic digest's strength
+                # is discarded before it identifies anything, and the 128 bits that
+                # survive into `_spec_key` are ample for telling rows of one table
+                # apart. It is ~7x faster, on a path every collect pays — `_spec_key`
+                # re-reads and re-hashes the warehouse even when the artifact is cached.
                 row_hashes = hash_rows(
-                    df=batch, columns=index, method=HashMethod.SHA256
+                    df=batch, columns=index, method=HashMethod.XXH3_128
                 )
                 hashed.append(
                     batch.select(pl.col(key).alias("keys")).with_columns(
