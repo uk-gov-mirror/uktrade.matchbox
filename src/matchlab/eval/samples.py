@@ -1,21 +1,38 @@
-"""Client-side helpers for retrieving and preparing evaluation samples."""
+"""Client-side helpers for retrieving and preparing evaluation samples.
 
-from typing import TYPE_CHECKING, Any
+Everything here takes a **resolution**: a `Resolver` you are holding, the label one was
+published under, or a sequence of either. The sequence form is what makes two
+methodologies comparable — sampling across several resolutions unions their components,
+so one round of judging covers all of them and the scores are answering the same
+question.
+"""
+
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import polars as pl
 from pydantic import BaseModel
 
 from matchlab.core.dataframes import qualify
+from matchlab.core.dsu import DisjointSet
 from matchlab.core.exceptions import SourceTableError
+from matchlab.core.resolution import root_id
 from matchlab.eval.judgements import Judgement
-from matchlab.eval.metrics import precision_recall
+from matchlab.eval.metrics import PrecisionRecall, precision_recall
 
 if TYPE_CHECKING:
-    from matchlab.adapters import Adapter
+    from matchlab.adapters import Adapter, Fingerprint
     from matchlab.resolvers import Resolver
 else:
     Adapter = Any
+    Fingerprint = Any
     Resolver = Any
+
+Resolution: TypeAlias = "Resolver | str"
+"""One resolution to read: a resolver, or the label one was published under."""
+
+Reading: TypeAlias = "tuple[Adapter, Fingerprint]"
+"""A located resolution: the store holding it, and its fingerprint."""
 
 
 class EvaluationFieldMetadata(BaseModel):
@@ -144,37 +161,17 @@ def create_evaluation_item(
     return EvaluationItem(leaves=leaves, records=records, fields=fields)
 
 
-def _read_sample_file(sample_file: str, n: int) -> pl.DataFrame:
-    resolver_matches_dump = pl.read_parquet(sample_file)
-    clusters = resolver_matches_dump["id"].unique()
-    select_clusters = clusters.sample(min(n, len(clusters)), shuffle=True).to_list()
-    select_rows = resolver_matches_dump.filter(pl.col("id").is_in(select_clusters))
-    return select_rows.rename({"id": "root", "leaf_id": "leaf"})
+def _many(resolution: "Resolution | Sequence[Resolution]") -> bool:
+    """Whether several resolutions were asked for.
 
-
-def _stored_records(
-    adapter: "Adapter", source_fp: "bytes", name: str, keys: list[str]
-) -> tuple[pl.DataFrame, str, list[str]]:
-    """Return a source's rows for `keys`, from the store rather than the warehouse.
-
-    The extract cached when the source was collected *is* the data the matching saw,
-    which is what you want to judge a resolution against — and it means review needs
-    no warehouse connection.
-
-    Returns:
-        `(rows, qualified key column, qualified value columns)`.
+    A `str` is itself a `Sequence`, and a label is one resolution, not a pile of
+    one-character ones — so it is excluded before the sequence check, not after.
     """
-    key_field = adapter.source_key_field(source_fp)
-    extract = adapter.read_source_extract(source_fp)
-    qualified = extract.select(pl.all().name.prefix(qualify(name)))
-    qualified_key = qualify(name, key_field)
-    rows = qualified.filter(pl.col(qualified_key).cast(pl.Utf8).is_in(keys))
-    values = [column for column in qualified.columns if column != qualified_key]
-    return rows.with_columns(pl.col(qualified_key).cast(pl.Utf8)), qualified_key, values
+    return not isinstance(resolution, str) and isinstance(resolution, Sequence)
 
 
 def _locate(
-    resolution: "Resolver | str", adapter: "Adapter | None"
+    resolution: "Resolution", adapter: "Adapter | None"
 ) -> tuple["Adapter", bytes]:
     """Turn a resolver or a label into the store and fingerprint to read.
 
@@ -204,11 +201,100 @@ def _locate(
     return adapter or collected_in, fingerprint
 
 
+def _readings(
+    resolution: "Resolution | Sequence[Resolution]", adapter: "Adapter | None"
+) -> list[Reading]:
+    """Locate every resolution asked for, in the order given."""
+    if not _many(resolution):
+        return [_locate(resolution, adapter)]
+    if not resolution:
+        raise ValueError("At least one resolution must be given.")
+    return [_locate(one, adapter) for one in resolution]
+
+
+def _sources_of(readings: list[Reading]) -> dict[str, Reading]:
+    """Source name to the store and fingerprint its rows come from.
+
+    Raises:
+        SourceTableError: If two resolutions cover the same source name with different
+            artifacts. Names repeat across generations of a source, so agreeing on the
+            name is not agreeing on the data, and comparing methodologies over different
+            data is not a comparison.
+    """
+    located: dict[str, Reading] = {}
+    for store, fp in readings:
+        for name, source_fp in store.resolution_sources(fp).items():
+            seen = located.setdefault(name, (store, source_fp))
+            if seen[1] != source_fp:
+                raise SourceTableError(
+                    f"These resolutions disagree about source '{name}': one covers "
+                    f"{seen[1].hex()[:8]}, another {source_fp.hex()[:8]}. They are "
+                    "built over different data, so their clusters cannot be compared. "
+                    "Re-collect them over the same sources."
+                )
+    return located
+
+
+def _merged_resolution(readings: list[Reading]) -> pl.DataFrame:
+    """Union several resolutions' components into one `(root, leaf, key, source)`.
+
+    Two records land in the same merged component when *either* resolution put them
+    together. That is the right sample for a bake-off: every cluster where the
+    methodologies could disagree is on screen, so one judgement settles it for both,
+    and neither gets to pick the clusters it is scored on.
+
+    Merged roots are minted with `root_id`, the same content-addressed function a
+    resolver mints its own with, so two people running the same comparison key on the
+    same IDs. Nothing persists them — `store_judgement` re-mints from the leaves it is
+    given — so a merged root only ever lives as far as the reviewer.
+    """
+    frames = [store.read_resolver(fp) for store, fp in readings]
+
+    components = DisjointSet[int]()
+    for frame in frames:
+        for leaves in frame.group_by("root").agg("leaf")["leaf"].to_list():
+            components.add(leaves[0])
+            for leaf in leaves[1:]:
+                components.union(leaves[0], leaf)
+
+    # `root_id` is invariant to leaf order but the caller does the sorting, and it is
+    # vectorised because there are as many clusters here as there are entities.
+    merged = (
+        pl.DataFrame(
+            {"leaf": [sorted(component) for component in components.get_components()]},
+            schema={"leaf": pl.List(pl.UInt64)},
+        )
+        .with_columns(root_id(pl.col("leaf")).alias("root"))
+        # A component always holds at least one leaf, so the empty-list case this
+        # settles cannot arise; pinning it keeps the polars 2.0 default change quiet.
+        .explode("leaf", empty_as_null=False)
+    )
+
+    records = pl.concat(
+        [frame.select("leaf", "key", "source") for frame in frames]
+    ).unique()
+    return merged.join(records, on="leaf").select("root", "leaf", "key", "source")
+
+
+def _sample_clusters(
+    resolution: pl.DataFrame, n: int, seed: int | None
+) -> pl.DataFrame:
+    """Take up to `n` whole clusters from a resolution held in memory.
+
+    The in-memory twin of `Adapter.sample`, for the merged resolution of several
+    readings — which no store holds, because it exists only for the comparison.
+    """
+    roots = resolution["root"].unique()
+    if n < roots.len():
+        roots = roots.sample(n=n, seed=seed, shuffle=True)
+    return resolution.filter(pl.col("root").is_in(roots.to_list()))
+
+
 def get_samples(
     n: int,
-    resolution: "Resolver | str",
-    sample_file: str | None = None,
+    resolution: "Resolution | Sequence[Resolution]",
     adapter: "Adapter | None" = None,
+    seed: int | None = None,
 ) -> dict[int, EvaluationItem]:
     """Retrieve samples enriched with source data as EvaluationItems.
 
@@ -220,45 +306,52 @@ def get_samples(
         n: Number of clusters to sample.
         resolution: The resolver to sample from — collected first if it isn't
             already — or the label one was published under, which needs no plan: a
-            stored resolution records which source artifacts it covers.
-        sample_file: A parquet file written by `ResolverMatches.as_dump()`. Samples
-            come from it rather than from the stored resolution.
+            stored resolution records which source artifacts it covers. Pass several
+            and the sample is drawn from their merged components, so one round of
+            judging scores all of them against the same clusters.
         adapter: Where to read from. Defaults to the resolver's, else the module
             default.
+        seed: Fixes which clusters come back. The same store, `n` and seed give the
+            same sample, which is how two people review the same clusters.
 
     Returns:
         Dictionary of cluster ID to EvaluationItems describing the cluster.
 
     Raises:
-        SourceTableError: If nothing is published under `resolution`, or if a source
-            the resolution covers isn't in the store.
+        SourceTableError: If nothing is published under `resolution`, if a source the
+            resolution covers isn't in the store, or if several resolutions disagree
+            about a source.
+        ValueError: If `resolution` is an empty sequence.
     """
-    adapter, resolver_fp = _locate(resolution, adapter)
+    readings = _readings(resolution, adapter)
 
-    if sample_file:
-        samples = _read_sample_file(sample_file=sample_file, n=n)
+    if len(readings) == 1:
+        store, resolver_fp = readings[0]
+        samples = store.sample(resolver_fp, n, seed)
     else:
-        samples = adapter.sample(resolver_fp, n)
+        samples = _sample_clusters(_merged_resolution(readings), n, seed)
 
     if not len(samples):
         return {}
 
-    sources = adapter.resolution_sources(resolver_fp)
+    sources = _sources_of(readings)
     results_by_source: list[pl.DataFrame] = []
     source_fields: list[tuple[str, list[str]]] = []
 
     for source_step in samples["source"].unique():
-        source_fp = sources.get(source_step)
-        if source_fp is None:
+        located = sources.get(source_step)
+        if located is None:
             raise SourceTableError(
                 f"This resolution references source '{source_step}', which is not "
                 "in the store. Re-collect the plan to repopulate it."
             )
+        source_store, source_fp = located
 
         samples_by_source = samples.filter(pl.col("source") == source_step)
-        rows, qualified_key, values = _stored_records(
-            adapter, source_fp, source_step, samples_by_source["key"].to_list()
+        rows, qualified_key = source_store.read_source_records(
+            source_fp, source_step, samples_by_source["key"].to_list()
         )
+        values = [column for column in rows.columns if column != qualified_key]
 
         samples_and_source = samples_by_source.join(
             rows, left_on="key", right_on=qualified_key
@@ -291,18 +384,36 @@ class EvalData:
             adapter: The storage adapter holding judgements (e.g. `dag.adapter`).
             tag: Optional tag to filter judgements by.
         """
+        self.adapter = adapter
         self.tag = tag
         self.judgements, self.expansion = adapter.read_eval_data(tag)
 
-    def precision_recall(self, results_eval: pl.DataFrame) -> tuple[float, float]:
-        """Compute precision and recall for cluster data.
+    def precision_recall(
+        self, resolution: "Resolution | Sequence[Resolution]"
+    ) -> PrecisionRecall | list[PrecisionRecall]:
+        """Score one or more resolutions against these judgements.
+
+        Only pairs present in every resolution *and* in the judgements are compared, so
+        scoring several at once is the fair way to rank them: each is measured over the
+        same records, and none is flattered by clusters the others never saw. Scoring
+        them one at a time gives each its own comparison set, and those numbers do not
+        line up.
 
         Args:
-            results_eval: a dataframe with id and leaf_id columns, where leaf_id must
-                correspond to server leaf IDs.
+            resolution: A resolver, the label one was published under, or a sequence of
+                either.
 
         Returns:
-            Precision and recall values as a tuple
+            One `(precision, recall)` pair, or a list of them in the order given if a
+            sequence was passed.
         """
-        values = precision_recall([results_eval], self.judgements, self.expansion)[0]
-        return values[0], values[1]
+        readings = _readings(resolution, self.adapter)
+        scores = precision_recall(
+            [
+                store.read_resolver(fp).select("root", "leaf").unique()
+                for store, fp in readings
+            ],
+            self.judgements,
+            self.expansion,
+        )
+        return scores if _many(resolution) else scores[0]

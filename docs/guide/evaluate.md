@@ -11,7 +11,7 @@ matchlab treats that as a first-class job rather than something you bolt on afte
 ```python
 from matchlab.eval import get_samples
 
-samples = get_samples(n=20, resolution=entities)
+samples = get_samples(n=20, resolution=companies)
 ```
 
 `resolution` takes either a resolver you are holding or the label one was
@@ -36,28 +36,27 @@ was grouped:
 ```python
 from matchlab.eval import review
 
-review(entities, tag="review-2026-07")
+review(companies, tag="review-2026-07")
 ```
 
 Paint the records into groups and each decision is stored as a judgement, tagged so a
 later `EvalData(adapter, tag=...)` scores against just this session. The app collects
 the resolver first if it isn't already.
 
-To review the *same* clusters someone else was shown, hand it a dump:
+To review the *same* clusters someone else was shown, agree on a seed:
 
 ```python
-entities.get_matches().as_dump().write_parquet("sample.parquet")
-review(entities, sample_file="sample.parquet")
+review(companies, seed=7)
 ```
 
-A dump records which records appeared together, not their values, so the resolver is
-still needed — the sources are re-read to display them.
+Same store, same `n`, same seed, same clusters — so two people can judge the same work
+independently and their judgements are directly comparable.
 
 There's a command too, for when you'd rather not open a REPL. It takes a
 `module:attribute` naming a resolver in your own code — the same shape `uvicorn` uses:
 
 ```shell
-matchlab review pipeline:entities --tag review-2026-07
+matchlab review pipeline:companies --tag review-2026-07
 ```
 
 `pipeline.py` is just your plan. The attribute can also be a function returning a
@@ -69,11 +68,11 @@ resolver, if building it needs a warehouse connection you'd rather open on deman
 You don't need the plan, or the warehouse, to review what it produced:
 
 ```shell
-matchlab review entities --store ./run.duckdb
+matchlab review companies --store ./run.duckdb
 ```
 
 With `--store`, the target is the label a resolution was **published** under —
-`entities.collect().publish("entities")` — rather than Python to import. This works
+`companies.collect().publish("companies")` — rather than Python to import. This works
 because collecting a source caches its extract, and
 a stored resolution records which source artifacts it covers — so the values on screen
 come out of the store.
@@ -86,7 +85,7 @@ and they can judge it on a laptop with no database access.
 from matchlab.adapters import DuckDBAdapter
 from matchlab.eval import review
 
-review("entities", adapter=DuckDBAdapter("run.duckdb"), tag="second-opinion")
+review("companies", adapter=DuckDBAdapter("run.duckdb"), tag="second-opinion")
 ```
 
 ## Record a judgement
@@ -117,11 +116,12 @@ measurable rather than guessed.
 from matchlab.eval import EvalData
 
 evaluation = EvalData(adapter, tag="review-2026-07")
-precision, recall = evaluation.precision_recall(entities.results_eval())
+precision, recall = evaluation.precision_recall(companies)
 ```
 
-Only pairs that appear in both the judgements and the resolution are compared, so two
-methodologies scored against the same judgements are compared fairly.
+Pass a resolver or the label one was published under — the same either/or as everywhere
+else on this page. Only pairs that appear in both the judgements and the resolution are
+compared, so two methodologies scored against the same judgements are compared fairly.
 
 ## Measuring against known truth
 
@@ -132,7 +132,7 @@ The testkit builds sources whose true entities are known:
 from matchlab.core.factories.scenarios import link_scenario
 
 scenario = link_scenario(n_true_entities=100)
-resolution = scenario.apex.collect().resolution()
+resolution = scenario.apex.collect().entities()
 ```
 
 `scenario.linked.true_entities` holds the planted entities, so you can compare the
@@ -143,22 +143,34 @@ See [`matchlab.core.factories`](../api/core/factories.md) for the generators.
 
 ## Comparing methodologies
 
-The plan structure makes this cheap: build several resolvers over the same sources,
-collect them, and score each against the same judgements.
+The plan structure makes this cheap: build several resolvers over the same sources and
+collect them. Because steps are content-addressed, the shared source is read once and
+every candidate reuses it.
 
 ```python
-candidates = {
-    "naive": crn.dedupe(model_class=NaiveDeduper, ...).resolve(),
-    "splink": crn.dedupe(model_class=SplinkLinker, ...).resolve(),
-}
-
-for name, candidate in candidates.items():
-    candidate.collect().publish(name)
-    print(name, evaluation.precision_recall(candidate.results_eval()))
+naive = crn.dedupe(model_class=NaiveDeduper, ...).resolve().collect()
+splink = crn.dedupe(model_class=SplinkLinker, ...).resolve().collect()
 ```
 
-Publishing each one is what lets you come back to it later with
-`matchlab review naive` — a candidate you only wanted to score once needs no label.
+Then judge them **together**, in one pass:
 
-Because steps are content-addressed, the shared source is read once and both resolvers
-reuse it.
+```python
+review([naive, splink], tag="bakeoff")
+
+evaluation = EvalData(adapter, tag="bakeoff")
+evaluation.precision_recall([naive, splink])
+# [(0.91, 0.84), (0.95, 0.79)]
+```
+
+Handing `review()` several resolutions samples from their *merged* components: two
+records appear together if either methodology put them there. That's what makes the
+comparison honest — every cluster where the two could disagree is on screen, one
+judgement settles it for both, and neither gets to pick the clusters it's scored on.
+
+Scoring them together matters for the same reason. `precision_recall` keeps only the
+pairs present in every resolution *and* in the judgements, so each candidate is measured
+over the same records. Score them one at a time and each gets its own comparison set;
+those numbers don't line up.
+
+Publishing each one — `naive.publish("naive")` — is what lets you come back to it later
+with `matchlab review naive`. A candidate you only wanted to score once needs no label.

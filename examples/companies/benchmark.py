@@ -142,7 +142,7 @@ def time_pipelines(n_rows: int) -> None:
 
     store = DuckDBAdapter(":memory:")
     start = time.perf_counter()
-    resolution = with_matchlab.build().collect(store).resolution()
+    resolution = with_matchlab.build().collect(store).entities()
     lab = time.perf_counter() - start
 
     start = time.perf_counter()

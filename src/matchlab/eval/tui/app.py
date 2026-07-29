@@ -20,8 +20,10 @@ from matchlab.eval.tui.widgets.table import ComparisonDisplayTable
 from matchlab.steps import default_adapter
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from matchlab.adapters import Adapter
-    from matchlab.resolvers import Resolver
+    from matchlab.eval.samples import Resolution
 
 logger = logging.getLogger(__name__)
 
@@ -108,10 +110,10 @@ class EntityResolutionApp(App):
     current_assignments: reactive[dict[int, str]] = reactive({}, init=False)
 
     sample_limit: int
-    resolution: "Resolver | str"
+    resolution: "Resolution | Sequence[Resolution]"
     adapter: "Adapter | None"
     session_tag: str | None
-    sample_file: str | None
+    seed: int | None
     show_help: bool
 
     queue: EvaluationQueue
@@ -119,11 +121,11 @@ class EntityResolutionApp(App):
 
     def __init__(
         self,
-        resolution: "Resolver | str",
+        resolution: "Resolution | Sequence[Resolution]",
         num_samples: int = 5,
         adapter: "Adapter | None" = None,
         session_tag: str | None = None,
-        sample_file: str | None = None,
+        seed: int | None = None,
         show_help: bool = False,
         scroll_debounce_delay: float | None = 0.3,
     ) -> None:
@@ -132,12 +134,11 @@ class EntityResolutionApp(App):
         Args:
             resolution: The resolver whose clusters are reviewed, or the name one was
                 published under — the second form reviews a store without the plan
-                that built it.
+                that built it. Several of either reviews their merged components.
             num_samples: Number of clusters to sample for evaluation
             adapter: Where judgements are stored. Defaults to the module default.
             session_tag: String to use for tagging judgements
-            sample_file: Path to a pre-compiled sample file. Samples come from the
-                file rather than from stored resolutions.
+            seed: Fixes which clusters the session draws, so it can be reproduced.
             show_help: Whether to show help on start
             scroll_debounce_delay: Delay before updating column headers after scroll.
                 Set to None to disable debouncing (useful for tests).
@@ -148,7 +149,8 @@ class EntityResolutionApp(App):
         self.sample_limit = num_samples
         self.adapter = adapter
         self.session_tag = session_tag
-        self.sample_file = sample_file
+        self.seed = seed
+        self._refills = 0
 
         self.show_help = show_help
         self._scroll_debounce_delay = scroll_debounce_delay
@@ -313,16 +315,22 @@ class EntityResolutionApp(App):
             self.sample_limit,
         )
 
+        # The queue is refilled as it drains, so a fixed seed would fetch the same
+        # clusters every time and the leaf-based dedupe would starve it. Moving the
+        # seed on per refill keeps a whole session reproducible while each fetch still
+        # reaches new clusters; any overlap between fetches the dedupe drops.
         new_samples_dict = None
         try:
             new_samples_dict = get_samples(
                 n=needed,
                 resolution=self.resolution,
                 adapter=self.adapter,
-                sample_file=self.sample_file,
+                seed=None if self.seed is None else self.seed + self._refills,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to fetch samples: {type(e).__name__}: {e}")
+        finally:
+            self._refills += 1
 
         if new_samples_dict:
             # Wrap evaluation items in CLI sessions

@@ -6,7 +6,7 @@ Build a plan from a `Source`, chain verbs, then `collect()`:
 from matchlab import Source
 
 deduped = source.view(...).dedupe(...).resolve()
-lookup = deduped.collect().get_matches().as_lookup()
+lookup = deduped.collect().get_lookup()
 ```
 
 Nothing runs until `collect()`, and collecting again only does the work whose plan

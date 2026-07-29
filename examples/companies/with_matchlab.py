@@ -100,7 +100,7 @@ if __name__ == "__main__":
     # Publishing is what makes a resolution findable later, without this script.
     companies = build().collect(DuckDBAdapter(":memory:")).publish("companies")
 
-    resolution = companies.resolution()
+    resolution = companies.entities()
     groups: dict[int, set[str]] = {}
     for row in resolution.iter_rows(named=True):
         groups.setdefault(row["root"], set()).add(row["key"])

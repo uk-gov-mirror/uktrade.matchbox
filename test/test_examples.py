@@ -48,7 +48,7 @@ def test_both_pipelines_resolve_identically(built_warehouse: None) -> None:
 
     from matchlab.adapters import DuckDBAdapter  # noqa: PLC0415
 
-    resolution = with_matchlab.build().collect(DuckDBAdapter(":memory:")).resolution()
+    resolution = with_matchlab.build().collect(DuckDBAdapter(":memory:")).entities()
     from_matchlab: dict[int, set[str]] = {}
     for row in resolution.iter_rows(named=True):
         from_matchlab.setdefault(row["root"], set()).add(row["key"])

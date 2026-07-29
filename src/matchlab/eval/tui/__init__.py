@@ -9,20 +9,20 @@ a resolution against.
 for its scoring helpers doesn't pay for Textual's import.
 """
 
-from pathlib import Path
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from matchlab.adapters import Adapter
-    from matchlab.resolvers import Resolver
+    from matchlab.eval.samples import Resolution
 
 
 def review(
-    resolution: "Resolver | str",
+    resolution: "Resolution | Sequence[Resolution]",
     n: int = 5,
     adapter: "Adapter | None" = None,
     tag: str | None = None,
-    sample_file: str | Path | None = None,
+    seed: int | None = None,
     show_help: bool = True,
 ) -> None:
     """Review resolved clusters interactively, recording judgements.
@@ -33,21 +33,22 @@ def review(
     collected, which is the data the matching actually saw.
 
     ```python
-    review(entities, tag="session-1")  # from a plan
-    review("entities", adapter=DuckDBAdapter("run.duckdb"))  # from a store alone
+    review(companies, tag="session-1")  # from a plan
+    review("companies", adapter=DuckDBAdapter("run.duckdb"))  # from a store alone
+    review([naive, splink], tag="bakeoff")  # judge both at once
     ```
 
     Args:
         resolution: The resolver whose clusters to review, or the name one was
-            published under.
+            published under. Pass several and you review their merged components, so
+            one session's judgements score every one of them.
         n: How many clusters to hold in the queue at once.
         adapter: Where judgements are stored, and where samples are drawn from.
             Defaults to the module-level adapter.
         tag: Tags every judgement made in this session, so a later
             `EvalData(adapter, tag=...)` can score against just these.
-        sample_file: A parquet file written by `ResolverMatches.as_dump()`. Samples
-            come from it rather than from the stored resolution, which is how you
-            review the same clusters someone else did.
+        seed: Fixes which clusters this session draws, so someone else with the same
+            store can review the same ones.
         show_help: Show the key bindings on start.
     """
     from matchlab.eval.tui.app import EntityResolutionApp  # noqa: PLC0415 - lazy
@@ -57,7 +58,7 @@ def review(
         num_samples=n,
         adapter=adapter,
         session_tag=tag,
-        sample_file=str(sample_file) if sample_file else None,
+        seed=seed,
         show_help=show_help,
     ).run()
 

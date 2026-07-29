@@ -66,7 +66,7 @@ def test_dedupe_recovers_the_true_entities(warehouse: Engine) -> None:
         left_testkit=linked.sources["crn"],
         true_entities=tuple(linked.true_entities),
     )
-    resolution = testkit.resolve().collect().resolution()
+    resolution = testkit.resolve().collect().entities()
 
     assert _partition_by_cluster(resolution) == _partition_from_truth(linked, {"crn"})
 
@@ -82,7 +82,7 @@ def test_link_recovers_the_true_entities(warehouse: Engine) -> None:
         right_testkit=linked.sources["cdms"],
         true_entities=tuple(linked.true_entities),
     )
-    resolution = testkit.resolve().collect().resolution()
+    resolution = testkit.resolve().collect().entities()
 
     # Clusters span both sources and match the planted entities exactly.
     assert set(resolution["source"].unique().to_list()) == {"crn", "cdms"}
@@ -101,7 +101,7 @@ def test_resolution_covers_every_record(warehouse: Engine) -> None:
         left_testkit=linked.sources["crn"],
         true_entities=tuple(linked.true_entities),
     )
-    resolution = testkit.resolve().collect().resolution()
+    resolution = testkit.resolve().collect().entities()
 
     expected_keys = {
         str(key) for entity in linked.true_entities for key in entity.get_keys("crn")
@@ -116,7 +116,7 @@ def test_layered_scenario_carries_the_dedupe_forward() -> None:
     have to survive it, and records the link never touched must not collapse.
     """
     scenario = link_scenario(n_true_entities=8)
-    resolution = scenario.apex.collect().resolution()
+    resolution = scenario.apex.collect().entities()
 
     assert set(resolution["source"].unique().to_list()) == {"crn", "cdms"}
     assert _partition_by_cluster(resolution) == _partition_from_truth(
@@ -134,7 +134,7 @@ def test_clusters_never_merge_distinct_entities(warehouse: Engine) -> None:
         left_testkit=linked.sources["crn"],
         true_entities=tuple(linked.true_entities),
     )
-    resolution = testkit.resolve().collect().resolution()
+    resolution = testkit.resolve().collect().entities()
 
     key_to_entity = {
         str(key): entity.id

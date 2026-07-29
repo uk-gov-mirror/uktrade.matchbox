@@ -180,8 +180,8 @@ def test_a_rebuilt_plan_produces_the_same_answer(warehouse: Engine) -> None:
     original = _plan(warehouse)
     rebuilt = load(_transfer(dump(original)), clients={"warehouse": warehouse})
 
-    expected = original.collect().get_matches().as_lookup().sort("id")
-    actual = rebuilt.collect().get_matches().as_lookup().sort("id")
+    expected = original.collect().get_lookup().sort("root")
+    actual = rebuilt.collect().get_lookup().sort("root")
     assert actual.equals(expected)
 
 

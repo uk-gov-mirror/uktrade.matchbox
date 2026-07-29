@@ -5,13 +5,13 @@ from typing import Any, ClassVar, Self
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
+from matchlab.core.dataframes import qualify
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.kinds import StepKind
 from matchlab.core.resolution import materialise_resolution
 from matchlab.models import Model
 from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 from matchlab.resolvers.components import Components
-from matchlab.results import ResolverMatches
 from matchlab.sources import Source
 from matchlab.specs import ResolverSpec
 from matchlab.steps import Step
@@ -218,39 +218,137 @@ class Resolver(Step):
         """The sources reachable through this resolver, in lineage order."""
         return tuple(step for step in self.lineage() if isinstance(step, Source))
 
-    def resolution(self) -> pl.DataFrame:
-        """Return `(root, leaf, key, source)`. Collects the plan first if needed."""
+    def entities(self, sources: list[str] | None = None) -> pl.DataFrame:
+        """Return `(root, leaf, key, source)`. Collects the plan first if needed.
+
+        One row per source record: `root` is the entity it resolved to, `leaf` its
+        content-addressed record identity, `key` its key in the original source.
+
+        Args:
+            sources: Restrict to these source names. Defaults to all of them.
+
+        Raises:
+            StepNotFound: If `sources` names something this resolver does not read.
+        """
         if not self.is_collected:
             self.collect()
         adapter, fp = self._collected()
-        return adapter.read_resolver(fp)
+        resolution = adapter.read_resolver(fp)
 
-    def results_eval(self) -> pl.DataFrame:
-        """Return `(root, leaf)` for evaluation."""
-        return self.resolution().select("root", "leaf").unique()
+        if sources is None:
+            return resolution
 
-    def get_matches(self, source_filter: list[str] | None = None) -> ResolverMatches:
-        """Return the matches this resolver produced, optionally filtered."""
-        resolution = self.resolution()
-        available = {source.name: source for source in self.sources}
+        return resolution.filter(pl.col("source").is_in(self._named(sources)))
 
-        names = list(available)
-        if source_filter:
-            names = [name for name in names if name in source_filter]
-        if not names:
+    def _named(self, sources: list[str]) -> list[str]:
+        """Narrow this resolver's sources to those named, in lineage order.
+
+        A name that isn't one of them is an error rather than an empty result: asking
+        for a source this resolver never read is a mistake in the caller, and silently
+        returning nothing is how it stays one.
+        """
+        available = [source.name for source in self.sources]
+        unknown = [name for name in sources if name not in available]
+        if unknown:
+            raise StepNotFound(
+                f"This resolver does not read {', '.join(repr(n) for n in unknown)}. "
+                f"It covers: {', '.join(available)}."
+            )
+        if not sources:
             raise StepNotFound("No compatible source was found")
+        return [name for name in available if name in sources]
 
-        return ResolverMatches(
-            sources=[available[name] for name in names],
-            query_results=[
-                resolution.filter(pl.col("source") == name).select(
-                    pl.col("root").alias("id"),
-                    pl.col("key"),
-                    pl.col("leaf").alias("leaf_id"),
+    def get_lookup(self, sources: list[str] | None = None) -> pl.DataFrame:
+        """Return `root` plus one qualified-key column per source.
+
+        The wide form of `entities()`: a row per entity, joined across sources, with
+        nulls where a source has no record in it. This is the table you hand to
+        someone who just wants their identifiers lined up.
+
+        Args:
+            sources: Restrict to these source names. Defaults to all of them.
+        """
+        resolution = self.entities(sources)
+        names = self._named(sources) if sources is not None else None
+
+        # Never empty: a resolver always has a source, and `_named` raises rather than
+        # narrow to none — so there is always a frame to start the join from.
+        columns = [
+            resolution.filter(pl.col("source") == source.name).select(
+                "root", pl.col("key").alias(source.qualified_key)
+            )
+            for source in self.sources
+            if names is None or source.name in names
+        ]
+
+        lookup = columns[0]
+        for keys in columns[1:]:
+            lookup = lookup.join(keys, on="root", how="full", coalesce=True)
+        return lookup
+
+    def leaf_sets(self, sources: list[str] | None = None) -> list[list[int]]:
+        """Return each entity as a sorted list of record identities.
+
+        Cluster IDs are dropped, so two resolutions of the same records can be compared
+        by structure alone. Leaves are deduplicated: one appears once per key it holds.
+
+        Args:
+            sources: Restrict to these source names. Defaults to all of them.
+        """
+        groups = self.entities(sources).group_by("root").agg("leaf")["leaf"].to_list()
+        return [sorted(set(group)) for group in groups]
+
+    def view_entity(self, root: int, merge_fields: bool = False) -> pl.DataFrame:
+        """Return the stored rows for every record in one entity.
+
+        Values come from the extract cached when each source was collected, not from a
+        fresh warehouse read. That is the data the matching actually saw — the same
+        rows the reviewer puts on screen — and it means looking at an entity needs no
+        warehouse connection.
+
+        Args:
+            root: The entity to look at.
+            merge_fields: Collapse the source qualifier on index fields, so a field two
+                sources share lands in one column. Key fields stay qualified, since
+                they are what tells you which source a row came from.
+
+        Raises:
+            KeyError: If no source has a record in that entity.
+        """
+        adapter, fp = self._collected()
+        resolution = self.entities().filter(pl.col("root") == root)
+        stored = adapter.resolution_sources(fp)
+
+        rows: list[pl.DataFrame] = []
+        key_columns: list[str] = []
+        for source in self.sources:
+            keys = resolution.filter(pl.col("source") == source.name)["key"].to_list()
+            if not keys:
+                continue
+
+            records, qualified_key = adapter.read_source_records(
+                stored[source.name], source.name, keys
+            )
+            if merge_fields:
+                prefix = qualify(source.name)
+                records = records.rename(
+                    {
+                        column: column.removeprefix(prefix)
+                        for column in records.columns
+                        if column != qualified_key
+                    }
                 )
-                for name in names
-            ],
-        )
+
+            key_columns.append(qualified_key)
+            rows.append(records)
+
+        if not rows:
+            raise KeyError(f"Entity {root} not available")
+
+        # Coerce fields to their common super-type, and lead with the keys.
+        joined = pl.concat(rows, how="diagonal_relaxed")
+        remaining = [column for column in joined.columns if column not in key_columns]
+        return joined.select(*key_columns, *remaining)
 
     def lookup_key(
         self, from_source: str, to_sources: list[str], key: str
@@ -265,7 +363,7 @@ class Resolver(Step):
         Returns:
             Source name → matching keys, including `from_source` itself.
         """
-        resolution = self.resolution()
+        resolution = self.entities()
         origin = resolution.filter(
             (pl.col("source") == from_source) & (pl.col("key") == key)
         )

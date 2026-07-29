@@ -4,7 +4,7 @@ The server (`server/postgresql/utils/query.py:_build_unified_query`) resolved so
 keys to root cluster IDs *on demand*, projecting up the resolver hierarchy with a
 priority-`COALESCE` at query time. Locally we do the opposite: each resolver, when it
 runs, materialises its **complete, merge-forward** resolution once, and everything
-downstream (`get_matches`, `lookup_key`, models querying through it) just reads it.
+downstream (`entities`, `lookup_key`, models querying through it) just reads it.
 
 This module holds the pure functions that produce that resolution:
 

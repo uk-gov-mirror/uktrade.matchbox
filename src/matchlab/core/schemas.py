@@ -7,9 +7,10 @@ layer both a producer and an adapter can depend on without inverting.
 
 The membership rule is exactly that boundary — **the adapter persists it or returns
 it**. A shape that never leaves the process belongs with the code that produces it:
-`SCHEMA_CLUSTERS` with `matchlab.resolvers.base`, `SCHEMA_QUERY_WITH_LEAVES` with
-`matchlab.results`. Keeping those out is what stops this module from becoming a
-catch-all for anything that happens to be an Arrow schema.
+`SCHEMA_CLUSTERS` is a resolver methodology's output, read by the `Resolver` that called
+it and by nothing else, so it lives in `matchlab.resolvers.base`. Keeping those out is
+what stops this module from becoming a catch-all for anything that happens to be an
+Arrow schema.
 """
 
 from typing import Final

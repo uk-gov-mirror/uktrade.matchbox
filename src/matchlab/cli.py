@@ -7,7 +7,7 @@ prompt: tell you what version you have, and give you a full-screen reviewer.
 `review` takes either a `module:attribute` naming a resolver in your code - or, with
 `--store`, just the label of a resolution already published. The second needs no plan
 and no warehouse: a stored resolution knows which source artifacts it covers, and their
-extracts hold the values.
+extracts hold the values. Name more than one and you review their merged clusters.
 """
 
 import argparse
@@ -95,18 +95,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Review a resolver's clusters interactively.",
         description=(
             "Open the cluster reviewer. TARGET names a Resolver as "
-            "'module:attribute' — 'pipeline:entities' for a resolver assigned to "
-            "`entities` in pipeline.py — or a function returning one, if building "
+            "'module:attribute' — 'pipeline:companies' for a resolver assigned to "
+            "`companies` in pipeline.py — or a function returning one, if building "
             "the plan needs a connection you'd rather open on demand. "
             "With --store, TARGET is instead the label of a resolution published in "
             "that store, and no Python is imported: the values shown come from the "
             "extracts cached when the sources were collected, so no warehouse "
-            "connection is needed."
+            "connection is needed. "
+            "Name several targets to review their merged clusters, so one session's "
+            "judgements score all of them against the same records."
         ),
     )
     review.add_argument(
-        "target",
+        "targets",
         metavar="TARGET",
+        nargs="+",
         help="module:attribute, or a resolution's label when --store is given",
     )
     review.add_argument(
@@ -116,10 +119,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "-t", "--tag", help="Tag every judgement from this session, for later scoring."
     )
     review.add_argument(
-        "-f",
-        "--file",
-        dest="sample_file",
-        help="Review the clusters in a dump written by ResolverMatches.as_dump().",
+        "--seed",
+        type=int,
+        help="Fix which clusters are drawn, so someone else can review the same ones.",
     )
     review.add_argument(
         "-s",
@@ -152,21 +154,23 @@ def main(argv: list[str] | None = None) -> None:
     adapter = DuckDBAdapter(args.store) if args.store else None
 
     # With a store, a bare word is a label on a stored resolution — no plan to import.
-    target = args.target
-    if adapter is not None and ":" not in target:
-        known = adapter.labels()
-        if target not in known:
-            raise SystemExit(
-                f"No resolution is labelled '{target}' in {args.store}. "
-                f"Known labels: {', '.join(known) or 'none'}."
-            )
-    else:
-        target = _load_target(target)
+    targets: list[Any] = []
+    for target in args.targets:
+        if adapter is not None and ":" not in target:
+            known = adapter.labels()
+            if target not in known:
+                raise SystemExit(
+                    f"No resolution is labelled '{target}' in {args.store}. "
+                    f"Known labels: {', '.join(known) or 'none'}."
+                )
+            targets.append(target)
+        else:
+            targets.append(_load_target(target))
 
     review(
-        target,
+        targets if len(targets) > 1 else targets[0],
         n=args.samples,
         adapter=adapter,
         tag=args.tag,
-        sample_file=args.sample_file,
+        seed=args.seed,
     )

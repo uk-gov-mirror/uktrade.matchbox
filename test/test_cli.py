@@ -125,6 +125,8 @@ def test_review_is_launched_with_the_parsed_arguments(
             "3",
             "--tag",
             "session-1",
+            "--seed",
+            "7",
             "--store",
             str(store),
         ]
@@ -134,7 +136,26 @@ def test_review_is_launched_with_the_parsed_arguments(
     assert captured["n"] == 3
     assert captured["tag"] == "session-1"
     assert captured["adapter"] is not None
-    assert captured["sample_file"] is None
+    assert captured["seed"] == 7
+
+
+def test_several_targets_are_reviewed_together(
+    pipeline: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Naming two resolvers reviews their merged clusters: one session judges both."""
+    captured: dict = {}
+
+    def fake_review(resolution: object, **kwargs: object) -> None:
+        captured["resolution"] = resolution
+        captured.update(kwargs)
+
+    monkeypatch.setattr("matchlab.eval.review", fake_review)
+
+    main(["review", f"{pipeline}:entities", f"{pipeline}:entities"])
+
+    assert isinstance(captured["resolution"], list)
+    assert len(captured["resolution"]) == 2
+    assert all(isinstance(one, Resolver) for one in captured["resolution"])
 
 
 def test_logging_is_redirected_to_a_file(tmp_path: Path) -> None:
@@ -167,5 +188,5 @@ def test_a_plan_built_in_the_module_is_usable(pipeline: str) -> None:
     """Sanity: the target really is a live plan, clients and all."""
     resolver = _load_target(f"{pipeline}:entities")
     resolver.collect()
-    lookup = resolver.get_matches().as_lookup()
+    lookup = resolver.get_lookup()
     assert lookup.height > 0

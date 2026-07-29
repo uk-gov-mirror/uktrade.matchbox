@@ -45,9 +45,9 @@ There's no separate list of fields to index. That means:
 * **Changing the warehouse data behind any selected column invalidates the source**, and
   everything downstream of it.
 
-You can still fetch a column purely to look at — `view_cluster` and the evaluation
-samplers re-read the warehouse through the same `extract_transform` — but be aware that
-selecting it makes it count.
+You can still select a column purely to look at — `view_entity` and the evaluation
+samplers show every column the extract returned, reading it back from the copy cached at
+collect time — but be aware that selecting it makes it count.
 
 ## Verbs
 

@@ -30,7 +30,7 @@ companies = crn.dedupe(
     model_settings={"unique_fields": [crn.f("company")]},
 ).resolve()
 
-lookup = companies.collect().get_matches().as_lookup()
+lookup = companies.collect().get_lookup()
 ```
 
 <div class="grid cards" markdown>

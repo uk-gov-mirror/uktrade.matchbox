@@ -2,7 +2,7 @@
 
 Covers the whole Phase A surface: building a plan with no DAG, laziness, collect with
 plan-fingerprint caching, `View` storage, lineage navigation, GC, and the terminal
-reads (`get_matches`, `lookup_key`).
+reads (`get_lookup`, `lookup_key`).
 
 Scenario — a dedupe feeding a cross-source link:
 
@@ -96,7 +96,7 @@ def _apex(warehouse: Engine) -> tuple[Resolver, Source, Source]:
 
 def _ids_by_key(matches: pl.DataFrame, column: str) -> dict[str, int]:
     return {
-        row[column]: row["id"]
+        row[column]: row["root"]
         for row in matches.iter_rows(named=True)
         if row[column] is not None
     }
@@ -128,7 +128,7 @@ def test_nothing_runs_until_collect(warehouse: Engine) -> None:
 def test_collect_resolves_across_sources(warehouse: Engine) -> None:
     apex, _crn, _dh = _apex(warehouse)
 
-    lookup = apex.collect().get_matches().as_lookup()
+    lookup = apex.collect().get_lookup()
     crn_ids = _ids_by_key(lookup, "crn_pk")
     dh_ids = _ids_by_key(lookup, "dh_pk")
 
@@ -200,7 +200,7 @@ def test_building_downstream_only_runs_the_new_steps(warehouse: Engine) -> None:
     )
     apex.collect()  # only dh + the new view/model/resolver run
 
-    assert apex.get_matches().as_lookup().height > 0
+    assert apex.get_lookup().height > 0
 
 
 def _crn_source(warehouse: Engine, extract_transform: str) -> Source:
@@ -519,7 +519,7 @@ def test_deduplicating_the_readings_keeps_every_record(warehouse: Engine) -> Non
     """
     apex, _models = _fan_out_plan(warehouse)
 
-    resolution = apex.collect().resolution()
+    resolution = apex.collect().entities()
 
     assert dict(resolution.group_by("source").len().iter_rows()) == {"crn": 3, "dh": 2}
     assert set(resolution.filter(pl.col("source") == "crn")["key"]) == {
@@ -736,7 +736,7 @@ def test_a_grouped_view_still_merges_forward(warehouse: Engine) -> None:
         )
         .resolve()
     )
-    lookup = apex.collect().get_matches().as_lookup()
+    lookup = apex.collect().get_lookup()
     crn_ids = _ids_by_key(lookup, "crn_pk")
     dh_ids = _ids_by_key(lookup, "dh_pk")
 
@@ -867,7 +867,7 @@ def test_steps_have_no_names_only_positions(warehouse: Engine) -> None:
     assert not hasattr(first, "name")
     positions = lineage.number(apex)
     assert positions[id(first)] != positions[id(second)]
-    assert apex.resolution().height > 0
+    assert apex.entities().height > 0
 
 
 def test_a_drawing_is_the_key_to_the_log(warehouse: Engine) -> None:

@@ -3,11 +3,11 @@
 Once a resolver is collected, its output is a table you can read directly — there is no
 resolution happening at query time. Everything was computed when you collected.
 
-## The resolution
+## The entities
 
 ```python
-entities = plan.collect()
-entities.resolution()
+companies = plan.collect()
+companies.entities()
 ```
 
 | `root` | `leaf` | `key` | `source` |
@@ -21,14 +21,23 @@ One row per source record. `root` is the entity it resolved to, `leaf` its
 content-addressed record identity, and `key` its key in the original source.
 
 This table is the whole point: it's complete, it's flat, and analysts can point plain
-SQL at it in the DuckDB store.
+SQL at it in the DuckDB store. Everything below is a projection of it.
+
+Restrict it to the sources you care about:
+
+```python
+companies.entities(sources=["crn", "dh"])
+```
+
+Naming a source this resolver never read is an error rather than an empty result, so a
+typo doesn't quietly look like "no matches".
 
 ## Looking up one record
 
 The common operational question — *given this record, what else is the same entity?*
 
 ```python
-entities.lookup_key(
+companies.lookup_key(
     from_source="crn",
     to_sources=["dh", "cdms"],
     key="a1",
@@ -36,40 +45,32 @@ entities.lookup_key(
 # {"crn": ["a1", "a2"], "dh": ["b1"], "cdms": []}
 ```
 
-## Matches as a table
+## Other shapes
 
 ```python
-matches = entities.get_matches()
-
-matches.as_lookup()  # one column of keys per source, joined on entity
-matches.as_dump()  # long form: root, leaf, key, source
-matches.as_leaf_sets()  # entities as lists of record identities
+companies.get_lookup()  # one column of keys per source, joined on entity
+companies.leaf_sets()  # entities as lists of record identities
 ```
 
-Filter to the sources you care about:
+`get_lookup()` is the wide form: a `root` column plus one qualified-key column per
+source, with nulls where a source has no record in that entity. `leaf_sets()` drops the
+IDs entirely, so two resolutions of the same records can be compared by structure alone.
+Both take the same `sources` filter as `entities()`.
+
+## Inspecting one entity
 
 ```python
-entities.get_matches(source_filter=["crn", "dh"])
+companies.view_entity(root, merge_fields=True)
 ```
 
-### Inspecting one entity
-
-```python
-matches.view_cluster(cluster_id, merge_fields=True)
-```
-
-Fetches the underlying rows for every record in that cluster, so you can see what was
+Returns the underlying rows for every record in that entity, so you can see what was
 matched and judge whether it should have been. `merge_fields=True` collapses the
-source-qualified columns onto shared names, which makes cross-source clusters readable.
+source-qualified columns onto shared names, which makes cross-source entities readable;
+key columns stay qualified, since they're what tells you where a row came from.
 
-### Comparing two resolutions
-
-```python
-merged = matches.merge(other_matches)
-```
-
-Combines two resolutions of the same sources, unioning entities that share records.
-Useful when comparing methodologies.
+Values come from the extract cached when each source was collected — the data the
+matching actually saw — so this needs no warehouse connection, and it agrees with what
+the [reviewer](./evaluate.md) puts on screen.
 
 ## Next
 

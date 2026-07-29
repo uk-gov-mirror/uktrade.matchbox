@@ -54,8 +54,8 @@ its own inputs, so the step you're holding is the pipeline.
 
     ```python
     crn = Source(location=warehouse, name="crn", ...)
-    entities = crn.dedupe(model_class=NaiveDeduper, model_settings={...}).resolve()
-    lookup = entities.collect().get_matches().as_lookup()
+    companies = crn.dedupe(model_class=NaiveDeduper, model_settings={...}).resolve()
+    lookup = companies.collect().get_lookup()
     ```
 
 ## Publishing replaced naming
@@ -197,7 +197,7 @@ Nouns became verbs, and each one is a step in the plan:
 | `query.linker(other, ...)` | `.link(other, ...)` |
 | `model.resolver(...)` | `.resolve(...)` |
 | `dag.run_and_sync()` | `step.collect()` |
-| `dag.get_matches(resolver=...)` | `resolver.get_matches()` |
+| `dag.get_matches(resolver=...).as_lookup()` | `resolver.get_lookup()` |
 | `dag.lookup_key(...)` | `resolver.lookup_key(...)` |
 
 `query` became `view` rather than `clean`: the node's job is to say which records a
@@ -326,7 +326,7 @@ read. `Source(...)` again re-reads the warehouse and invalidates everything down
 
 **Resolution is materialised, not queried.** A resolver writes a complete
 `(root, leaf, key, source)` table when it collects. Queries are reads against that
-table, which is why `lookup_key` and `get_matches` are now fast and offline.
+table, which is why `lookup_key` and `entities` are now fast and offline.
 
 **Storage is local and kept until you say otherwise.** Artifacts live in a DuckDB store
 in your user cache directory by default, and every collect reports what it costs.
@@ -338,6 +338,32 @@ deleted, so trimming rewrites the store to give the space back. See the guide's
 ## What didn't change
 
 Matching methodologies (`NaiveDeduper`, `DeterministicLinker`, `SplinkLinker`,
-`WeightedDeterministicLinker`), the connected-components resolver, `ResolverMatches`
-and its `as_lookup` / `as_dump` / `view_cluster` / `merge` helpers, `Location`
+`WeightedDeterministicLinker`), the connected-components resolver, `Location`
 configuration, and the evaluation metrics all behave as before.
+
+### Reads moved onto the resolver
+
+`ResolverMatches` is gone. Every one of its methods was a projection of the resolution
+the resolver already materialises, so they sit on `Resolver` directly — no intermediate
+object, and no second spelling of `root` and `leaf`.
+
+| Matchbox | matchlab |
+|---|---|
+| `matches.as_dump()` | `resolver.entities()` |
+| `matches.as_lookup()` | `resolver.get_lookup()` |
+| `matches.as_leaf_sets()` | `resolver.leaf_sets()` |
+| `matches.view_cluster(id)` | `resolver.view_entity(root)` |
+| `get_matches(source_filter=[...])` | `entities(sources=[...])`, and the same on the rest |
+| `ResolverMatches.from_dump(...)` | publish a label, and read the store |
+| `matches.merge(other)` | `get_samples`/`review` over several resolutions |
+
+Two behavioural changes worth knowing about:
+
+* **`view_entity` reads the store, not the warehouse.** `view_cluster` re-read the
+  source through its `extract_transform`, so it could show different values from the
+  ones the reviewer had on screen. It now reads the extract cached at collect time —
+  the data the matching actually saw — and needs no connection.
+* **Comparing methodologies is an evaluation job.** `merge()` unioned two resolutions'
+  components client-side so you could dump them to parquet and review the merged
+  clusters. `get_samples`, `review` and `EvalData.precision_recall` now take several
+  resolutions directly, and `review(..., seed=...)` replaces passing that file around.

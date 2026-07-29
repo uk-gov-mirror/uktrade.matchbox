@@ -31,6 +31,7 @@ from collections.abc import Iterable, Mapping
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 
+from matchlab.core.dataframes import qualify
 from matchlab.core.kinds import StepKind
 from matchlab.eval.judgements import Judgement
 
@@ -300,6 +301,36 @@ class Adapter(ABC):
     def source_key_field(self, fp: Fingerprint) -> str:
         """Return which column of a stored source's extract holds the key."""
         ...
+
+    def read_source_records(
+        self, source_fp: Fingerprint, source_name: str, keys: Iterable[str]
+    ) -> tuple[pl.DataFrame, str]:
+        """Return a source's stored rows for `keys`, every column qualified by name.
+
+        A query rather than an artifact, like `read_identifiers`, and concrete rather
+        than abstract because it is nothing but `source_key_field` and
+        `read_source_extract` composed.
+
+        The extract cached when the source was collected *is* the data the matching saw,
+        which is what you want in front of you when judging a resolution — and it means
+        both reading an entity and reviewing one work with no warehouse connection.
+
+        Args:
+            source_fp: Fingerprint of the stored source whose rows are wanted.
+            source_name: The source's name, which every column is prefixed with.
+            keys: The keys to return rows for.
+
+        Returns:
+            `(rows, qualified key column)`.
+        """
+        key_field = self.source_key_field(source_fp)
+        extract = self.read_source_extract(source_fp)
+        qualified = extract.select(pl.all().name.prefix(qualify(source_name)))
+        qualified_key = qualify(source_name, key_field)
+        rows = qualified.with_columns(pl.col(qualified_key).cast(pl.Utf8)).filter(
+            pl.col(qualified_key).is_in(list(keys))
+        )
+        return rows, qualified_key
 
     @abstractmethod
     def resolution_sources(self, fp: Fingerprint) -> dict[str, Fingerprint]:

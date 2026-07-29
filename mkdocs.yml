@@ -25,7 +25,6 @@ nav:
     - Views: api/views.md
     - Models: api/models.md
     - Resolvers: api/resolvers.md
-    - Results: api/results.md
   - Storage:
     - Adapters: api/adapters.md
     - Locations: api/locations.md
