@@ -18,7 +18,7 @@ class HashMethod(StrEnum):
     SHA256 = "sha256"
 
 
-def process_column_for_hashing(column_name: str, schema_type: pl.DataType) -> plx.Expr:
+def _process_column_for_hashing(column_name: str, schema_type: pl.DataType) -> plx.Expr:
     """Process a column for hashing based on its type.
 
     Args:
@@ -59,7 +59,7 @@ def hash_rows(
         List of row hashes as bytes
     """
     expr_list = [
-        process_column_for_hashing(column, df.schema[column]) for column in columns
+        _process_column_for_hashing(column, df.schema[column]) for column in columns
     ]
     df_processed = df.with_columns(expr_list)
 

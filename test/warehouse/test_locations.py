@@ -178,22 +178,22 @@ def test_relational_db_connect(warehouse: WarehouseClient) -> None:
 def test_relational_db_extract_transform(
     sql: str,
     dialects: str,
-    sqla_postgres_warehouse: Engine,
+    sqla_postgres_dialect: Engine,
     sqla_sqlite_warehouse: Engine,
 ) -> None:
     """Test SQL validation in validate_extract_transform."""
 
     if dialects == "none":
-        invalid_clients = [sqla_postgres_warehouse, sqla_sqlite_warehouse]
+        invalid_clients = [sqla_postgres_dialect, sqla_sqlite_warehouse]
         valid_clients = []
     if dialects == "all":
         invalid_clients = []
-        valid_clients = [sqla_postgres_warehouse, sqla_sqlite_warehouse]
+        valid_clients = [sqla_postgres_dialect, sqla_sqlite_warehouse]
     if dialects == "postgres":
         invalid_clients = [sqla_sqlite_warehouse]
-        valid_clients = [sqla_postgres_warehouse]
+        valid_clients = [sqla_postgres_dialect]
     if dialects == "sqlite":
-        invalid_clients = [sqla_postgres_warehouse]
+        invalid_clients = [sqla_postgres_dialect]
         valid_clients = [sqla_sqlite_warehouse]
 
     for client in valid_clients:
@@ -238,7 +238,9 @@ def test_relational_db_execute(
 
     # Right number of batches and total rows
     if isinstance(warehouse, Engine):
-        # SQLite ADBC driver doesn't batch, can't cover this
+        # Not asserted for ADBC clients, and not because of the SQLite driver: polars
+        # discards `batch_size` for every ADBC driver. See TODO(adbc-batching) in
+        # `locations.py` — this branch is the shape of the bug, not a gap in the test.
         assert len(results[0]) == batch_size
     combined_df: pl.DataFrame = pl.concat(results)
     assert len(combined_df) == 10

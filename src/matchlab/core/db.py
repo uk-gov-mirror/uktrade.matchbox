@@ -3,7 +3,6 @@
 from collections.abc import Callable, Iterator
 from enum import StrEnum
 from typing import (
-    TYPE_CHECKING,
     Any,
     Literal,
     TypeAlias,
@@ -12,15 +11,11 @@ from typing import (
 )
 
 import polars as pl
+from adbc_driver_manager.dbapi import Connection as AdbcConnection
 from pandas import DataFrame as PandasDataFrame
 from polars import DataFrame as PolarsDataFrame
 from pyarrow import Table as ArrowTable
 from sqlalchemy.engine import Engine
-
-if TYPE_CHECKING:
-    from adbc_driver_postgresql.dbapi import Connection as AdbcConnection
-else:
-    AdbcConnection = Any
 
 
 class QueryReturnType(StrEnum):

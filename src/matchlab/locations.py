@@ -9,10 +9,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
+from typing import Any, ClassVar, Literal, overload
 
 import polars as pl
 import sqlglot
+from adbc_driver_manager.dbapi import Connection as AdbcConnection
 from pandas import DataFrame as PandasDataFrame
 from polars import DataFrame as PolarsDataFrame
 from pyarrow import Table as ArrowTable
@@ -27,20 +28,6 @@ from matchlab.core.db import (
 )
 from matchlab.core.exceptions import ExtractTransformError
 from matchlab.core.logging import logger
-
-if TYPE_CHECKING:
-    from adbc_driver_manager.dbapi import Connection as AdbcConnection
-
-#: The ADBC client class, if the driver manager is installed. Kept as a tuple so that
-#: nothing downstream has to name `AdbcConnection` at runtime.
-_ADBC_CLIENT_CLASSES: tuple[type, ...] = ()
-
-try:
-    from adbc_driver_manager.dbapi import Connection as _AdbcConnection
-
-    _ADBC_CLIENT_CLASSES = (_AdbcConnection,)
-except ImportError:  # pragma: no cover - exercised only without the optional driver
-    pass
 
 
 class ClientType(StrEnum):
@@ -163,7 +150,7 @@ class Location(ABC):
 class RelationalDBLocation(Location):
     """A location for a relational database."""
 
-    client_classes: ClassVar[tuple[type, ...]] = (Engine, *_ADBC_CLIENT_CLASSES)
+    client_classes: ClassVar[tuple[type, ...]] = (Engine, AdbcConnection)
 
     @property
     def client(self) -> Engine | AdbcConnection:
@@ -174,9 +161,8 @@ class RelationalDBLocation(Location):
     def client_type(self) -> ClientType:
         """Determine client type from the client.
 
-        Tested against `Engine` rather than against the ADBC class, so this stays
-        answerable when the ADBC driver manager is not installed — construction has
-        already rejected anything that is neither.
+        One `isinstance` decides it, because `client_classes` has already rejected
+        anything that is neither an `Engine` nor an ADBC connection.
         """
         return (
             ClientType.SQLALCHEMY
@@ -326,6 +312,15 @@ class RelationalDBLocation(Location):
 
         # We always work in batches to simplify higher level logic
         batch_size: int = batch_size or 10_000
+
+        # TODO(adbc-batching): this size is honoured for SQLAlchemy clients and
+        # silently ignored for ADBC ones. Polars registers ADBC with
+        # `exact_batch_size: False` (see `polars/io/database/_arrow_registry.py`), so
+        # it calls `fetch_record_batch()` with no size and the driver chunks however
+        # it likes — for in-process drivers, that is the whole result in one batch.
+        # `Source.sample(n)` takes the first batch and so can return the entire
+        # source, and `_read_warehouse`'s stream-to-Parquet stops bounding memory.
+        # Fix by slicing the record-batch stream to `batch_size` in `sql_to_df`.
 
         with self._get_connection() as conn:
             if keys:

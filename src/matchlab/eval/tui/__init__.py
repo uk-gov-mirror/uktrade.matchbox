@@ -5,7 +5,8 @@ grouped together, laid out so you can see what matched. You paint them into grou
 each decision is stored as a `Judgement`, which `EvalData.precision_recall` then scores
 a resolution against.
 
-Textual is an optional dependency — `pip install matchlab[tui]`.
+`app` is imported inside `review()` rather than here, so that importing `matchlab.eval`
+for its scoring helpers doesn't pay for Textual's import.
 """
 
 from pathlib import Path
@@ -48,17 +49,8 @@ def review(
             come from it rather than from the stored resolution, which is how you
             review the same clusters someone else did.
         show_help: Show the key bindings on start.
-
-    Raises:
-        ImportError: If Textual is not installed.
     """
-    try:
-        from matchlab.eval.tui.app import EntityResolutionApp  # noqa: PLC0415
-    except ImportError as exc:  # pragma: no cover - depends on the install
-        raise ImportError(
-            "Reviewing clusters interactively needs Textual. "
-            "Install it with `pip install matchlab[tui]`."
-        ) from exc
+    from matchlab.eval.tui.app import EntityResolutionApp  # noqa: PLC0415 - lazy
 
     EntityResolutionApp(
         resolution=resolution,

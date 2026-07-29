@@ -1,5 +1,0 @@
-set working-directory := ".."
-
-# Run all tests
-default *ARGS:
-    uv run pytest {{ARGS}}

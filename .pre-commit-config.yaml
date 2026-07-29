@@ -20,15 +20,6 @@ repos:
       pass_filenames: false
       stages: [pre-commit]
 
-    # Check for missing migrations
-    - id: alembic
-      name: Alembic
-      description: "Check for missing migrations"
-      entry: just migrate check
-      language: system
-      pass_filenames: false
-      stages: [pre-commit]
-
 # Mandatory internal hooks
 - repo: https://github.com/uktrade/github-standards
   rev: v1.3.0  # update periodically with pre-commit autoupdate

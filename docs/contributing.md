@@ -5,8 +5,8 @@ This document describes how to get started developing matchlab.
 * [Python 3.11+](https://www.python.org)
 * [uv](https://docs.astral.sh/uv/)
 * [just](https://just.systems/man/en/)
-* [Docker](https://www.docker.com) — optional, only to run a real Postgres warehouse
-  locally. The test suite doesn't need it.
+* [Docker](https://www.docker.com) — for the TruffleHog secret scan, which pre-commit
+  runs on every commit.
 
 ## Setup
 
@@ -18,7 +18,7 @@ with [mkdocs](https://www.mkdocs.org).
 Install all dependencies:
 
 ```shell
-uv sync --all-extras
+uv sync
 ```
 
 There is no `.env` to configure. matchlab reads no environment variables: warehouse
@@ -59,18 +59,12 @@ just test
 
 No container is needed, including for the tests that compare SQL dialects.
 `validate_extract_transform` only asks a client what dialect it speaks, and SQLAlchemy
-answers that without connecting, so those tests use a Postgres-dialect engine that
-never opens a socket.
+answers that without connecting, so those tests use a Postgres-dialect engine with no
+driver behind it.
 
-If you want a real Postgres to point matchlab at while developing:
-
-```shell
-just warehouse -d --wait
-```
-
-!!! tip "Docker configuration"
-    The warehouse listens on `7654` to avoid clashing with a local Postgres. Change the
-    port mapping in `docker-compose.yml` if that's still inconvenient.
+If you want a real warehouse to point matchlab at while developing, bring up whatever
+database you like and pass its client to a `Location`. matchlab has no opinion about
+where it runs, and ships nothing to manage one.
 
 ## Documentation
 

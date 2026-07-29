@@ -89,10 +89,6 @@ from matchlab.eval import review
 review("entities", adapter=DuckDBAdapter("run.duckdb"), tag="second-opinion")
 ```
 
-!!! note
-    The reviewer needs Textual: `pip install matchlab[tui]`. Everything below works
-    without it.
-
 ## Record a judgement
 
 A judgement says: *of the records you were shown, these belong together.* `review()`

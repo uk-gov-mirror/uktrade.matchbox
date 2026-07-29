@@ -1,9 +1,6 @@
-# Unit testing
-mod test 'test/justfile'
-
-# Run the warehouse container used by integration tests
-warehouse *DOCKER_ARGS:
-    docker compose up warehouse {{DOCKER_ARGS}}
+# Run the test suite
+test *ARGS:
+    uv run pytest {{ARGS}}
 
 # Delete all compiled Python files
 clean:
