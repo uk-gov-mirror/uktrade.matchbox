@@ -9,16 +9,6 @@ import pytest
 from splink import SettingsCreator
 from splink import comparison_library as cl
 
-from matchlab.core.factories.entities import (
-    FeatureConfig,
-    ReplaceRule,
-    SuffixRule,
-)
-from matchlab.core.factories.sources import (
-    SourceTestkit,
-    SourceTestkitParameters,
-    linked_sources_factory,
-)
 from matchlab.models import Model
 from matchlab.models.linkers.base import Linker
 from matchlab.models.linkers.splinklinker import SplinkLinker, SplinkSettings
@@ -26,15 +16,23 @@ from matchlab.models.linkers.weighteddeterministic import (
     WeightedDeterministicLinker,
     WeightedDeterministicSettings,
 )
+from matchlab.testkit.features import (
+    FeatureConfig,
+    ReplaceRule,
+    SourceParameters,
+    SuffixRule,
+)
+from matchlab.testkit.linked import linked_sources_factory
+from matchlab.testkit.sources import GeneratedSource
 from matchlab.views import View
 
-LinkerConfigurator = Callable[[SourceTestkit, SourceTestkit], dict[str, Any]]
+LinkerConfigurator = Callable[[GeneratedSource, GeneratedSource], dict[str, Any]]
 
 # Methodology configuration adapters
 
 
 def configure_weighted_scored(
-    left_testkit: SourceTestkit, right_testkit: SourceTestkit
+    left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
     """Configure WeightedDeterministicLinker with scored-like behavior.
 
@@ -84,7 +82,7 @@ def configure_weighted_scored(
 
 
 def configure_splink_scored(
-    left_testkit: SourceTestkit, right_testkit: SourceTestkit
+    left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
     """Configure SplinkLinker for scored matching.
 
@@ -206,12 +204,8 @@ def test_scored_model_scores_generation(
     )
 
     configs = (
-        SourceTestkitParameters(
-            name="source_left", features=features, n_true_entities=10
-        ),
-        SourceTestkitParameters(
-            name="source_right", features=features, n_true_entities=10
-        ),
+        SourceParameters(name="source_left", features=features, n_true_entities=10),
+        SourceParameters(name="source_right", features=features, n_true_entities=10),
     )
 
     linked = linked_sources_factory(source_parameters=configs, seed=42)
@@ -229,29 +223,24 @@ def test_scored_model_scores_generation(
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.view(),
-        right=right_source.view(),
+        left=left_source.source.view(),
+        right=right_source.source.view(),
     )
 
     results = linker.collect().edges()
 
     # Validate results against ground truth
     identical, report = linked.diff_model_edges(
-        scores=results,
-        left_clusters=left_source.entities,
-        right_clusters=right_source.entities,
-        sources=["source_left", "source_right"],
-        threshold=0,
+        results, left=left_source, right=right_source
     )
 
     assert identical, f"Expected perfect results but got: {report}"
 
     # Validate results over a threshold as a subset of the ground truth
     identical, report = linked.diff_model_edges(
-        scores=results,
-        left_clusters=left_source.entities,
-        right_clusters=right_source.entities,
-        sources=["source_left", "source_right"],
+        results,
+        left=left_source,
+        right=right_source,
         threshold=results["score"].mean(),
     )
 

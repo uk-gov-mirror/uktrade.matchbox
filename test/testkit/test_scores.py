@@ -1,249 +1,18 @@
-from typing import Any
-
-import numpy as np
 import polars as pl
 import pytest
 
 from matchlab.core.dsu import DisjointSet
-from matchlab.core.factories.entities import (
-    ClusterEntity,
-    EntityReference,
-    SourceEntity,
-)
-from matchlab.core.factories.models import (
-    calculate_min_max_edges,
-    component_report,
-    generate_dummy_scores,
-    generate_entity_scores,
-)
 from matchlab.core.schemas import SCHEMA_MODEL_EDGES
-from test.core.factories.test_entity_factory import (
+from matchlab.testkit.entities import Cluster, EntityReference, TrueEntity
+from matchlab.testkit.models import generate_entity_scores
+from test.testkit.test_entities import (
     make_cluster_entity,
     make_source_entity,
 )
 
 
 @pytest.mark.parametrize(
-    ("left_n", "right_n", "n_components", "true_min", "true_max"),
-    [
-        (10, None, 2, 8, 20),
-        (11, None, 2, 9, 25),
-        (9, 9, 3, 15, 27),
-        (8, 4, 3, 9, 11),
-        (4, 8, 3, 9, 11),
-        (8, 8, 3, 13, 22),
-    ],
-    ids=[
-        "dedupe_no_mod",
-        "dedup_mod",
-        "link_no_mod",
-        "link_left_mod",
-        "link_right_mod",
-        "link_same_mod",
-    ],
-)
-def test_calculate_min_max_edges(
-    left_n: int,
-    right_n: int | None,
-    n_components: int,
-    true_min: int,
-    true_max: int,
-) -> None:
-    deduplicate = False
-    if not right_n:
-        deduplicate = True
-        right_n = left_n
-    min_edges, max_edges = calculate_min_max_edges(
-        left_n, right_n, n_components, deduplicate
-    )
-
-    assert true_min == min_edges
-    assert true_max == max_edges
-
-
-@pytest.mark.parametrize(
-    ("parameters"),
-    [
-        pytest.param(
-            {
-                "left_count": 5,
-                "right_count": None,
-                "score_range": (0.6, 0.8),
-                "num_components": 3,
-                "total_rows": 2,
-            },
-            id="dedupe_no_edges",
-        ),
-        pytest.param(
-            {
-                "left_count": 1_000,
-                "right_count": None,
-                "score_range": (0.6, 0.8),
-                "num_components": 10,
-                "total_rows": calculate_min_max_edges(1_000, 1_000, 10, True)[0],
-            },
-            id="dedupe_min",
-        ),
-        pytest.param(
-            {
-                "left_count": 1_000,
-                "right_count": None,
-                "score_range": (0.6, 0.8),
-                "num_components": 10,
-                "total_rows": calculate_min_max_edges(1_000, 1_000, 10, True)[1],
-            },
-            id="dedupe_max",
-        ),
-        pytest.param(
-            {
-                "left_count": 1_000,
-                "right_count": 1_000,
-                "score_range": (0.6, 0.8),
-                "num_components": 10,
-                "total_rows": calculate_min_max_edges(1_000, 1_000, 10, False)[0],
-            },
-            id="link_min",
-        ),
-        pytest.param(
-            {
-                "left_count": 1_000,
-                "right_count": 1_000,
-                "score_range": (0.6, 0.8),
-                "num_components": 10,
-                "total_rows": calculate_min_max_edges(1_000, 1_000, 10, False)[1],
-            },
-            id="link_max",
-        ),
-        pytest.param(
-            {
-                "left_count": 1_000,
-                "right_count": 1_000,
-                "score_range": (0.6, 0.8),
-                "num_components": 10,
-                "total_rows": None,
-            },
-            id="blank_total_rows",
-        ),
-    ],
-)
-def test_generate_dummy_scores(parameters: dict[str, Any]) -> None:
-    len_left = parameters["left_count"]
-    len_right = parameters["right_count"]
-    if len_right:
-        total_len = len_left + len_right
-        len_right = parameters["right_count"]
-        rand_vals = np.random.choice(a=total_len, replace=False, size=total_len)
-        left_values = tuple(rand_vals[:len_left])
-        right_values = tuple(rand_vals[len_left:])
-    else:
-        rand_vals = np.random.choice(a=len_left, replace=False, size=len_left)
-        left_values = tuple(rand_vals[:len_left])
-        right_values = None
-
-    n_components = parameters["num_components"]
-    total_rows = parameters["total_rows"]
-    min_edges, _ = calculate_min_max_edges(
-        parameters["left_count"],
-        parameters["right_count"] or parameters["left_count"],
-        parameters["num_components"],
-        right_values is None,
-    )
-    total_rows = total_rows or min_edges
-
-    scores = generate_dummy_scores(
-        left_values=left_values,
-        right_values=right_values,
-        score_range=parameters["score_range"],
-        num_components=n_components,
-        total_rows=total_rows,
-    )
-    report = component_report(table=scores, all_nodes=rand_vals)
-    p_left = scores["left_id"].to_list()
-    p_right = scores["right_id"].to_list()
-
-    assert report["num_components"] == n_components
-
-    # Link job
-    if right_values:
-        assert set(p_left) <= set(left_values)
-        assert set(p_right) <= set(right_values)
-    # Dedupe
-    else:
-        assert set(p_left) | set(p_right) <= set(left_values)
-
-    assert scores["score"].max() <= parameters["score_range"][1]
-    assert scores["score"].min() >= parameters["score_range"][0]
-
-    assert len(scores) == total_rows
-
-    edges = zip(p_left, p_right, strict=True)
-    edges_set = {tuple(sorted(e)) for e in edges}
-    assert len(edges_set) == total_rows
-
-    self_references = [e for e in edges if e[0] == e[1]]
-    assert len(self_references) == 0
-
-
-def test_generate_dummy_scores_no_self_references() -> None:
-    # Create input with repeated values
-    left_values = tuple([1] * 4 + [2] * 4 + [3] * 4)
-
-    try:
-        scores = generate_dummy_scores(
-            left_values=left_values,
-            right_values=None,
-            score_range=(0.6, 0.8),
-            num_components=3,
-            total_rows=3,
-        )
-    except ValueError:
-        return
-
-    # If no ValueError was raised, continue with the rest of the checks
-    p_left = scores["left_id"].to_list()
-    p_right = scores["right_id"].to_list()
-
-    # Check for self-references
-    self_references = [
-        (l_, r_) for l_, r_ in zip(p_left, p_right, strict=False) if l_ == r_
-    ]
-    assert len(self_references) == 0, f"Found self-references: {self_references}"
-
-
-@pytest.mark.parametrize(
-    ("parameters"),
-    [
-        {
-            "left_range": (0, 10_000),
-            "right_range": (10_000, 20_000),
-            "num_components": 2,
-            "total_rows": 1,
-        },
-        {
-            "left_range": (0, 10),
-            "right_range": (10, 20),
-            "num_components": 2,
-            "total_rows": 8_000,
-        },
-    ],
-    ids=["lower_than_min", "higher_than_max"],
-)
-def test_generate_dummy_scores_errors(parameters: dict[str, Any]) -> None:
-    left_values = tuple(range(*parameters["left_range"]))
-    right_values = tuple(range(*parameters["right_range"]))
-
-    with pytest.raises(ValueError):
-        generate_dummy_scores(
-            left_values=left_values,
-            right_values=right_values,
-            score_range=(0.6, 0.8),
-            num_components=parameters["num_components"],
-            total_rows=parameters["total_rows"],
-        )
-
-
-@pytest.mark.parametrize(
-    ("left_entities", "right_entities", "source_entities", "score_range", "expected"),
+    ("left_entities", "right_entities", "true_entities", "score_range", "expected"),
     [
         pytest.param(
             frozenset(
@@ -396,16 +165,16 @@ def test_generate_dummy_scores_errors(parameters: dict[str, Any]) -> None:
     ],
 )
 def test_generate_entity_scores_scenarios(
-    left_entities: frozenset[ClusterEntity],
-    right_entities: frozenset[ClusterEntity] | None,
-    source_entities: frozenset[SourceEntity],
+    left_entities: frozenset[Cluster],
+    right_entities: frozenset[Cluster] | None,
+    true_entities: frozenset[TrueEntity],
     score_range: tuple[float, float],
     expected: dict,
 ) -> None:
     """Comprehensive test for generate_entity_scores with various scenarios."""
     # Run the function
     result = generate_entity_scores(
-        left_entities, right_entities, source_entities, score_range
+        left_entities, right_entities, true_entities, score_range
     )
 
     # Check schema
@@ -472,7 +241,7 @@ def test_seed_determinism(
     result1 = generate_entity_scores(
         left_entities=entities,
         right_entities=right_entities,
-        source_entities=frozenset([source]),
+        true_entities=frozenset([source]),
         score_range=(0.8, 1.0),
         seed=seed1,
     )
@@ -480,7 +249,7 @@ def test_seed_determinism(
     result2 = generate_entity_scores(
         left_entities=entities,
         right_entities=right_entities,
-        source_entities=frozenset([source]),
+        true_entities=frozenset([source]),
         score_range=(0.8, 1.0),
         seed=seed2,
     )
@@ -496,11 +265,11 @@ def test_seed_determinism(
 
 def test_disjoint_set_recovery() -> None:
     """Test that DisjointSet can recover the entity structure from scores."""
-    # Create source entities
+    # Create true entities
     source1 = make_source_entity("source1", ["1", "2", "3"], "entity1")
     source2 = make_source_entity("source1", ["4", "5", "6"], "entity2")
 
-    # Create split cluster entities
+    # Create split clusters
     clusters = frozenset(
         [
             make_cluster_entity(1, "source1", ["1"]),
@@ -516,7 +285,7 @@ def test_disjoint_set_recovery() -> None:
     table = generate_entity_scores(
         left_entities=clusters,
         right_entities=None,
-        source_entities=frozenset([source1, source2]),
+        true_entities=frozenset([source1, source2]),
         score_range=(0.9, 1.0),
     )
 
@@ -532,7 +301,7 @@ def test_disjoint_set_recovery() -> None:
     # Should recover original entities - exactly two clusters
     assert len(clusters) == 2
 
-    # Each cluster should contain the right number of ClusterEntity objects
+    # Each cluster should contain the right number of Cluster objects
     cluster_sizes = sorted(len(cluster) for cluster in clusters)
     assert cluster_sizes == [3, 3]
 
@@ -559,15 +328,15 @@ def test_invalid_score_ranges(score_range: tuple[float, float]) -> None:
         generate_entity_scores(
             left_entities=entities,
             right_entities=None,
-            source_entities=frozenset([source]),
+            true_entities=frozenset([source]),
             score_range=score_range,
         )
 
 
 def test_complex_entity_recovery() -> None:
-    """Test recovery of complex, multi-source entity structures."""
-    # Create a source entity spanning multiple sources
-    source = SourceEntity(
+    """Test recovery of complex, multi-source true-entity structures."""
+    # Create a true entity spanning multiple sources
+    source = TrueEntity(
         base_values={"name": "Complex Entity"},
         keys=EntityReference(
             {
@@ -578,14 +347,14 @@ def test_complex_entity_recovery() -> None:
         ),
     )
 
-    # Create fragmented ClusterEntity objects
+    # Create fragmented Cluster objects
     clusters = frozenset(
         [
-            ClusterEntity(keys=EntityReference({"source1": frozenset(["1"])})),
-            ClusterEntity(keys=EntityReference({"source1": frozenset(["2"])})),
-            ClusterEntity(keys=EntityReference({"source2": frozenset(["A"])})),
-            ClusterEntity(keys=EntityReference({"source2": frozenset(["B"])})),
-            ClusterEntity(keys=EntityReference({"source3": frozenset(["X"])})),
+            Cluster(keys=EntityReference({"source1": frozenset(["1"])})),
+            Cluster(keys=EntityReference({"source1": frozenset(["2"])})),
+            Cluster(keys=EntityReference({"source2": frozenset(["A"])})),
+            Cluster(keys=EntityReference({"source2": frozenset(["B"])})),
+            Cluster(keys=EntityReference({"source3": frozenset(["X"])})),
         ]
     )
 
@@ -593,7 +362,7 @@ def test_complex_entity_recovery() -> None:
     table = generate_entity_scores(
         left_entities=clusters,
         right_entities=None,
-        source_entities=frozenset([source]),
+        true_entities=frozenset([source]),
         score_range=(0.9, 1.0),
     )
 

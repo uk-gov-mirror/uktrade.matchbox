@@ -4,24 +4,17 @@ import pytest
 from faker import Faker
 from sqlalchemy import Engine
 
-from matchlab.core.factories.entities import (
-    FeatureConfig,
-    ReplaceRule,
-    SourceEntity,
-    SuffixRule,
-)
-from matchlab.core.factories.sources import (
-    generate_rows,
-    source_factory,
-    source_from_tuple,
-)
+from matchlab.testkit._generate import generate_rows
+from matchlab.testkit.entities import TrueEntity
+from matchlab.testkit.features import FeatureConfig, ReplaceRule, SuffixRule
+from matchlab.testkit.sources import source_factory, source_from_tuple, values_of
 
 
 def test_source_factory_default() -> None:
     """Test that source_factory generates a source testkit with default parameters."""
     source = source_factory()
 
-    assert len(source.entities) == 10
+    assert len(source.input_clusters) == 10
     assert source.data.shape[0] == 10
     assert len(set(source.data.column("id").to_pylist())) == 10
 
@@ -133,7 +126,7 @@ def test_source_factory_mock_properties(sqlite_in_memory_warehouse: Engine) -> N
         location_name=location_name,
         engine=sqlite_in_memory_warehouse,
     )
-    source_spec = source_testkit.source_spec
+    source_spec = source_testkit.source.spec
 
     assert source_testkit.source.location.name == location_name
 
@@ -155,7 +148,7 @@ def test_source_factory_mock_properties(sqlite_in_memory_warehouse: Engine) -> N
 def test_entity_variations_tracking() -> None:
     """Test that entity variations are correctly tracked and accessible.
 
-    Asserts that ClusterEntity objects are proper subsets of their parent entities.
+    Asserts that Cluster objects are proper subsets of their parent entities.
     """
     features = [
         FeatureConfig(
@@ -171,11 +164,11 @@ def test_entity_variations_tracking() -> None:
 
     source_testkit = source_factory(features=features, n_true_entities=2, seed=42)
 
-    # Process each ClusterEntity group
-    for cluster_entity in source_testkit.entities:
+    # Process each Cluster group
+    for cluster_entity in source_testkit.input_clusters:
         # Get the values for this entity
-        entity_values = cluster_entity.get_values(
-            {source_testkit.source.name: source_testkit}
+        entity_values = values_of(
+            cluster_entity, {source_testkit.source.name: source_testkit}
         )
 
         # Calculate total unique variations (equivalent to total_unique_variations)
@@ -191,11 +184,11 @@ def test_entity_variations_tracking() -> None:
         # Verify the data values match expectations
         data_df = source_testkit.data.to_pandas()
 
-        # Get keys for this cluster entity
+        # Get keys for this cluster
         result_keys = cluster_entity.get_keys(source_testkit.source.name)
         assert result_keys is not None
 
-        # All rows for a given cluster entity should share the same company value
+        # All rows for a given cluster should share the same company value
         result_rows = data_df[data_df["key"].isin(result_keys)]
         assert len(result_rows["company"].unique()) == 1
 
@@ -207,7 +200,7 @@ def test_entity_variations_tracking() -> None:
 
 
 def test_base_and_variation_entities() -> None:
-    """Test that base values and variations create correct ClusterEntity objects."""
+    """Test that base values and variations create correct Cluster objects."""
     features = [
         FeatureConfig(
             name="company",
@@ -219,8 +212,8 @@ def test_base_and_variation_entities() -> None:
 
     source_testkit = source_factory(features=features, n_true_entities=1, seed=42)
 
-    # Should have two ClusterEntity objects - one for base, one for variation
-    assert len(source_testkit.entities) == 2
+    # Should have two Cluster objects - one for base, one for variation
+    assert len(source_testkit.input_clusters) == 2
 
     # Get the base and variation entities
     data_df = source_testkit.data.to_pandas()
@@ -240,7 +233,7 @@ def test_base_and_variation_entities() -> None:
     base_entity = None
     variation_entity = None
 
-    for entity in source_testkit.entities:
+    for entity in source_testkit.input_clusters:
         entity_keys = entity.get_keys(source_testkit.source.name)
         rows = data_df[data_df["key"].isin(entity_keys)]
         values = rows["company"]
@@ -252,24 +245,24 @@ def test_base_and_variation_entities() -> None:
         elif value == variation_value:
             variation_entity = entity
 
-    assert base_entity is not None, "No ClusterEntity found for base value"
-    assert variation_entity is not None, "No ClusterEntity found for variation"
+    assert base_entity is not None, "No Cluster found for base value"
+    assert variation_entity is not None, "No Cluster found for variation"
 
     # Verify that each entity only contains its own variation
-    base_values = base_entity.get_values({source_testkit.source.name: source_testkit})
-    assert base_values[source_testkit.name]["company"] == [base_value]
+    base_values = values_of(base_entity, {source_testkit.source.name: source_testkit})
+    assert base_values[source_testkit.source.name]["company"] == [base_value]
 
-    variation_values = variation_entity.get_values(
-        {source_testkit.source.name: source_testkit}
+    variation_values = values_of(
+        variation_entity, {source_testkit.source.name: source_testkit}
     )
-    assert variation_values[source_testkit.name]["company"] == [variation_value]
+    assert variation_values[source_testkit.source.name]["company"] == [variation_value]
 
     # Together they should compose the full set of entity data
     combined = base_entity + variation_entity
 
     # Verify that the combined entity contains both variations
-    combined_values = combined.get_values({source_testkit.source.name: source_testkit})
-    assert sorted(combined_values[source_testkit.name]["company"]) == sorted(
+    combined_values = values_of(combined, {source_testkit.source.name: source_testkit})
+    assert sorted(combined_values[source_testkit.source.name]["company"]) == sorted(
         [base_value, variation_value]
     )
 
@@ -335,9 +328,9 @@ def test_source_from_tuple() -> None:
     testkit = source_from_tuple(data_tuple=data_tuple, data_keys=["0", "1"], name="foo")
 
     # Verify the generated testkit has the expected properties
-    assert len(testkit.entities) == 2
-    assert set(testkit.entities[0].keys["foo"]) | set(
-        testkit.entities[1].keys["foo"]
+    assert len(testkit.input_clusters) == 2
+    assert set(testkit.input_clusters[0].keys["foo"]) | set(
+        testkit.input_clusters[1].keys["foo"]
     ) == {"0", "1"}
 
     assert testkit.data.shape[0] == 2
@@ -352,8 +345,8 @@ def test_source_from_tuple() -> None:
         pytest.param(
             # Base case: Two entities, one feature, unique values, no repetition
             (
-                SourceEntity(base_values={"name": "alpha"}),
-                SourceEntity(base_values={"name": "beta"}),
+                TrueEntity(base_values={"name": "alpha"}),
+                TrueEntity(base_values={"name": "beta"}),
             ),
             (FeatureConfig(name="name", base_generator="name"),),
             0,
@@ -362,8 +355,8 @@ def test_source_from_tuple() -> None:
         pytest.param(
             # Same case with repetition
             (
-                SourceEntity(base_values={"name": "alpha"}),
-                SourceEntity(base_values={"name": "beta"}),
+                TrueEntity(base_values={"name": "alpha"}),
+                TrueEntity(base_values={"name": "beta"}),
             ),
             (FeatureConfig(name="name", base_generator="name"),),
             3,  # 3 repetitions
@@ -373,8 +366,8 @@ def test_source_from_tuple() -> None:
             # Case: Two entities with identical values - should share IDs,
             # two repetitions
             (
-                SourceEntity(base_values={"name": "alpha"}),
-                SourceEntity(base_values={"name": "alpha"}),
+                TrueEntity(base_values={"name": "alpha"}),
+                TrueEntity(base_values={"name": "alpha"}),
             ),
             (FeatureConfig(name="name", base_generator="name"),),
             2,
@@ -383,8 +376,8 @@ def test_source_from_tuple() -> None:
         pytest.param(
             # Case: Multiple features, tests tuple-based identity, one repetition
             (
-                SourceEntity(base_values={"name": "alpha", "user_id": "123"}),
-                SourceEntity(base_values={"name": "alpha", "user_id": "456"}),
+                TrueEntity(base_values={"name": "alpha", "user_id": "123"}),
+                TrueEntity(base_values={"name": "alpha", "user_id": "456"}),
             ),
             (
                 FeatureConfig(name="name", base_generator="name"),
@@ -402,7 +395,7 @@ def test_source_from_tuple() -> None:
         ),
         pytest.param(
             # Case: Entity with variations and drop_base, two repetitions
-            (SourceEntity(base_values={"name": "alpha"}),),
+            (TrueEntity(base_values={"name": "alpha"}),),
             (
                 FeatureConfig(
                     name="name",
@@ -419,7 +412,7 @@ def test_source_from_tuple() -> None:
         ),
         pytest.param(
             # Case: Entity with variations and drop_base, one repetition
-            (SourceEntity(base_values={"name": "alpha", "user_id": "123"}),),
+            (TrueEntity(base_values={"name": "alpha", "user_id": "123"}),),
             (
                 FeatureConfig(
                     name="name",
@@ -442,8 +435,8 @@ def test_source_from_tuple() -> None:
         pytest.param(
             # Case: Multiple entities with mixed variation configs, four repetitions
             (
-                SourceEntity(base_values={"name": "alpha", "title": "ceo"}),
-                SourceEntity(base_values={"name": "beta", "title": "cto"}),
+                TrueEntity(base_values={"name": "alpha", "title": "ceo"}),
+                TrueEntity(base_values={"name": "beta", "title": "cto"}),
             ),
             (
                 FeatureConfig(
@@ -468,7 +461,7 @@ def test_source_from_tuple() -> None:
     ],
 )
 def test_generate_rows(
-    selected_entities: tuple[SourceEntity, ...],
+    selected_entities: tuple[TrueEntity, ...],
     features: tuple[FeatureConfig, ...],
     repetition: int,
 ) -> None:

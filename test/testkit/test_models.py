@@ -3,62 +3,80 @@ from typing import Any, Literal
 import polars as pl
 import pytest
 
-from matchlab.core.factories.models import (
-    generate_dummy_scores,
-    model_factory,
-)
-from matchlab.core.factories.sources import linked_sources_factory, source_factory
 from matchlab.core.schemas import SCHEMA_MODEL_EDGES
+from matchlab.sources import Source
+from matchlab.testkit.entities import Cluster
+from matchlab.testkit.linked import linked_sources_factory
+from matchlab.testkit.models import GeneratedModel
+
+
+def _over_merged_scores(
+    left: tuple[Cluster, ...], right: tuple[Cluster, ...] | None
+) -> pl.DataFrame:
+    """Edges from a deliberately wrong methodology: collapse everything into one.
+
+    Stands in for a real methodology that over-matches. With more than one entity
+    planted, the single resulting cluster must be reported as a *superset* of the
+    expected ones — which is what makes this a check on the diff, not on chance.
+    """
+    left_ids = [entity.id for entity in left]
+    if right is None:
+        pairs = [(left_ids[0], other) for other in left_ids[1:]]
+    else:
+        right_ids = [entity.id for entity in right]
+        pairs = [(left_ids[0], other) for other in right_ids] + [
+            (other, right_ids[0]) for other in left_ids[1:]
+        ]
+
+    return pl.DataFrame(
+        {
+            "left_id": [left_id for left_id, _ in pairs],
+            "right_id": [right_id for _, right_id in pairs],
+            "score": [1.0] * len(pairs),
+        },
+        schema=pl.Schema(SCHEMA_MODEL_EDGES),
+    )
+
+
+def _build(how: str) -> GeneratedModel:
+    """Build a generated model by each of the two supported routes."""
+    linked = linked_sources_factory()
+    if how == "dedupe":
+        return linked.dedupe("crn", seed=13)
+    return linked.link("crn", "cdms", seed=13)
 
 
 @pytest.mark.parametrize(
-    ("left_testkit", "right_testkit", "expected_type", "should_have_right"),
+    ("how", "expected_type", "should_have_right"),
     [
-        pytest.param(None, None, "deduper", False, id="default_creates_deduper"),
-        pytest.param(
-            "source", None, "deduper", False, id="left_source_only_creates_deduper"
-        ),
-        pytest.param(
-            "source", "source", "linker", True, id="both_sources_creates_linker"
-        ),
+        pytest.param("dedupe", "deduper", False, id="dedupe_over_a_source"),
+        pytest.param("linker", "linker", True, id="link_between_two_sources"),
     ],
 )
 def test_model_type_creation(
-    left_testkit: None | str,
-    right_testkit: None | str,
+    how: str,
     expected_type: str,
     should_have_right: bool,
 ) -> None:
     """Test that model creation and core operations work correctly for each type."""
-    # Create our source objects from the string parameters
-    linked = linked_sources_factory()
-    all_true_sources = list(linked.true_entities)
-
-    left = linked.sources["crn"] if left_testkit == "source" else None
-    right = linked.sources["cdms"] if right_testkit == "source" else None
-
-    # Create our model
-    model = model_factory(
-        left_testkit=left, right_testkit=right, true_entities=all_true_sources, seed=13
-    )
+    model = _build(how)
 
     # Basic type verification
     assert model.model.model_type == expected_type
-    assert (model.right is not None) == should_have_right
-    assert (model.right_clusters is not None) == should_have_right
+    assert (model.right_source is not None) == should_have_right
 
     # Verify scores were generated
     assert len(model.scores) > 0
     assert model.scores.schema == pl.Schema(SCHEMA_MODEL_EDGES)
 
     # Verify the input data exists and includes ids
-    assert "id" in model.left_data.column_names
-    assert len(set(model.left_data["id"].to_pylist())) > 0
+    assert "id" in model.left_source.data.column_names
+    assert len(set(model.left_source.data["id"].to_pylist())) > 0
 
     # For linkers, verify we maintain separation between left and right IDs
     if expected_type == "linker":
-        left_ids = set(model.left_data["id"].to_pylist())
-        right_ids = set(model.right_data["id"].to_pylist())
+        left_ids = set(model.left_source.data["id"].to_pylist())
+        right_ids = set(model.right_source.data["id"].to_pylist())
         assert not (left_ids & right_ids), (
             "Left and right IDs should be disjoint in linker"
         )
@@ -108,75 +126,40 @@ def test_model_pipeline_with_dummy_methodology(
 
     This test demonstrates that:
     1. We can set up pipelines in various configurations that work perfectly
-        with model_factory
-    2. When we swap in a simulated "real" methodology (using
-        generate_dummy_scores), the diff can detect the errors appropriately
+        with dedupe()/link()
+    2. When we swap in a simulated "real" methodology that over-matches, the diff
+        detects the error appropriately
     3. This validation works across different pipeline positions and configurations
     """
     linked = linked_sources_factory()
-    all_true_sources = list(linked.true_entities)
 
     # Create and validate perfect model
-    if model_type == "deduper":
-        # Get inputs to final model for later diff
-        left_clusters = linked.sources[left_testkit].entities
-        right_clusters = None
-
-        perfect_model = model_factory(
-            left_testkit=linked.sources[left_testkit],
-            true_entities=all_true_sources,
-        )
-        sources = [left_testkit]
-        model_entities = (tuple(linked.sources[left_testkit].entities), None)
-    else:  # linker
-        # Get inputs to final model for later diff
-        left_clusters = linked.sources[left_testkit].entities
-        right_clusters = linked.sources[right_testkit].entities
-
-        perfect_model = model_factory(
-            left_testkit=linked.sources[left_testkit],
-            right_testkit=linked.sources[right_testkit],
-            true_entities=all_true_sources,
-        )
-        sources = [left_testkit, right_testkit]
-        model_entities = (
-            tuple(linked.sources[left_testkit].entities),
-            tuple(linked.sources[right_testkit].entities),
-        )
+    left = linked.sources[left_testkit]
+    right = linked.sources[right_testkit] if model_type == "linker" else None
+    perfect_model = (
+        linked.link(left_testkit, right_testkit)
+        if right is not None
+        else linked.dedupe(left_testkit)
+    )
 
     # Verify perfect model works
-    identical, _ = linked.diff_model_edges(
-        scores=perfect_model.scores,
-        left_clusters=left_clusters,
-        right_clusters=right_clusters,
-        sources=sources,
-        threshold=0,
-    )
-    assert identical, "Perfect model_factory setup should match"
+    identical, _ = linked.diff_model_edges(perfect_model.scores, left=left, right=right)
+    assert identical, "A perfect model should recover the planted entities"
 
     # Test with imperfect methodology
-    random_scores = generate_dummy_scores(
-        left_values=tuple(c.id for c in model_entities[0]),
-        right_values=tuple(c.id for c in model_entities[1])
-        if model_entities[1] is not None
-        else None,
-        score_range=(0.0, 1.0),
-        num_components=len(all_true_sources) - 1,  # Intentionally wrong
-    )
-
     identical, report = linked.diff_model_edges(
-        scores=random_scores,
-        left_clusters=left_clusters,
-        right_clusters=right_clusters,
-        sources=sources,
-        threshold=0,
+        _over_merged_scores(
+            left.input_clusters, right.input_clusters if right else None
+        ),
+        left=left,
+        right=right,
     )
 
-    # Verify the imperfect methodology was detected
+    # Verify the imperfect methodology was detected. Over-matching everything into a
+    # single cluster is a superset of each entity it swallowed, and nothing matches.
     assert not identical
-    # Random process: can't guarantee particular issues, but can guarantee
-    # that some will be present
-    assert report["wrong"] > 0 or report["subset"] > 0 or report["superset"] > 0
+    assert report["superset"] > 0
+    assert report["perfect"] == 0
 
 
 @pytest.mark.parametrize(
@@ -200,25 +183,19 @@ def test_model_pipeline_with_dummy_methodology(
             "Scores must be increasing values between 0 and 1",
             id="invalid_score_range_too_high",
         ),
-        pytest.param(
-            {"left_testkit": source_factory(), "true_entities": None},
-            ValueError,
-            "Must provide true entities when sources are given",
-            id="missing_true_entities_with_source",
-        ),
     ],
 )
-def test_model_factory_validation(
+def test_score_range_validation(
     kwargs: dict[str, Any], expected_error: type[Exception], expected_message: str
 ) -> None:
-    """Test that model_factory validates inputs correctly."""
+    """Test that the builders validate their score range."""
+    linked = linked_sources_factory()
     with pytest.raises(expected_error, match=expected_message):
-        model_factory(**kwargs)
+        linked.dedupe("crn", score_range=kwargs["score_range"])
 
 
 @pytest.mark.parametrize(
     (
-        "name",
         "model_type",
         "n_true_entities",
         "score_range",
@@ -227,7 +204,6 @@ def test_model_factory_validation(
     ),
     [
         pytest.param(
-            "basic_deduper",
             "deduper",
             5,
             (0.8, 0.9),
@@ -242,7 +218,6 @@ def test_model_factory_validation(
             id="basic_deduper",
         ),
         pytest.param(
-            "basic_linker",
             "linker",
             10,
             (0.7, 0.8),
@@ -257,7 +232,6 @@ def test_model_factory_validation(
             id="basic_linker",
         ),
         pytest.param(
-            "large_deduper",
             "deduper",
             100,
             (0.9, 1.0),
@@ -272,7 +246,6 @@ def test_model_factory_validation(
             id="large_deduper",
         ),
         pytest.param(
-            "strict_linker",
             "linker",
             20,
             (0.95, 1.0),
@@ -288,31 +261,27 @@ def test_model_factory_validation(
         ),
     ],
 )
-def test_model_factory_basic_creation(
-    name: str,
+def test_generated_model_basic_creation(
     model_type: str,
     n_true_entities: int,
     score_range: tuple[float, float],
     seed: int,
     expected_checks: dict,
 ) -> None:
-    """Test basic model factory creation without sources."""
-    model = model_factory(
-        name=name,
-        model_type=model_type,
-        n_true_entities=n_true_entities,
-        score_range=score_range,
-        seed=seed,
+    """Test model creation over freshly generated sources."""
+    linked = linked_sources_factory(n_true_entities=n_true_entities, seed=seed)
+    model = (
+        linked.link("crn", "cdms", score_range=score_range, seed=seed)
+        if model_type == "linker"
+        else linked.dedupe("crn", score_range=score_range, seed=seed)
     )
 
     # Basic metadata checks
-    assert model.name == name
     assert str(model.model.model_type) == expected_checks["type"]
 
     # Structure checks
-    assert (model.right is not None) == expected_checks["has_right"]
-    assert (model.right_clusters is not None) == expected_checks["has_right"]
-    assert len(model.entities) == expected_checks["entity_count"]
+    assert (model.right_source is not None) == expected_checks["has_right"]
+    assert len(model.predicted_clusters) == expected_checks["entity_count"]
 
     # Probability checks
     score_values = model.scores["score"].to_numpy()
@@ -385,8 +354,10 @@ def test_model_factory_basic_creation(
         ),
     ],
 )
-def test_model_factory_with_sources(source_params: dict, expected_checks: dict) -> None:
-    """Test model factory creation using sources."""
+def test_generated_model_over_chosen_sources(
+    source_params: dict, expected_checks: dict
+) -> None:
+    """Test model creation over named sources with a chosen slice of truth."""
     # Create source data
     linked = linked_sources_factory()
     all_true_sources = list(linked.true_entities)
@@ -399,18 +370,25 @@ def test_model_factory_with_sources(source_params: dict, expected_checks: dict) 
         else None
     )
 
-    # Create model
-    model = model_factory(
-        left_testkit=left_testkit,
-        right_testkit=right_testkit,
-        true_entities=all_true_sources[source_params["true_entities_slice"]],
-        score_range=source_params["score_range"],
-    )
+    # Create model through the testkit that planted the truth
+    truth = all_true_sources[source_params["true_entities_slice"]]
+    if source_params["right_name"]:
+        model = linked.link(
+            source_params["left_name"],
+            source_params["right_name"],
+            true_entities=truth,
+            score_range=source_params["score_range"],
+        )
+    else:
+        model = linked.dedupe(
+            source_params["left_name"],
+            true_entities=truth,
+            score_range=source_params["score_range"],
+        )
 
     # Basic type checks
     assert str(model.model.model_type) == expected_checks["type"]
-    assert (model.right is not None) == expected_checks["has_right"]
-    assert (model.right_clusters is not None) == expected_checks["has_right"]
+    assert (model.right_source is not None) == expected_checks["has_right"]
 
     # Verify scores
     score_values = model.scores["score"].to_numpy()
@@ -419,10 +397,10 @@ def test_model_factory_with_sources(source_params: dict, expected_checks: dict) 
 
     # Verify source keys are preserved
     input_keys = sum(
-        set(left_testkit.entities)
-        | set(right_testkit.entities if right_testkit else {})
+        set(left_testkit.input_clusters)
+        | set(right_testkit.input_clusters if right_testkit else {})
     )
-    assert input_keys == sum(model.entities), (
+    assert input_keys == sum(model.predicted_clusters), (
         "Model entities should preserve all source keys"
     )
 
@@ -434,22 +412,41 @@ def test_model_factory_with_sources(source_params: dict, expected_checks: dict) 
         pytest.param(1, 2, False, id="different_seeds"),
     ],
 )
-def test_model_factory_seed_behavior(
+def test_generated_model_seed_behaviour(
     seed1: int, seed2: int, should_be_equal: bool
 ) -> None:
-    """Test that model_factory handles seeds correctly for reproducibility."""
-    dummy1 = model_factory(seed=seed1)
-    dummy2 = model_factory(seed=seed2)
+    """Test that the builders handle seeds correctly for reproducibility."""
+    dummy1 = linked_sources_factory(seed=seed1).dedupe("crn", seed=seed1)
+    dummy2 = linked_sources_factory(seed=seed2).dedupe("crn", seed=seed2)
 
     if should_be_equal:
-        assert dummy1.name == dummy2.name
-        assert dummy1.left_data.equals(dummy2.left_data)
-        assert set(dummy1.left_clusters) == set(dummy2.left_clusters)
-        assert set(dummy1.entities) == set(dummy2.entities)
+        assert dummy1.left_source.data.equals(dummy2.left_source.data)
+        assert set(dummy1.left_source.input_clusters) == set(
+            dummy2.left_source.input_clusters
+        )
+        assert set(dummy1.predicted_clusters) == set(dummy2.predicted_clusters)
         assert dummy1.scores.equals(dummy2.scores)
     else:
-        assert dummy1.name != dummy2.name
-        assert not dummy1.left_data.equals(dummy2.left_data)
-        assert set(dummy1.left_clusters) != set(dummy2.left_clusters)
-        assert set(dummy1.entities) != set(dummy2.entities)
+        assert not dummy1.left_source.data.equals(dummy2.left_source.data)
+        assert set(dummy1.left_source.input_clusters) != set(
+            dummy2.left_source.input_clusters
+        )
+        assert set(dummy1.predicted_clusters) != set(dummy2.predicted_clusters)
         assert not dummy1.scores.equals(dummy2.scores)
+
+
+def test_default_linker_sources_share_one_warehouse() -> None:
+    """Both sides of a default linker must live in the same database.
+
+    Regression test. `SourceParameters.engine` defaulted to an engine built once
+    at class-definition time, and the `cdms` parameters omitted `engine=` while `crn`
+    passed it — so the two sides of a link were written to different in-memory SQLite
+    databases. A linker joins them, so they have to share one.
+    """
+    testkit = linked_sources_factory().link("crn", "cdms")
+
+    sources = [step for step in testkit.model.lineage() if isinstance(step, Source)]
+    assert {source.name for source in sources} == {"crn", "cdms"}
+
+    clients = {id(source.location.client) for source in sources}
+    assert len(clients) == 1, "linked sources must share one warehouse"

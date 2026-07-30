@@ -1,12 +1,8 @@
 import pytest
 from sqlalchemy import Engine
 
-from matchlab.core.factories.sources import (
-    FeatureConfig,
-    SourceTestkitParameters,
-    SuffixRule,
-    linked_sources_factory,
-)
+from matchlab.testkit.features import FeatureConfig, SourceParameters, SuffixRule
+from matchlab.testkit.linked import linked_sources_factory
 
 
 def test_linked_sources_factory_default() -> None:
@@ -49,14 +45,14 @@ def test_linked_sources_custom_config(sqlite_in_memory_warehouse: Engine) -> Non
     }
 
     configs = (
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_a",
             engine=sqlite_in_memory_warehouse,
             features=(features["name"], features["user_id"]),
             n_true_entities=5,
             repetition=1,
         ),
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_b",
             features=(features["name"],),
             n_true_entities=3,
@@ -137,7 +133,7 @@ def test_entity_value_consistency() -> None:
 
 
 def test_source_entity_equality() -> None:
-    """Test SourceEntity equality and hashing behavior."""
+    """Test TrueEntity equality and hashing behavior."""
     linked = linked_sources_factory(n_true_entities=3)
 
     # Get a few entities
@@ -160,7 +156,7 @@ def test_source_entity_equality() -> None:
 
 def test_seed_reproducibility() -> None:
     """Test that linked sources generation is reproducible with same seed."""
-    source_parameters = SourceTestkitParameters(
+    source_parameters = SourceParameters(
         name="test_source",
         features=(
             FeatureConfig(
@@ -193,7 +189,7 @@ def test_seed_reproducibility() -> None:
 
 def test_empty_source_handling() -> None:
     """Test handling of sources with zero entities."""
-    source_parameters = SourceTestkitParameters(
+    source_parameters = SourceParameters(
         name="empty_source",
         features=(FeatureConfig(name="name", base_generator="name"),),
         n_true_entities=0,
@@ -209,7 +205,7 @@ def test_empty_source_handling() -> None:
 
 def test_large_entity_count() -> None:
     """Test handling of sources with large number of entities."""
-    source_parameters = SourceTestkitParameters(
+    source_parameters = SourceParameters(
         name="large_source",
         features=(FeatureConfig(name="user_id", base_generator="uuid4"),),
         n_true_entities=10_000,
@@ -231,10 +227,10 @@ def test_feature_inheritance() -> None:
     }
 
     configs = (
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_a", features=(features["name"], features["email"])
         ),
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_b", features=(features["name"], features["phone"])
         ),
     )
@@ -257,7 +253,7 @@ def test_feature_inheritance() -> None:
 
 def test_unique_feature_values() -> None:
     """Test that unique features generate distinct values across entities."""
-    source_parameters = SourceTestkitParameters(
+    source_parameters = SourceParameters(
         name="test_source",
         features=(
             FeatureConfig(name="unique_id", base_generator="uuid4", unique=True),
@@ -304,7 +300,7 @@ def test_source_references() -> None:
 
 
 def test_linked_sources_entity_hierarchy() -> None:
-    """Test that LinkedSourcesTestkit correctly maintains entity hierarchy."""
+    """Test that LinkedSources correctly maintains entity hierarchy."""
     # Create linked sources with multiple sources
     features = {
         "name": FeatureConfig(
@@ -319,12 +315,12 @@ def test_linked_sources_entity_hierarchy() -> None:
     }
 
     configs = (
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_a",
             features=(features["name"], features["user_id"]),
             n_true_entities=5,
         ),
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_b",
             features=(features["name"],),
             n_true_entities=3,
@@ -335,25 +331,25 @@ def test_linked_sources_entity_hierarchy() -> None:
 
     # For each source, verify its entities are subsets of true_entities
     for source_name, source in linked.sources.items():
-        for cluster_entity in source.entities:
-            # Find all true entities that could be parents of this cluster entity
+        for cluster_entity in source.input_clusters:
+            # Find all true entities that could be parents of this cluster
             matching_parents = [
                 true_entity
                 for true_entity in linked.true_entities
-                if cluster_entity.is_subset_of_source_entity(true_entity)
+                if cluster_entity.is_subset_of_true_entity(true_entity)
             ]
 
-            # Each cluster entity must have at least one parent
+            # Each cluster must have at least one parent
             assert len(matching_parents) > 0, (
-                f"ClusterEntity in {source_name} has no parent in true_entities"
+                f"Cluster in {source_name} has no parent in true_entities"
             )
 
-            # The source keys from the cluster entity should be a subset of
+            # The source keys from the cluster should be a subset of
             # at least one true entity's keys
             assert any(
                 cluster_entity.keys <= true_entity.keys
                 for true_entity in matching_parents
-            ), f"ClusterEntity in {source_name} not a proper subset of any true entity"
+            ), f"Cluster in {source_name} not a proper subset of any true entity"
 
 
 def test_linked_sources_entity_count_behavior(
@@ -364,13 +360,13 @@ def test_linked_sources_entity_count_behavior(
 
     # Test error when n_true_entities missing from configs
     configs_missing_counts = (
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_a",
             engine=sqlite_in_memory_warehouse,
             features=(base_feature,),
             n_true_entities=5,
         ),
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_b",
             features=(base_feature,),  # Deliberately missing n_true_entities
         ),
@@ -383,13 +379,13 @@ def test_linked_sources_entity_count_behavior(
 
     # Test respecting different entity counts per source
     configs_different_counts = (
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_a",
             engine=sqlite_in_memory_warehouse,
             features=(base_feature,),
             n_true_entities=5,
         ),
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_b",
             features=(base_feature,),
             n_true_entities=10,

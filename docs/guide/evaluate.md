@@ -129,17 +129,49 @@ When you generate data rather than judging it, you can assert against truth dire
 The testkit builds sources whose true entities are known:
 
 ```python
-from matchlab.core.factories.scenarios import link_scenario
+from matchlab.testkit import linked_sources_factory
 
-scenario = link_scenario(n_true_entities=100)
-resolution = scenario.apex.collect().entities()
+linked = linked_sources_factory(n_true_entities=100).write_to_location()
+
+resolution = linked.link("crn", "cdms").model.resolve().collect().entities()
+
+identical, report = linked.diff_resolution(resolution, "crn", "cdms")
 ```
 
-`scenario.linked.true_entities` holds the planted entities, so you can compare the
-resolved partition against them exactly. This is how matchlab tests itself, and it's
-the fastest way to sanity-check a methodology before pointing it at real data.
+`linked` is the whole handle: it planted the entities, so `.dedupe()`, `.link()` and
+`.diff_resolution()` all know the answer without being told it. To stack a link on top
+of a dedupe — the case where the apex has to carry an upstream grouping forward as well
+as its own — read the left side *through* the upstream resolver:
 
-See [`matchlab.core.factories`](../api/core/factories.md) for the generators.
+```python
+dedupe = linked.dedupe("crn").model.resolve()
+apex = linked.link("crn", "cdms", through=dedupe).model.resolve()
+```
+
+`identical` is the verdict; `report` is empty on a match, and otherwise says *how* it
+differs, counting clusters that were:
+
+| | |
+|---|---|
+| `perfect` | exactly an expected entity |
+| `subset` | a fragment of one — under-matching |
+| `superset` | swallowed more than one — over-matching |
+| `wrong` | overlaps expected entities without containing or being contained by one |
+| `invalid` | contains records no expected entity claims |
+
+That breakdown is the point: "0.94 recall" tells you less than "eight clusters were
+subsets", which tells you the matcher is too strict rather than too loose.
+
+This works because a cluster is compared by the `(source, key)` records it contains and
+never by its ID — the resolution's `root` is content-derived at collect time and has no
+counterpart in the generated data. To measure a *methodology* rather than a whole plan,
+use `linked.diff_model_edges(edges, left=source)` instead, which compares an edge
+table without needing a warehouse.
+
+This is how matchlab tests itself, and it's the fastest way to sanity-check a
+methodology before pointing it at real data.
+
+See [`matchlab.testkit`](../api/testkit.md) for the generators.
 
 ## Comparing methodologies
 

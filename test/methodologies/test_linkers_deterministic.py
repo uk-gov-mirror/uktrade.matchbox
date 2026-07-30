@@ -12,13 +12,6 @@ from splink import comparison_library as cl
 from splink.internals.blocking_rule_creator import BlockingRuleCreator
 from splink.internals.comparison_creator import ComparisonCreator
 
-from matchlab.core.factories.entities import FeatureConfig
-from matchlab.core.factories.sources import (
-    SourceTestkit,
-    SourceTestkitParameters,
-    linked_sources_factory,
-    source_factory,
-)
 from matchlab.models import Model
 from matchlab.models.linkers.base import Linker
 from matchlab.models.linkers.deterministic import (
@@ -30,21 +23,24 @@ from matchlab.models.linkers.weighteddeterministic import (
     WeightedDeterministicLinker,
     WeightedDeterministicSettings,
 )
+from matchlab.testkit.features import FeatureConfig, SourceParameters
+from matchlab.testkit.linked import linked_sources_factory
+from matchlab.testkit.sources import GeneratedSource, source_factory
 from matchlab.views import View
 
-LinkerConfigurator = Callable[[SourceTestkit, SourceTestkit], dict[str, Any]]
+LinkerConfigurator = Callable[[GeneratedSource, GeneratedSource], dict[str, Any]]
 
 # Methodology configuration adapters
 
 
 def configure_deterministic_linker(
-    left_testkit: SourceTestkit, right_testkit: SourceTestkit
+    left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
     """Configure settings for DeterministicLinker using only shared fields.
 
     Args:
-        left_testkit: Left SourceTestkit from linked_sources_factory
-        right_testkit: Right SourceTestkit from linked_sources_factory
+        left_testkit: Left GeneratedSource from linked_sources_factory
+        right_testkit: Right GeneratedSource from linked_sources_factory
 
     Returns:
         A dictionary with validated settings for DeterministicLinker
@@ -79,13 +75,13 @@ def configure_deterministic_linker(
 
 
 def configure_deterministic_linker_sequential(
-    left_testkit: SourceTestkit, right_testkit: SourceTestkit
+    left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
     """Configure settings for DeterministicLinker with sequential rounds.
 
     Args:
-        left_testkit: Left SourceTestkit from linked_sources_factory
-        right_testkit: Right SourceTestkit from linked_sources_factory
+        left_testkit: Left GeneratedSource from linked_sources_factory
+        right_testkit: Right GeneratedSource from linked_sources_factory
 
     Returns:
         A dictionary with validated settings for DeterministicLinker using
@@ -124,7 +120,7 @@ def configure_deterministic_linker_sequential(
 
 
 def configure_weighted_deterministic_linker(
-    left_testkit: SourceTestkit, right_testkit: SourceTestkit
+    left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
     """Configure settings for WeightedDeterministicLinker using only shared fields.
 
@@ -169,7 +165,7 @@ def configure_weighted_deterministic_linker(
 
 
 def configure_splink_linker(
-    left_testkit: SourceTestkit, right_testkit: SourceTestkit
+    left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
     """Configure settings for SplinkLinker using only shared fields.
 
@@ -280,12 +276,12 @@ def test_exact_match_linking(
     )
 
     configs = (
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_left",
             features=features,
             n_true_entities=10,
         ),
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_right",
             features=features,
             n_true_entities=10,  # Same number of entities
@@ -319,11 +315,7 @@ def test_exact_match_linking(
 
     # Validate results against ground truth
     identical, report = linked.diff_model_edges(
-        scores=results,
-        left_clusters=left_source.entities,
-        right_clusters=right_source.entities,
-        sources=["source_left", "source_right"],
-        threshold=0,
+        results, left=left_source, right=right_source
     )
 
     assert identical, f"Expected perfect results but got: {report}"
@@ -348,13 +340,13 @@ def test_exact_match_with_duplicates_linking(
     )
 
     configs = (
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_left",
             features=features,
             n_true_entities=10,
             repetition=1,  # Each entity appears twice
         ),
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_right",
             features=features,
             n_true_entities=10,  # Same number of entities
@@ -377,18 +369,14 @@ def test_exact_match_with_duplicates_linking(
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.view(),
-        right=right_source.view(),
+        left=left_source.source.view(),
+        right=right_source.source.view(),
     )
     results = linker.collect().edges()
 
     # Validate results against ground truth
     identical, report = linked.diff_model_edges(
-        scores=results,
-        left_clusters=left_source.entities,
-        right_clusters=right_source.entities,
-        sources=["source_left", "source_right"],
-        threshold=0,
+        results, left=left_source, right=right_source
     )
 
     assert identical, f"Expected perfect results but got: {report}"
@@ -419,12 +407,12 @@ def test_partial_entity_linking(
 
     # Configure sources - full set on left, half on right
     configs = (
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_left",
             features=features,
             n_true_entities=10,  # Full set
         ),
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_right",
             features=features,
             n_true_entities=5,  # Half the entities
@@ -447,18 +435,14 @@ def test_partial_entity_linking(
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.view(),
-        right=right_source.view(),
+        left=left_source.source.view(),
+        right=right_source.source.view(),
     )
     results = linker.collect().edges()
 
     # Validate results against ground truth
     identical, report = linked.diff_model_edges(
-        scores=results,
-        left_clusters=left_source.entities,
-        right_clusters=right_source.entities,
-        sources=["source_left", "source_right"],
-        threshold=0,
+        results, left=left_source, right=right_source
     )
 
     assert identical, f"Expected perfect results but got: {report}"
@@ -480,7 +464,7 @@ def test_no_matching_entities_linking(
     )
 
     configs = (
-        SourceTestkitParameters(
+        SourceParameters(
             name="source_left",
             features=features,
             n_true_entities=10,
@@ -510,18 +494,14 @@ def test_no_matching_entities_linking(
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.view(),
-        right=right_source.view(),
+        left=left_source.source.view(),
+        right=right_source.source.view(),
     )
     results = linker.collect().edges()
 
     # Validate results against ground truth
     identical, report = linked.diff_model_edges(
-        scores=results,
-        left_clusters=left_source.entities,
-        right_clusters=right_source.entities,
-        sources=["source_left", "source_right"],
-        threshold=0,
+        results, left=left_source, right=right_source
     )
 
     assert not identical

@@ -4,19 +4,14 @@ import polars as pl
 import pytest
 from faker import Faker
 
-from matchlab.core.factories.entities import (
-    ClusterEntity,
-    EntityReference,
-    FeatureConfig,
-    SourceEntity,
-    diff_entities,
-    generate_entities,
-    scores_to_results_entities,
-)
+from matchlab.testkit._generate import generate_entities
+from matchlab.testkit.compare import diff_entities, scores_to_clusters
+from matchlab.testkit.entities import Cluster, EntityReference, TrueEntity
+from matchlab.testkit.features import FeatureConfig
 
 
-def make_cluster_entity(id: int, *args: Any) -> ClusterEntity:
-    """Helper to create a ClusterEntity.
+def make_cluster_entity(id: int, *args: Any) -> Cluster:
+    """Helper to create a Cluster.
 
     Args:
         id: Entity ID
@@ -24,7 +19,7 @@ def make_cluster_entity(id: int, *args: Any) -> ClusterEntity:
             e.g., "d1", ["1", "2"], "d2", ["3", "4"]
 
     Returns:
-        ClusterEntity with the specified sources and primary keys
+        Cluster with the specified sources and primary keys
     """
     if len(args) % 2 != 0:
         raise ValueError("Arguments must be pairs of source name and keys list")
@@ -39,12 +34,12 @@ def make_cluster_entity(id: int, *args: Any) -> ClusterEntity:
             raise TypeError(f"keys must be a list, got {type(keys_list)}")
         keys[source] = frozenset(keys_list)
 
-    return ClusterEntity(id=id, keys=EntityReference(keys))
+    return Cluster(id=id, keys=EntityReference(keys))
 
 
-def make_source_entity(source: str, keys: list[str], base_val: str) -> SourceEntity:
-    """Helper to create a SourceEntity."""
-    entity = SourceEntity(base_values={"name": base_val})
+def make_source_entity(source: str, keys: list[str], base_val: str) -> TrueEntity:
+    """Helper to create a TrueEntity."""
+    entity = TrueEntity(base_values={"name": base_val})
     entity.add_source_reference(source, keys)
     return entity
 
@@ -88,29 +83,29 @@ def test_entity_reference_subset() -> None:
 
 
 def test_cluster_entity_creation() -> None:
-    """Test basic ClusterEntity functionality."""
+    """Test basic Cluster functionality."""
     ref = EntityReference({"source1": frozenset({"1", "2"})})
-    entity = ClusterEntity(keys=ref)
+    entity = Cluster(keys=ref)
 
     assert entity.keys == ref
     assert isinstance(entity.id, int)
 
 
 def test_cluster_entity_addition() -> None:
-    """Test combining ClusterEntity objects."""
-    entity1 = ClusterEntity(keys=EntityReference({"source1": frozenset({"1"})}))
-    entity2 = ClusterEntity(keys=EntityReference({"source1": frozenset({"2"})}))
+    """Test combining Cluster objects."""
+    entity1 = Cluster(keys=EntityReference({"source1": frozenset({"1"})}))
+    entity2 = Cluster(keys=EntityReference({"source1": frozenset({"2"})}))
 
     combined = entity1 + entity2
     assert combined.keys["source1"] == frozenset({"1", "2"})
 
 
 def test_source_entity_creation() -> None:
-    """Test basic SourceEntity functionality."""
+    """Test basic TrueEntity functionality."""
     base_values = {"name": "John", "age": 30}
     ref = EntityReference({"source1": frozenset({"1", "2"})})
 
-    entity = SourceEntity(base_values=base_values, keys=ref)
+    entity = TrueEntity(base_values=base_values, keys=ref)
 
     assert entity.base_values == base_values
     assert entity.keys == ref
@@ -221,15 +216,15 @@ def test_generate_entities(features: tuple[FeatureConfig, ...], n: int) -> None:
         ),
     ],
 )
-def test_scores_to_results_entities(
+def test_scores_to_clusters(
     scores: pl.DataFrame,
-    left_clusters: tuple[ClusterEntity, ...],
-    right_clusters: tuple[ClusterEntity, ...] | None,
+    left_clusters: tuple[Cluster, ...],
+    right_clusters: tuple[Cluster, ...] | None,
     threshold: float,
     expected_count: int,
 ) -> None:
-    """Test scores_to_results_entities with various scenarios."""
-    result = scores_to_results_entities(
+    """Test scores_to_clusters with various scenarios."""
+    result = scores_to_clusters(
         scores=scores,
         left_clusters=left_clusters,
         right_clusters=right_clusters,
@@ -379,8 +374,8 @@ def assert_deep_approx_equal(
     ],
 )
 def test_diff_entities(
-    expected: list[ClusterEntity],
-    actual: list[ClusterEntity],
+    expected: list[Cluster],
+    actual: list[Cluster],
     want_identical: bool,
     want_result: dict[str, Any],
 ) -> None:
@@ -392,19 +387,19 @@ def test_diff_entities(
 
 
 def test_source_to_results_conversion() -> None:
-    """Test converting source entities to cluster entities and comparing them."""
-    # Create source entity present in multiple sources
-    source = SourceEntity(
+    """Test projecting true entities onto clusters and comparing them."""
+    # Create a true entity present in multiple sources
+    source = TrueEntity(
         base_values={"name": "Test"},
         keys=EntityReference(
             {"source1": frozenset({"1", "2"}), "source2": frozenset({"A", "B"})}
         ),
     )
 
-    # Convert different subsets to cluster entities
-    results1 = source.to_cluster_entity("source1")
-    results2 = source.to_cluster_entity("source1", "source2")
-    results3 = source.to_cluster_entity("source2")
+    # Project different subsets onto clusters
+    results1 = source.cluster("source1")
+    results2 = source.cluster("source1", "source2")
+    results3 = source.cluster("source2")
 
     # Test different comparison scenarios
     identical, report = diff_entities([results1], [results1])
@@ -422,7 +417,7 @@ def test_source_to_results_conversion() -> None:
     assert results1.similarity_ratio(results3) == 0.0
 
     # Test missing source returns None
-    assert source.to_cluster_entity("nonexistent") is None
+    assert source.cluster("nonexistent") is None
 
 
 @pytest.mark.parametrize(

@@ -39,7 +39,7 @@ nav:
     - Exceptions: api/core/exceptions.md
     - Hashing: api/core/hash.md
     - Transform: api/core/transform.md
-    - Test factories: api/core/factories.md
+    - Testkit: api/testkit.md
 - Contributing:
   - Guidelines: contributing.md
 

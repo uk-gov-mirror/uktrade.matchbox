@@ -7,27 +7,24 @@ from unittest.mock import Mock, patch
 import polars as pl
 import pytest
 
-from matchlab.core.factories.entities import FeatureConfig
-from matchlab.core.factories.sources import (
-    SourceTestkit,
-    SourceTestkitParameters,
-    linked_sources_factory,
-)
 from matchlab.models import Model
 from matchlab.models.dedupers.base import Deduper
 from matchlab.models.dedupers.naive import NaiveDeduper, NaiveSettings
+from matchlab.testkit.features import FeatureConfig, SourceParameters
+from matchlab.testkit.linked import linked_sources_factory
+from matchlab.testkit.sources import GeneratedSource
 from matchlab.views import View
 
-DeduperConfigurator = Callable[[SourceTestkit], dict[str, Any]]
+DeduperConfigurator = Callable[[GeneratedSource], dict[str, Any]]
 
 # Methodology configuration adapters
 
 
-def configure_naive_deduper(testkit: SourceTestkit) -> dict[str, Any]:
+def configure_naive_deduper(testkit: GeneratedSource) -> dict[str, Any]:
     """Configure settings for NaiveDeduper.
 
     Args:
-        testkit: SourceTestkit object from linked_sources_factory
+        testkit: GeneratedSource object from linked_sources_factory
 
     Returns:
         A dictionary with validated settings for NaiveDeduper
@@ -49,7 +46,6 @@ DEDUPERS = [
     pytest.param(NaiveDeduper, configure_naive_deduper, id="Naive"),
     # Add more deduper classes and configuration functions here
 ]
-
 
 # Test cases
 
@@ -74,7 +70,7 @@ def test_no_deduplication(
         ),
     )
 
-    source_parameters = SourceTestkitParameters(
+    source_parameters = SourceParameters(
         name="source_exact",
         features=features,
         n_true_entities=10,
@@ -99,13 +95,7 @@ def test_no_deduplication(
     results = deduper.collect().edges()
 
     # Validate results against ground truth
-    identical, report = linked.diff_model_edges(
-        scores=results,
-        left_clusters=source_testkit.entities,
-        right_clusters=None,
-        sources=["source_exact"],
-        threshold=0,
-    )
+    identical, report = linked.diff_model_edges(results, left=source_testkit)
 
     assert identical, f"Expected perfect results but got: {report}"
 
@@ -128,7 +118,7 @@ def test_exact_duplicate_deduplication(
         ),
     )
 
-    source_parameters = SourceTestkitParameters(
+    source_parameters = SourceParameters(
         name="source_exact",
         features=features,
         n_true_entities=10,
@@ -151,12 +141,6 @@ def test_exact_duplicate_deduplication(
     results = deduper.collect().edges()
 
     # Validate results against ground truth
-    identical, report = linked.diff_model_edges(
-        scores=results,
-        left_clusters=source.entities,
-        right_clusters=None,
-        sources=["source_exact"],
-        threshold=0,
-    )
+    identical, report = linked.diff_model_edges(results, left=source)
 
     assert identical, f"Expected perfect results but got: {report}"

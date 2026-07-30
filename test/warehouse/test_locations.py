@@ -16,16 +16,14 @@ from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
 
 from matchlab.core.exceptions import ExtractTransformError
-from matchlab.core.factories.sources import (
-    FeatureConfig,
-    source_factory,
-)
 from matchlab.locations import (
     ClientType,
     RelationalDBLocation,
     add_location_class,
     build_location,
 )
+from matchlab.testkit.features import FeatureConfig
+from matchlab.testkit.sources import source_factory
 
 #: What the `warehouse` fixture hands back — the client types a location accepts.
 WarehouseClient: TypeAlias = Engine | AdbcConnection
@@ -229,7 +227,8 @@ def test_relational_db_execute(
 
     location = RelationalDBLocation(name="dbname", client=warehouse)
 
-    sql = f"select key, upper(company) up_company, employees from {source_testkit.name}"
+    table = source_testkit.source.name
+    sql = f"select key, upper(company) up_company, employees from {table}"
 
     batch_size = 2
 
