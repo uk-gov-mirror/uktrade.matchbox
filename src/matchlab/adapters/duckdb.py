@@ -1,8 +1,8 @@
 """DuckDB storage adapter — the reference local backend for matchlab.
 
 A single DuckDB database (a file, or `:memory:`) holds every collected artifact,
-keyed by step fingerprint. There is no resolution engine here: resolvers arrive
-already materialised (merge-forward), and reads are plain table scans. Analysts can
+keyed by step fingerprint. There is no resolution engine here. Resolvers arrive
+already materialised (merge-forward), so reads are plain table scans. Analysts can
 point their own SQL at the `resolution` table — it is the whole point.
 """
 
@@ -25,32 +25,35 @@ from matchlab.core.schemas import (
 )
 from matchlab.eval.judgements import Judgement
 
-#: Bumped whenever the stored shape changes, or whenever stored IDs stop meaning what
-#: they did. A store written by an older matchlab is recreated rather than half-read,
-# which is the honest failure for a cache.
+#: Bumped whenever the stored shape changes, or stored IDs stop meaning what they did.
+#: A store written by an older matchlab is recreated rather than half-read. That's the
+#: honest failure mode for a cache.
 _SCHEMA_VERSION = 5
 
 _SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS meta (
     schema_version INTEGER
 );
--- `fp` is BLOB in every table below because a fingerprint is a 32-byte SHA-256 digest
--- and DuckDB's widest integer holds 16. An integer key would mean truncating the hash,
--- and it would buy nothing: every `fp` predicate here is scalar equality, a store holds
--- few fingerprints against many rows so the column dictionary-compresses to a code per
--- row, and the zonemaps prune whole row groups regardless (see `source_leaves` below).
--- Measured against a UBIGINT key over 20M rows, the BLOB is no slower laid out that way
--- and faster interleaved, where random 64-bit keys do not compress. Truncation is a bad
--- trade for that: unlike a leaf ID collision, which shows up as a wrong merge in the
--- data, a fingerprint collision makes `_ensure` skip the step and read back a different
--- one's artifact, silently.
+-- `fp` is BLOB in every table below. A fingerprint is a 32-byte SHA-256 digest, and
+-- DuckDB's widest integer holds only 16 bytes, so an integer key would mean truncating
+-- the hash.
+--
+-- Truncating would buy nothing. Every `fp` predicate here is scalar equality. A store
+-- holds few fingerprints against many rows, so the column dictionary-compresses to a
+-- code per row. The zonemaps prune whole row groups regardless (see `source_leaves`
+-- below). Measured against a UBIGINT key over 20M rows, the BLOB is no slower laid out
+-- that way, and it is faster interleaved, where random 64-bit keys do not compress.
+--
+-- Truncation is a bad trade too. A leaf ID collision shows up as a wrong merge in the
+-- data. A fingerprint collision is worse: it is silent. It makes `_ensure` skip the
+-- step and read back a different artifact.
 CREATE TABLE IF NOT EXISTS artifacts (
     fp BLOB PRIMARY KEY, kind VARCHAR
 );
 -- A label: a pointer from a string someone chose to the resolution they want to find
--- again. Separate from `artifacts` because labelling is an act, not a property — most
--- artifacts carry none, and a label can be moved to a newer fingerprint without
--- disturbing the artifact it used to point at.
+-- again. It is kept separate from `artifacts` because labelling is an act, not a
+-- property. Most artifacts carry no label, and moving a label to a newer fingerprint
+-- never disturbs the artifact it used to point at.
 CREATE TABLE IF NOT EXISTS labels (
     label VARCHAR PRIMARY KEY, fp BLOB, published_at TIMESTAMP
 );
@@ -64,22 +67,23 @@ CREATE TABLE IF NOT EXISTS source_meta (
 CREATE TABLE IF NOT EXISTS resolution_sources (
     fp BLOB, source_name VARCHAR, source_fp BLOB
 );
--- The three tables below hold every artifact of their kind side by side, and are the
--- only ones here that grow with the data rather than with the plan. Every read of them
--- is `WHERE fp = ?` for one artifact, and none carries an index, because the write path
--- already sorts them: each artifact arrives as exactly one INSERT, so its rows are
--- appended as one contiguous run and no row group (~122k rows) straddles two artifacts
--- of any size. DuckDB keeps min/max statistics per row group, so a scan for one
--- fingerprint skips the others' groups without decompressing them — on a digest, whose
--- leading bytes are already random, the 8-byte prefix those statistics truncate to
--- discriminates as well as the whole value would.
+-- The three tables below hold every artifact of their kind side by side. They are the
+-- only ones here that grow with the data rather than with the plan.
+--
+-- Every read of them is `WHERE fp = ?` for one artifact, and none carries an index.
+-- That works because the write path already sorts them: each artifact arrives as
+-- exactly one INSERT, so its rows are appended as one contiguous run, and no row group
+-- (~122k rows) straddles two artifacts of any size. DuckDB keeps min/max statistics
+-- per row group, so a scan for one fingerprint skips the others' groups without
+-- decompressing them. On a digest, whose leading bytes are already random, the 8-byte
+-- prefix those statistics truncate to discriminates as well as the whole value would.
 --
 -- This is a property of how we write, not one the storage layer enforces. Writing an
 -- artifact in several statements, or interleaving two artifacts' writes, would scatter
--- each across row groups whose min/max then span both fingerprints and prune nothing.
--- Nothing else disturbs the layout: `_purge` marks rows deleted in place and a
--- re-collect appends afresh, and `_rewrite` copies in scan order. Artifacts small enough
--- to share a row group prune poorly, which costs what scanning them costs — nothing.
+-- each across row groups whose min/max then span both fingerprints — pruning nothing.
+-- Nothing else disturbs the layout: `_purge` marks rows deleted in place, a re-collect
+-- appends afresh, and `_rewrite` copies in scan order. Artifacts small enough to share
+-- a row group prune poorly, which costs no more than scanning them would anyway.
 CREATE TABLE IF NOT EXISTS source_leaves (
     fp BLOB, key VARCHAR, leaf UBIGINT
 );
@@ -103,12 +107,12 @@ class DuckDBStoreStats(StoreStats):
 
     Attributes:
         path: The database file, or `None` for `:memory:`. `location` already names the
-            store; this is the file itself, for code that wants to `stat` or delete it.
+            store — this is the file itself, for code that wants to `stat` or delete it.
         free_bytes: Space already freed inside the file. DuckDB reuses those blocks for
-            later writes but never returns them to the OS, so this is the gap between
-            what the store weighs and what it holds — and the only figure that says
-            what a reclaim could recover without first deciding what to delete. It has
-            no meaning for a backend that is not a file of reusable blocks, which is
+            later writes, but never returns them to the OS. This is the gap between
+            what the store weighs and what it holds. It is the only figure that says
+            what a reclaim could recover, without first deciding what to delete. It has
+            no meaning for a backend that is not a file of reusable blocks — that is
             why it lives here rather than on `StoreStats`.
     """
 
@@ -119,9 +123,9 @@ class DuckDBStoreStats(StoreStats):
     def size(self) -> str:
         """Say when the bytes are resident rather than written.
 
-        `4.6 MB` reads as disk, and for `:memory:` it is not — the store vanishes with
-        the process. The distinction matters most in exactly the case a user is least
-        likely to be thinking about it.
+        `4.6 MB` reads as a disk size, but for `:memory:` it isn't one — the store
+        vanishes with the process. The distinction matters most exactly when a user is
+        least likely to be thinking about it.
         """
         return super().size if self.path is not None else f"{super().size} in memory"
 
@@ -133,9 +137,9 @@ def _mint_cluster_id(leaves: list[int]) -> int:
     (`process_judgements`) works without an explicit expansion row.
 
     A group uses `root_id`, the same function a resolver mints its roots with. That
-    is load-bearing rather than tidy: scoring compares a judged group against the
-    resolution's clusters by ID, so if the two ever disagree every comparison misses
-    and precision/recall is computed over an empty set.
+    match is load-bearing, not just tidy: scoring compares a judged group against the
+    resolution's clusters by ID. If the two ever disagree, every comparison misses,
+    and precision and recall get computed over an empty set.
     """
     if len(leaves) == 1:
         return int(leaves[0])
@@ -205,9 +209,9 @@ class DuckDBAdapter(Adapter):
 
         Only ever called immediately before storing that same fingerprint again. A
         fingerprint addresses content, so the replacement is the same data by
-        construction — which is why any **label** pointing at `fp` is left alone. The
-        label still resolves, to bytes indistinguishable from the ones it resolved to
-        before, and a publication is not something a re-collect should quietly revoke.
+        construction. That is why any **label** pointing at `fp` is left alone: it
+        still resolves, to bytes indistinguishable from the ones it resolved to before.
+        A re-collect should not quietly revoke a publication.
         """
         kind = self._kind(fp)
         if kind is None:
@@ -235,24 +239,24 @@ class DuckDBAdapter(Adapter):
     def stats(self) -> DuckDBStoreStats:
         """Report the store's size and contents.
 
-        **Checkpoints a file store before measuring it**, which makes this the one
-        method here that writes without being asked to. Without it the figure is not
-        merely imprecise, it is the wrong order of magnitude: recent writes sit in the
+        **Checkpoints a file store before measuring it.** That makes this the one
+        method here that writes without being asked to. Without it, the figure is not
+        just imprecise — it is the wrong order of magnitude. Recent writes sit in the
         write-ahead log as a compact journal, and settling them into 256 KB blocks can
-        turn 21 KB of log into 5.5 MB of file. Measured on `examples/companies` — 33 KB
+        turn 21 KB of log into 5.5 MB of file. Measured on `examples/companies`: 33 KB
         reported against a store that became 5.5 MB the moment it was closed. Reporting
         a size that a user's next `du` contradicts by 170x is worse than reporting none.
 
-        DuckDB's own block count is no help before that point: it reads zero until a
+        DuckDB's own block count is no help before that point — it reads zero until a
         checkpoint has happened. Afterwards the two agree to within the file header, so
-        `stat` is what is used — it counts the `.wal` sibling too, and it is the number
+        `stat` is used instead. It counts the `.wal` sibling too, and it is the number
         a user can actually check.
 
-        The checkpoint is cheap because DuckDB has usually already done most of it:
+        The checkpoint is cheap, because DuckDB has usually already done most of it:
         1.4 ms after writing 10M rows, 0.08 ms when there is nothing pending.
 
-        `free_blocks` still comes from DuckDB, because nothing outside the file can see
-        how much of it is reusable. So does an in-memory store's size, which allocates
+        `free_blocks` still comes from DuckDB — nothing outside the file can see how
+        much of it is reusable. So does an in-memory store's size, since it allocates
         no blocks and has no file to measure.
         """
         if self.path == ":memory:":
@@ -372,10 +376,10 @@ class DuckDBAdapter(Adapter):
     def _keep_set(self, keep: Iterable[Fingerprint | str]) -> set[Fingerprint]:
         """Every fingerprint that must survive a trim.
 
-        Labels go in whether or not they were named, and a label drags in the sources
+        Labels go in whether or not they were named. A label also drags in the sources
         its resolution needs: reading a published resolution without a plan goes
-        through `resolution_sources` to each source's extract, so a label kept without
-        them resolves to a fingerprint whose data is gone.
+        through `resolution_sources` to each source's extract. Without them, a kept
+        label resolves to a fingerprint whose data is gone.
         """
         kept: set[Fingerprint] = set()
         for item in keep:
@@ -399,22 +403,23 @@ class DuckDBAdapter(Adapter):
     def trim(self, keep: Iterable[Fingerprint | str] = ()) -> TrimResult:
         """Delete every artifact except the ones named, and reclaim what that frees.
 
-        Deleting is only half of it. DuckDB marks freed blocks for reuse but never hands
-        them back to the OS, so purging alone moves the file size by nothing — measured
-        on a real 575 MB store, deleting 77% of its artifacts freed 0 bytes. The space
-        comes back only by rewriting the database: copy what is left into a fresh file
-        and swap it in. Purge and rewrite together recovered 437 MB of that store, in
-        half a second.
+        Deleting is only half of it. DuckDB marks freed blocks for reuse but never
+        hands them back to the OS, so purging alone does not shrink the file at all —
+        measured on a real 575 MB store, deleting 77% of its artifacts freed 0 bytes.
+        The space comes back only by rewriting the database: copy what is left into a
+        fresh file and swap it in. Purge and rewrite together recovered 437 MB of that
+        store, in half a second.
 
-        The swap is a rename over the original, so a failure anywhere leaves the store
-        exactly as it was and the half-written copy orphaned beside it.
+        The swap is a rename over the original. A failure anywhere leaves the store
+        exactly as it was, with the half-written copy orphaned beside it.
 
-        **This reopens the connection**, which is the one internal anything outside
-        reaches for: session settings applied through `adapter.conn` — `memory_limit`
-        and `temp_directory`, as the guide suggests — do not survive. The adapter itself
-        stays valid, so anything holding *it* rather than its connection is unaffected.
+        **This reopens the connection** — the one internal detail anything outside
+        this class needs to know about. Session settings applied through `adapter.conn`
+        (`memory_limit` and `temp_directory`, as the guide suggests) do not survive.
+        The adapter itself stays valid, so anything holding *it*, rather than its
+        connection, is unaffected.
 
-        An in-memory store is purged but not rewritten: it has no file, and reopening
+        An in-memory store is purged but not rewritten. It has no file, and reopening
         one would hand back an empty database rather than a smaller one. Its freed
         blocks return to the allocator anyway, so the reclaim is real regardless.
         """
@@ -584,10 +589,10 @@ class DuckDBAdapter(Adapter):
             ).pl()
         expansion = self.conn.execute("SELECT root, leaves FROM expansion").pl()
 
-        # Present empty results with the right columns/dtypes. We deliberately do NOT
+        # Present empty results with the right columns/dtypes. We deliberately do not
         # re-validate against the arrow transport schemas here: those pin `leaves` to a
-        # small `list`, whereas polars naturally emits `large_list` — a serialisation
-        # detail that is meaningless locally. Types are guaranteed by the table DDL and
+        # small `list`, while polars naturally emits `large_list` — a serialisation
+        # detail that is meaningless locally. Types are guaranteed by the table DDL, and
         # inputs are validated on write.
         if judgements.height == 0:
             judgements = pl.DataFrame(schema=pl.Schema(SCHEMA_JUDGEMENTS))

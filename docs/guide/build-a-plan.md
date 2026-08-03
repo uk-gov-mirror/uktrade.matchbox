@@ -25,16 +25,16 @@ crn = Source(
 whatever the warehouse stores it as, so an integer primary key needs no ceremony.
 
 `name` qualifies every column this source contributes — `company` becomes
-`crn_company` — and those names end up in cleaning SQL, so it has to work as the start
+`crn_company`. Those names end up in cleaning SQL, so a name has to work as the start
 of a column name: a letter or underscore, then letters, digits and underscores. A
 hyphen or a dot would parse as arithmetic or as a table reference, so matchlab rejects
-them when you build the source rather than letting it fail three steps later. SQL
-keywords are fine, since the name is only ever a prefix.
+an invalid name when you build the source, rather than letting it fail three steps
+later. SQL keywords are fine, since the name is only ever a prefix.
 
-**The `select` is the whole declaration.** Every other column it returns is part of the
-record, and so part of that record's identity: two rows are the same record exactly
+**The `select` is the whole declaration.** Every column it returns becomes part of the
+record, and so part of that record's identity. Two rows are the same record exactly
 when the extract returns identical values for both. Above, a company appearing twice
-with the same name and town is one record; change the town and it's two.
+with the same name and town is one record. Change the town, and it's two.
 
 There's no separate list of fields to index. That means:
 
@@ -45,9 +45,9 @@ There's no separate list of fields to index. That means:
 * **Changing the warehouse data behind any selected column invalidates the source**, and
   everything downstream of it.
 
-You can still select a column purely to look at — `view_entity` and the evaluation
-samplers show every column the extract returned, reading it back from the copy cached at
-collect time — but be aware that selecting it makes it count.
+You can still select a column purely to look at. `view_entity` and the evaluation
+samplers show every column the extract returned, reading it back from the copy cached
+at collect time. But selecting it still makes it count.
 
 ## Verbs
 
@@ -69,9 +69,9 @@ crn.dedupe(model_class=NaiveDeduper, model_settings={...})
 crn.link(dh, model_class=DeterministicLinker, model_settings={...})
 ```
 
-Both sides of a link are covered — passing a `Source` where a view is expected views
-it. Reach for `.view()` when you want to do one of the three things only a view can do:
-clean columns, `group`, or read through a resolver.
+Both sides of a link are covered. Passing a `Source` where a view is expected views
+it. Reach for `.view()` when you want to do one of the three things only a view can
+do: clean columns, `group`, or read through a resolver.
 
 ### Views
 
@@ -164,8 +164,9 @@ resolver.view(
 # acme    | ["london", "leeds", "bristol"]
 ```
 
-Grouping changes what the *model* sees, never the resolution: record identity travels
-separately, so a resolver below a grouped view still carries every record forward.
+Grouping changes what the *model* sees. It never changes the resolution: record
+identity travels separately, so a resolver below a grouped view still carries every
+record forward.
 
 ### Deduplicating and linking
 
@@ -197,8 +198,8 @@ entities = deduped.resolve()
 `resolve()` defaults to connected components. Pass `resolver_class` and
 `resolver_settings` for something else.
 
-A resolver takes several models, so you can resolve multiple methodologies together —
-and trust a strict one further than a loose one by giving each a score threshold:
+A resolver takes several models, so you can resolve multiple methodologies together.
+Give each a score threshold to trust a strict one further than a loose one:
 
 ```python
 entities = crn_dedupe.resolve(
@@ -208,7 +209,8 @@ entities = crn_dedupe.resolve(
 )
 ```
 
-Thresholds take the model itself, not its name — you're already holding it. Any model with no threshold will contribute every edge.
+Thresholds take the model itself, not its name. You're already holding it. Any model
+with no threshold will contribute every edge.
 
 ## Layering
 
@@ -225,7 +227,7 @@ entities = (
 ```
 
 The link now sees crn's deduplicated clusters rather than its raw rows. Records the
-link never matches keep their upstream grouping — a resolver always carries its inputs'
+link never matches keep their upstream grouping. A resolver always carries its inputs'
 resolutions forward, so nothing silently reverts to singletons.
 
 ## Collecting
@@ -237,20 +239,20 @@ entities.collect()
 `collect()` walks the plan upstream-first and runs only what isn't already stored.
 Steps are content-addressed by their configuration and their inputs' fingerprints, so:
 
-* re-collecting an unchanged plan does no work;
-* adding a step to a collected plan runs only the new step;
+* re-collecting an unchanged plan does no work
+* adding a step to a collected plan runs only the new step
 * rebuilding the same plan in a new process is a cache hit, provided the warehouse data
-  hasn't changed.
+  hasn't changed
 
-Sources are the exception — they hash the data they read, which is how a plan notices
-the warehouse moved. Constructing a *fresh* `Source` re-reads it; an existing `Source`
-object remembers.
+Sources are the exception: they hash the data they read, which is how a plan notices
+the warehouse has moved. Constructing a *fresh* `Source` re-reads the data. An
+existing `Source` object remembers it.
 
 !!! warning "Seed anything non-deterministic"
     A step's cache key comes from its configuration, not from its output. If a model
     can produce different results from the same settings, the first result is cached
-    and reused. In practice this means passing a `seed` to Splink training functions
-    that sample — otherwise re-running gives you the cache, not a second opinion.
+    and reused. In practice, this means passing a `seed` to Splink training functions
+    that sample. Otherwise, re-running gives you the cache, not a second opinion.
 
 Because the key is configuration-derived, it is also conservative: editing a cleaning
 expression in a way that doesn't change the data still re-runs everything below it.
@@ -278,21 +280,21 @@ step settles — one frame, not one tree per step:
 ○ waiting   ◐ running   ● ran
 ```
 
-The number in brackets is the step's **position**, and it is the same number
-everywhere: `[5]` here is `[step 5]` in the log and `steps[5]` in a
-[document](../api/steps.md). Since steps have no names, that cross-reference is how
-you know which node a line is about — which is why every mode puts the tree somewhere.
+The number in brackets is the step's **position**. It's the same number everywhere:
+`[5]` here is `[step 5]` in the log and `steps[5]` in a
+[document](../api/steps.md). Steps have no names, so that cross-reference is how
+you know which node a line is about. That's why every mode puts the tree somewhere.
 
 Next to it is what the step *is*. A model and a resolver name the class implementing
 them in parentheses, so `[5]` reads as the naive dedupe rather than as another
-anonymous `model` line; a source names itself in quotes, since a source is the one step
-with a name. A view is just a view.
+anonymous `model` line. A source names itself in quotes, since a source is the one
+step with a name. A view is just a view.
 
-The legend lists only what's on screen. A node feeding two branches is one node, so it
-is drawn in full where you first meet it and marked `↑` after: `[3]` above feeds both
-models but runs once — computed once and read back by each of them — and its inputs are
-listed under its first appearance rather than repeated. On plans with a shared base that
-is the difference between a readable tree and a few hundred lines.
+The legend lists only what's on screen. A node feeding two branches is still one
+node: it's drawn in full where you first meet it, and marked `↑` after. `[3]` above
+feeds both models but runs once, computed once and read back by each of them. Its
+inputs are listed only under its first appearance, not repeated. On plans with a
+shared base, that's the difference between a readable tree and a few hundred lines.
 
 `cached` is the one to watch: it is the plan telling you your edit didn't invalidate
 that step, so nothing was recomputed.
@@ -324,16 +326,16 @@ INFO  Collected 7 steps (7 ran, 0 cached) in 1.402s. Store 3.0 MB (+3.0 MB), 7 a
 ```
 
 The summary also says what the store now costs, and what this run added to it. A store
-keeps everything you collect into it, so editing a cleaning expression and re-collecting
-leaves the old artifacts behind — the `(+3.0 MB)` is what tells you which edit did that,
-while it is still a few megabytes rather than a full disk. A fully cached re-run reads
-`(+0 B)`. See [Reclaiming storage](#reclaiming-storage).
+keeps everything you collect into it, so editing a cleaning expression and
+re-collecting leaves the old artifacts behind. The `(+3.0 MB)` is what tells you which
+edit did that, while it's still a few megabytes rather than a full disk. A fully
+cached re-run reads `(+0 B)`. See [Reclaiming storage](#reclaiming-storage).
 
-Work done is `INFO`; skipping — cached is `DEBUG`, and the closing summary
-totals it so an `INFO` reader still sees what the run avoided. Anything a step logs
-while it runs is prefixed the same way, so a linker reporting its rounds lands under
-the position it belongs to. Like any library logger it is silent until you configure
-logging:
+Work done is logged at `INFO`. Skipping a cached step is logged at `DEBUG`, and the
+closing summary totals those so an `INFO` reader still sees what the run avoided.
+Anything a step logs while it runs is prefixed the same way, so a linker reporting its
+rounds lands under the position it belongs to. Like any library logger, it's silent
+until you configure logging:
 
 ```python
 import logging
@@ -341,17 +343,17 @@ import logging
 logging.basicConfig(level=logging.INFO)
 ```
 
-The plan is put in **one** place, never two: a drawn tree is already the key those
-`[step N]` lines need — it is on screen throughout, and left there in full when the run
-ends — so it isn't logged as well. The per-step records are the same either way.
+The plan is put in **one** place, never two. A drawn tree is already the key those
+`[step N]` lines need: it's on screen throughout, and left there in full when the run
+ends. So it isn't logged as well. The per-step records are the same either way.
 
 That choice is `collect(interactive=...)`, named for the assumption it makes rather
 than the widget it produces. Drawing means *someone is watching*, so the plan can be a
-thing on screen that the session throws away; `interactive=False` puts the tree in the
-log instead, and is what a run whose output outlives the session wants. The default,
-`interactive=None`, reads a terminal or a notebook as a yes and anything else as a no.
+thing on screen that the session throws away. `interactive=False` puts the tree in the
+log instead — what a run whose output outlives the session wants. The default,
+`interactive=None`, reads a terminal or a notebook as a yes, and anything else as a no.
 
-A plan taller than your window is windowed rather than dropped: the frame shows the
+A plan taller than your window is windowed rather than dropped. The frame shows the
 rows around the running step and says how many are hidden either side, following the
 run down the tree. The last frame is the whole thing.
 
@@ -369,10 +371,10 @@ run down the tree. The last frame is the whole thing.
 ```
 
 That works alongside the live tree with nothing further to set up. `basicConfig` binds
-whatever `sys.stderr` was at the time, which would otherwise write over the frame being
-redrawn, so a running collection borrows handlers pointed at its terminal and routes
-them through its console until it is finished. Records appear above the tree as they
-arrive.
+whatever `sys.stderr` was at the time. Left alone, that would write over the frame
+being redrawn, so a running collection borrows handlers pointed at its terminal and
+routes them through its console until it's finished. Records appear above the tree as
+they arrive.
 
 ## Inspecting
 
@@ -382,7 +384,7 @@ entities.lineage()  # every step, inputs first
 ```
 
 Both look *upstream* only. A source can't reach the resolver built on top of it,
-because a step knows its inputs and nothing else — `crn.lineage()` is just `[crn]`
+because a step knows its inputs and nothing else. `crn.lineage()` is just `[crn]`,
 however much is built above it.
 
 There's no lookup-by-name: to hold on to a step, hold on to the variable.
@@ -397,19 +399,19 @@ cleaned.data()  # still yours to inspect
 That goes for settings too: a resolver's per-model thresholds take the model itself,
 not its name.
 
-Steps have no names at all. To find a resolution later, **publish** it under a label —
-an operation on the collected result, not a property of the plan:
+Steps have no names at all. To find a resolution later, **publish** it under a
+label. That's an operation on the collected result, not a property of the plan:
 
 ```python
 entities = crn_dedupe.resolve(dh_dedupe).collect().publish("entities")
 ```
 
-Republishing the same label for the same resolution is a no-op; aiming it at a
-different one needs `overwrite=True`. A plan you never publish still runs — it is just
+Republishing the same label for the same resolution is a no-op. Aiming it at a
+different one needs `overwrite=True`. A plan you never publish still runs — it's just
 unlabelled.
 
-A label is not a name. A *name* belongs to a source and is part of its output; a label
-belongs to the store, and points at whichever resolution you last aimed it at.
+A label is not a name. A *name* belongs to a source and is part of its output. A
+label belongs to the store, and points at whichever resolution you last aimed it at.
 
 Everything else goes by **position**: the order `collect` runs it in, which is what
 logs quote and what `draw()` shows in brackets.
@@ -432,12 +434,12 @@ print(entities.draw())
 ```
 
 Positions are relative to the apex you collected or drew from, so a plan and a
-sub-plan of it number differently — but a run and that run's drawing always agree.
+sub-plan of it number differently. But a run and that run's drawing always agree.
 
 ## Reclaiming storage
 
 **A store keeps everything you collect into it, until you delete the file.** matchlab
-never removes an artifact on its own initiative. That is deliberate: an artifact's value
+never removes an artifact on its own initiative. That's deliberate: an artifact's value
 has nothing to do with whether your program still holds the variable that produced it,
 and the next process to rebuild the same plan wants a cache hit rather than a rerun.
 
@@ -458,8 +460,8 @@ Watch the artifact count rather than the size to see this happen: edit a cleanin
 expression, re-collect, and the count grows while the plan stays the same size. The old
 artifacts are still there, and nothing will remove them.
 
-Each adapter reports what only it can measure, so a `DuckDBAdapter` hands back a
-`DuckDBStoreStats` — with a `path` you can pass to `unlink()`, and a `free_bytes` for
+Each adapter reports what only it can measure. A `DuckDBAdapter` hands back a
+`DuckDBStoreStats`, with a `path` you can pass to `unlink()`, and a `free_bytes` for
 space already freed inside the file.
 
 ### Trimming
@@ -474,7 +476,7 @@ print(result.describe())
 # 'Removed 80 artifacts, kept 24, reclaimed 416.2 MB'
 ```
 
-`plan.fingerprints()` names every artifact a plan is made of — its own and its inputs'.
+`plan.fingerprints()` names every artifact a plan is made of: its own and its inputs'.
 Which artifacts those are is the plan's business, not the store's, so the plan is what
 answers. `keep` also takes the name of a published label, which keeps that resolution
 and the sources it reads through:
@@ -484,12 +486,12 @@ default_adapter().trim(keep=[*entities.fingerprints(), "production"])
 ```
 
 **Published labels are kept whether or not you list them**, because publishing is the
-strongest way this library has of saying "keep this", and losing one to a forgotten
+strongest way this library has of saying "keep this". Losing one to a forgotten
 argument would be indefensible. Trimming with nothing to keep and nothing published
-raises rather than emptying the store.
+raises, rather than emptying the store.
 
 Nothing is inferred about what you are still using. matchlab does not watch which
-objects your program is holding and treat the rest as rubbish — a store outlives the
+objects your program is holding and treat the rest as rubbish. A store outlives the
 process that wrote it, so what some interpreter happens to have in scope says nothing
 about what is worth keeping. You say what to keep.
 
@@ -507,10 +509,10 @@ from pathlib import Path
 Path("./run.duckdb").unlink()  # start again from cold
 ```
 
-The default store lives in your user cache directory —
-`default_adapter().stats().location` will tell you exactly where — and is safe to delete
-at any time. You lose cache hits, not
-results you can't rebuild, provided the warehouse data hasn't moved.
+The default store lives in your user cache directory.
+`default_adapter().stats().location` will tell you exactly where, and it's safe to
+delete at any time. You lose cache hits, not results you can't rebuild, provided the
+warehouse data hasn't moved.
 
 !!! warning "DuckDB files do not shrink"
     Deleting rows or dropping tables inside a DuckDB file does **not** return space to
@@ -525,13 +527,14 @@ results you can't rebuild, provided the warehouse data hasn't moved.
 
     This is why `trim()` **rewrites** the store rather than deleting inside it. Purging
     artifacts alone would buy reuse headroom while your disk usage stayed exactly the
-    same — on a real 575 MB store, deleting 77% of its artifacts freed nothing at all.
+    same. On a real 575 MB store, deleting 77% of its artifacts freed nothing at all.
     Copying what survives into a fresh file and swapping it in recovered 437 MB of that
     store, in half a second. It is the manual "collect what you want into a new store
     and delete the old one", done for you and without the re-collect.
 
-    A trim reports what it actually recovered, measured before and after — never what
-    it deleted. Those are different numbers, and only one of them is on your disk.
+    A trim reports what it actually recovered, measured before and after. It never
+    reports what it deleted — those are different numbers, and only one of them is on
+    your disk.
 
 ### Keeping memory bounded
 

@@ -8,6 +8,7 @@ nav:
   - Welcome: index.md
   - Why matchlab: why-matchlab.md
   - Use cases: use-cases.md
+  - Glossary: glossary.md
 - Guide:
   - Install: guide/install.md
   - Build a plan: guide/build-a-plan.md
