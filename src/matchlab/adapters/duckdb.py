@@ -168,8 +168,9 @@ class DuckDBAdapter(Adapter):
             if row and row[0] == _SCHEMA_VERSION:
                 return
 
-        # Either a pre-versioned store or an older version. Start clean. Artifacts are
-        # a cache. Everything in here can be recomputed from the plan that made it.
+        # Either a pre-versioned store or an older version, so start clean. Artifacts
+        # are a cache, and everything in here can be recomputed from the plan that
+        # made it.
         for (table,) in self.conn.execute(
             "SELECT table_name FROM information_schema.tables "
             "WHERE table_schema = 'main'"
@@ -407,9 +408,9 @@ class DuckDBAdapter(Adapter):
         Deleting is only half of it. DuckDB marks freed blocks for reuse but never
         hands them back to the OS, so purging alone does not shrink the file at all.
         Measured on a real 575 MB store, deleting 77% of its artifacts freed 0 bytes.
-        The space comes back only by rewriting the database. Copy what is left into a
-        fresh file and swap it in. Purge and rewrite together recovered 437 MB of that
-        store, in half a second.
+        The space comes back only by rewriting the database, copying what is left into a
+        fresh file and swapping it in. Purge and rewrite together recovered 437 MB of
+        that store, in half a second.
 
         The swap is a rename over the original. A failure anywhere leaves the store
         exactly as it was, with the half-written copy orphaned beside it.

@@ -53,7 +53,7 @@ Keep information that helps a developer:
 Then tighten the prose:
 
 1. Put the main point first.
-2. Give each sentence one job.
+2. Give each sentence one job, but clarity always outranks brevity.
 3. Put the subject and verb early.
 4. Prefer direct verbs to noun-heavy phrases.
 5. Remove words that add no meaning.

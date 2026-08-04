@@ -25,11 +25,11 @@ crn = Source(
 whatever the warehouse stores it as, so an integer primary key needs no ceremony.
 
 `name` qualifies every column this source contributes. `company` becomes
-`crn_company`. Those names end up in cleaning SQL, so a name has to work as the start
-of a column name. That means a letter or underscore, then letters, digits and underscores. A
-hyphen or a dot would parse as arithmetic or as a table reference. This means matchlab rejects
-an invalid name when you build the source, rather than letting it fail three steps
-later. SQL keywords are fine, since the name is only ever a prefix.
+`crn_company`. Those names end up in cleaning SQL, so a name must start with a letter
+or underscore, then hold only letters, digits and underscores. A hyphen or a dot would
+parse as arithmetic or as a table reference. This means matchlab rejects an invalid
+name when you build the source, rather than letting it fail three steps later. SQL
+keywords are fine, since the name is only ever a prefix.
 
 **The `select` is the whole declaration.** Every column it returns becomes part of the
 record, and so part of that record's identity. Two rows are the same record exactly
@@ -87,7 +87,7 @@ cleaned = crn.view(
 )
 ```
 
-Only the columns you name survive, plus `id`. That's the grouping the model matches on.
+Only the columns you name survive, plus `id`, the grouping the model matches on.
 `source.f("field")` gives you the source-qualified column name (`crn_company`), which
 is how fields are named once a view is built.
 
@@ -533,7 +533,8 @@ warehouse data hasn't moved.
     and delete the old one", done for you and without the re-collect.
 
     A trim reports what it actually recovered, measured before and after. It never
-reports what it deleted. Those are different numbers, and only one of them is on
+    reports what it deleted. Those are different numbers, and only one of them is on
+    your disk.
 
 ### Keeping memory bounded
 
