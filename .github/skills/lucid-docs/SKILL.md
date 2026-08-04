@@ -70,6 +70,7 @@ Do not minimise the diff on the documentation you've been asked to review. Assum
 - Use sentence case headings.
 - Do not use semicolons.
 - Remove colons and dashes unless they truly simplify.
+- Do not start sentences with the FANBOYS set (for, and, nor, but, or, yet, so) unless the sentence stands alone, with its own subject, verb, and stated reason.
 - Use present tense for current behaviour.
 - Use one term for one concept.
 - Describe earlier or planned code only in migration guides.
@@ -121,8 +122,11 @@ uv run .github/skills/lucid-docs/readability.py <path>
 
 This takes the following options:
 
-* `--top <int>`: Show only the N worst-scoring blocks per file.
-* `--quiet`: Only print the punctuation-flag report.
+* `--top <int>`: only show the N hardest-to-read blocks per file
+* `--rules`: comma-separated rule ids to run (default: all)
+  * `pleng001` readability score
+  * `pleng002` colon/semicolon/dash
+  * `pleng003` FANBOYS sentence openers
 
 Ensure an acceptable reading level for the reader. You may make allowances for the requirements of technical writing.
 

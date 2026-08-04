@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = ["textstat", "typer"]
 # ///
-"""Print Flesch-Kincaid readability scores per block for .py or .md files.
+"""Run plain-English rules over .py or .md files, one line per finding.
+
+Rules (run all by default, or pick with --rules):
+
+    pleng001  Flesch-Kincaid readability score per block
+    pleng002  sentences containing a colon, semicolon, or dash
+    pleng003  sentences opening with a FANBOYS conjunction
 
 A "block" is a docstring, comment run (for .py) or a paragraph (for .md).
 Blocks below TRIVIAL_WORDS are skipped from scoring entirely (the maths is
 meaningless on 1-3 word fragments). Blocks below MIN_WORDS are still scored
 but flagged low_confidence.
 
-A second report lists every sentence containing a colon, semicolon, or dash,
-so the caller can review whether each one earns its place.
-
 Usage:
     python readability.py <path> [<path> ...]
-    uv run readability.py <path> [<path> ...] [--top N] [--quiet]
+    uv run readability.py <path> [<path> ...] [--top N] [--rules pleng002]
 """
 
 import ast
@@ -24,6 +27,7 @@ import re
 import tokenize
 from collections.abc import Iterator
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import textstat
@@ -32,14 +36,38 @@ import typer
 MIN_WORDS = 30
 TRIVIAL_WORDS = 5
 
+FANBOYS = {"for", "and", "nor", "but", "or", "yet", "so"}
+
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 PUNCT_MARKS = re.compile(r"[;:]|—|–|(?<=\s)-(?=\s)")
+LEADING_WORD = re.compile(r"^[\"'“‘(]*([A-Za-z]+)")
 INLINE_CODE = re.compile(r"`([^`]*)`")
+
+
+class Rule(StrEnum):
+    """Plain-English rule ids, in the order they run and print."""
+
+    READABILITY = "pleng001"
+    PUNCTUATION = "pleng002"
+    FANBOYS = "pleng003"
+
+
+RULE_DESCRIPTIONS = {
+    Rule.READABILITY: "Flesch-Kincaid readability score per block",
+    Rule.PUNCTUATION: "sentences containing a colon, semicolon, or dash",
+    Rule.FANBOYS: "sentences opening with a FANBOYS conjunction",
+}
 
 
 def strip_inline_code(text: str) -> str:
     """Drop backticks but keep the token inside, so identifiers stay readable."""
     return INLINE_CODE.sub(r"\1", text)
+
+
+def sentences_of(text: str) -> list[str]:
+    """Split a block into sentences (naive, on . ! ?), dropping empty fragments."""
+    parts = SENTENCE_SPLIT.split(text.replace("\n", " "))
+    return [s.strip() for s in parts if s.strip()]
 
 
 @dataclass
@@ -73,10 +101,19 @@ def format_score(score: BlockScore) -> str:
     )
 
 
-def flagged_sentences(text: str) -> list[str]:
+def punctuation_sentences(text: str) -> list[str]:
     """Return each sentence in text that contains a colon, semicolon, or dash."""
-    sentences = SENTENCE_SPLIT.split(text.replace("\n", " "))
-    return [s.strip() for s in sentences if s.strip() and PUNCT_MARKS.search(s)]
+    return [s for s in sentences_of(text) if PUNCT_MARKS.search(s)]
+
+
+def fanboys_sentences(text: str) -> list[tuple[str, str]]:
+    """Return (word, sentence) pairs for sentences opening with a FANBOYS word."""
+    found = []
+    for s in sentences_of(text):
+        m = LEADING_WORD.match(s)
+        if m and m.group(1).lower() in FANBOYS:
+            found.append((m.group(1).lower(), s))
+    return found
 
 
 def blocks_from_comments(path: Path) -> Iterator[tuple[str, str]]:
@@ -155,8 +192,8 @@ def blocks_from_md(path: Path) -> Iterator[tuple[str, str]]:
         yield f"line={start_line} block=paragraph", "\n".join(para_lines)
 
 
-def score_file(path: Path, top: int | None, quiet: bool) -> None:
-    """Extract blocks from a file, print a summary, scores, and punctuation flags."""
+def score_file(path: Path, top: int | None, rules: list[Rule]) -> None:
+    """Extract blocks from a file, print a summary, then each active rule's findings."""
     if path.suffix == ".py":
         blocks = list(blocks_from_py(path))
     elif path.suffix == ".md":
@@ -166,41 +203,72 @@ def score_file(path: Path, top: int | None, quiet: bool) -> None:
         return
 
     if not blocks:
-        if not quiet:
-            print(f"file={path} status=no_prose_found")
+        print(f"file={path} status=no_prose_found")
         return
 
-    scores = [score_block(label, text) for label, text in blocks]
-    scored = [s for s in scores if s.grade is not None]
-    trivial = sum(1 for s in scores if s.status == "trivial")
-    low_conf = sum(1 for s in scores if s.status == "low_confidence")
+    summary = [f"file={path}"]
 
-    flags = [
-        (label, sentence)
-        for label, text in blocks
-        for sentence in flagged_sentences(text)
-    ]
-
-    if not quiet:
+    scored: list[BlockScore] = []
+    if Rule.READABILITY in rules:
+        scores = [score_block(label, text) for label, text in blocks]
+        scored = [s for s in scores if s.grade is not None]
+        trivial = sum(1 for s in scores if s.status == "trivial")
+        low_conf = sum(1 for s in scores if s.status == "low_confidence")
         worst = max((s.grade for s in scored), default=None)
         worst_str = f"{worst:.1f}" if worst is not None else "none"
-        print(
-            f"file={path} blocks={len(blocks)} trivial={trivial} "
-            f"low_confidence={low_conf} worst_grade={worst_str} "
-            f"punctuation_flags={len(flags)}"
-        )
+        summary.append(f"blocks={len(blocks)}")
+        summary.append(f"trivial={trivial}")
+        summary.append(f"low_confidence={low_conf}")
+        summary.append(f"worst_grade={worst_str}")
 
+    punct_flags: list[tuple[str, str]] = []
+    if Rule.PUNCTUATION in rules:
+        punct_flags = [
+            (label, s) for label, text in blocks for s in punctuation_sentences(text)
+        ]
+        summary.append(f"punctuation_flags={len(punct_flags)}")
+
+    fanboys_flags: list[tuple[str, str, str]] = []
+    if Rule.FANBOYS in rules:
+        fanboys_flags = [
+            (label, word, s)
+            for label, text in blocks
+            for word, s in fanboys_sentences(text)
+        ]
+        summary.append(f"fanboys_flags={len(fanboys_flags)}")
+
+    print(" ".join(summary))
+
+    if Rule.READABILITY in rules:
         shown = scored
         if top is not None:
             shown = sorted(scored, key=lambda s: s.grade, reverse=True)[:top]
         for score in shown:
             print(format_score(score))
 
-    if flags:
-        if quiet:
-            print(f"file={path} punctuation_flags={len(flags)}")
-        for label, sentence in flags:
-            print(f"{label} sentence={json.dumps(sentence)}")
+    for label, sentence in punct_flags:
+        print(f"{label} sentence={json.dumps(sentence)}")
+
+    for label, word, sentence in fanboys_flags:
+        print(f"{label} word={word} sentence={json.dumps(sentence)}")
+
+
+def parse_rules(value: str | None) -> list[Rule]:
+    """Parse a comma-separated --rules value, defaulting to every rule."""
+    if not value:
+        return list(Rule)
+    selected: list[Rule] = []
+    for token in value.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            selected.append(Rule(token))
+        except ValueError:
+            valid = ", ".join(r.value for r in Rule)
+            typer.echo(f"Unknown rule: {token}. Valid: {valid}", err=True)
+            raise typer.Exit(1) from None
+    return selected
 
 
 def main(
@@ -210,11 +278,16 @@ def main(
     top: int | None = typer.Option(
         None, "--top", help="Show only the N worst-scoring blocks per file."
     ),
-    quiet: bool = typer.Option(
-        False, "--quiet", help="Only print the punctuation-flag report."
+    rules: str | None = typer.Option(
+        None,
+        "--rules",
+        help="Comma-separated rule ids to run (default: all). "
+        + "; ".join(f"{r.value}={d}" for r, d in RULE_DESCRIPTIONS.items()),
     ),
 ) -> None:
-    """Score .py/.md files or directories, optionally filtered to outliers only."""
+    """Score .py/.md files or directories against one or more plain-English rules."""
+    selected_rules = parse_rules(rules)
+
     files: list = []
     for path in paths:
         if not path.exists():
@@ -230,7 +303,7 @@ def main(
             files.append(path)
 
     for file in files:
-        score_file(file, top=top, quiet=quiet)
+        score_file(file, top=top, rules=selected_rules)
 
 
 if __name__ == "__main__":

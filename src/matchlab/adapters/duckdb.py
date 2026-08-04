@@ -3,7 +3,7 @@
 A single DuckDB database (a file, or `:memory:`) holds every collected artifact,
 keyed by step fingerprint. There is no resolution engine here. Resolvers arrive
 already materialised (merge-forward), so reads are plain table scans. Analysts can
-point their own SQL at the `resolution` table — it is the whole point.
+point their own SQL at the `resolution` table. That is the whole point.
 """
 
 import os
@@ -80,10 +80,11 @@ CREATE TABLE IF NOT EXISTS resolution_sources (
 --
 -- This is a property of how we write, not one the storage layer enforces. Writing an
 -- artifact in several statements, or interleaving two artifacts' writes, would scatter
--- each across row groups whose min/max then span both fingerprints — pruning nothing.
--- Nothing else disturbs the layout: `_purge` marks rows deleted in place, a re-collect
--- appends afresh, and `_rewrite` copies in scan order. Artifacts small enough to share
--- a row group prune poorly, which costs no more than scanning them would anyway.
+-- each across row groups whose min/max then span both fingerprints. That prunes 
+-- nothing. Nothing else disturbs the layout: `_purge` marks rows deleted in place, a 
+-- re-collect appends afresh, and `_rewrite` copies in scan order. Artifacts small 
+-- enough to share a row group prune poorly, which costs no more than scanning them 
+-- would anyway.
 CREATE TABLE IF NOT EXISTS source_leaves (
     fp BLOB, key VARCHAR, leaf UBIGINT
 );
@@ -107,12 +108,12 @@ class DuckDBStoreStats(StoreStats):
 
     Attributes:
         path: The database file, or `None` for `:memory:`. `location` already names the
-            store — this is the file itself, for code that wants to `stat` or delete it.
+            store. This is the file itself, for code that wants to `stat` or delete it.
         free_bytes: Space already freed inside the file. DuckDB reuses those blocks for
             later writes, but never returns them to the OS. This is the gap between
             what the store weighs and what it holds. It is the only figure that says
             what a reclaim could recover, without first deciding what to delete. It has
-            no meaning for a backend that is not a file of reusable blocks — that is
+            no meaning for a backend that is not a file of reusable blocks. That is
             why it lives here rather than on `StoreStats`.
     """
 
@@ -123,7 +124,7 @@ class DuckDBStoreStats(StoreStats):
     def size(self) -> str:
         """Say when the bytes are resident rather than written.
 
-        `4.6 MB` reads as a disk size, but for `:memory:` it isn't one — the store
+        `4.6 MB` reads as a disk size, but for `:memory:` it isn't one. The store
         vanishes with the process. The distinction matters most exactly when a user is
         least likely to be thinking about it.
         """
@@ -167,8 +168,8 @@ class DuckDBAdapter(Adapter):
             if row and row[0] == _SCHEMA_VERSION:
                 return
 
-        # Either a pre-versioned store or an older version: start clean. Artifacts are
-        # a cache — everything in here can be recomputed from the plan that made it.
+        # Either a pre-versioned store or an older version. Start clean. Artifacts are
+        # a cache. Everything in here can be recomputed from the plan that made it.
         for (table,) in self.conn.execute(
             "SELECT table_name FROM information_schema.tables "
             "WHERE table_schema = 'main'"
@@ -241,13 +242,13 @@ class DuckDBAdapter(Adapter):
 
         **Checkpoints a file store before measuring it.** That makes this the one
         method here that writes without being asked to. Without it, the figure is not
-        just imprecise — it is the wrong order of magnitude. Recent writes sit in the
+        just imprecise. It is the wrong order of magnitude. Recent writes sit in the
         write-ahead log as a compact journal, and settling them into 256 KB blocks can
         turn 21 KB of log into 5.5 MB of file. Measured on `examples/companies`: 33 KB
         reported against a store that became 5.5 MB the moment it was closed. Reporting
         a size that a user's next `du` contradicts by 170x is worse than reporting none.
 
-        DuckDB's own block count is no help before that point — it reads zero until a
+        DuckDB's own block count is no help before that point. It reads zero until a
         checkpoint has happened. Afterwards the two agree to within the file header, so
         `stat` is used instead. It counts the `.wal` sibling too, and it is the number
         a user can actually check.
@@ -255,7 +256,7 @@ class DuckDBAdapter(Adapter):
         The checkpoint is cheap, because DuckDB has usually already done most of it:
         1.4 ms after writing 10M rows, 0.08 ms when there is nothing pending.
 
-        `free_blocks` still comes from DuckDB — nothing outside the file can see how
+        `free_blocks` still comes from DuckDB. Nothing outside the file can see how
         much of it is reusable. So does an in-memory store's size, since it allocates
         no blocks and has no file to measure.
         """
@@ -377,7 +378,7 @@ class DuckDBAdapter(Adapter):
         """Every fingerprint that must survive a trim.
 
         Labels go in whether or not they were named. A label also drags in the sources
-        its resolution needs: reading a published resolution without a plan goes
+        its resolution needs. Reading a published resolution without a plan goes
         through `resolution_sources` to each source's extract. Without them, a kept
         label resolves to a fingerprint whose data is gone.
         """
@@ -404,20 +405,20 @@ class DuckDBAdapter(Adapter):
         """Delete every artifact except the ones named, and reclaim what that frees.
 
         Deleting is only half of it. DuckDB marks freed blocks for reuse but never
-        hands them back to the OS, so purging alone does not shrink the file at all —
-        measured on a real 575 MB store, deleting 77% of its artifacts freed 0 bytes.
-        The space comes back only by rewriting the database: copy what is left into a
+        hands them back to the OS, so purging alone does not shrink the file at all.
+        Measured on a real 575 MB store, deleting 77% of its artifacts freed 0 bytes.
+        The space comes back only by rewriting the database. Copy what is left into a
         fresh file and swap it in. Purge and rewrite together recovered 437 MB of that
         store, in half a second.
 
         The swap is a rename over the original. A failure anywhere leaves the store
         exactly as it was, with the half-written copy orphaned beside it.
 
-        **This reopens the connection** — the one internal detail anything outside
-        this class needs to know about. Session settings applied through `adapter.conn`
-        (`memory_limit` and `temp_directory`, as the guide suggests) do not survive.
-        The adapter itself stays valid, so anything holding *it*, rather than its
-        connection, is unaffected.
+        **This reopens the connection.** That is the one internal detail anything
+        outside this class needs to know about. Session settings applied through
+        `adapter.conn` (`memory_limit` and `temp_directory`, as the guide suggests) do
+        not survive. The adapter itself stays valid, so anything holding *it*, rather
+        than its connection, is unaffected.
 
         An in-memory store is purged but not rewritten. It has no file, and reopening
         one would hand back an empty database rather than a smaller one. Its freed
@@ -591,9 +592,9 @@ class DuckDBAdapter(Adapter):
 
         # Present empty results with the right columns/dtypes. We deliberately do not
         # re-validate against the arrow transport schemas here. Those pin `leaves` to a
-        # small `list`, while polars naturally emits `large_list` — a serialisation
-        # detail that is meaningless locally. Types are guaranteed by the table DDL, and
-        # inputs are validated on write.
+        # small `list`, while polars naturally emits `large_list`. That's a
+        # serialisation detail that is meaningless locally. Types are guaranteed by the
+        # table DDL, and inputs are validated on write.
         if judgements.height == 0:
             judgements = pl.DataFrame(schema=pl.Schema(SCHEMA_JUDGEMENTS))
         if expansion.height == 0:

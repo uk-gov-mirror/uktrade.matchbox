@@ -1,7 +1,7 @@
 # Build a plan
 
 A plan is a tree of steps. Each step holds a reference to its inputs, so the node you
-are holding *is* the pipeline — there is no separate container object to register
+are holding *is* the pipeline. There is no separate container object to register
 things with.
 
 Nothing runs until you call `collect()`.
@@ -26,8 +26,8 @@ whatever the warehouse stores it as, so an integer primary key needs no ceremony
 
 `name` qualifies every column this source contributes. `company` becomes
 `crn_company`. Those names end up in cleaning SQL, so a name has to work as the start
-of a column name: a letter or underscore, then letters, digits and underscores. A
-hyphen or a dot would parse as arithmetic or as a table reference. So matchlab rejects
+of a column name. That means a letter or underscore, then letters, digits and underscores. A
+hyphen or a dot would parse as arithmetic or as a table reference. This means matchlab rejects
 an invalid name when you build the source, rather than letting it fail three steps
 later. SQL keywords are fine, since the name is only ever a prefix.
 
@@ -47,7 +47,7 @@ There's no separate list of fields to index. That means:
 
 You can still select a column purely to look at. `view_entity` and the evaluation
 samplers show every column the extract returned, reading it back from the copy cached
-at collect time. But selecting it still makes it count.
+at collect time, but selecting it still makes it count.
 
 ## Verbs
 
@@ -87,7 +87,7 @@ cleaned = crn.view(
 )
 ```
 
-Only the columns you name survive, plus `id` — the grouping the model matches on.
+Only the columns you name survive, plus `id`. That's the grouping the model matches on.
 `source.f("field")` gives you the source-qualified column name (`crn_company`), which
 is how fields are named once a view is built.
 
@@ -98,7 +98,7 @@ is how fields are named once a view is built.
 
 #### What `id` is, and when to group
 
-Read a source directly and `id` is the record — one row each. Read it *through a
+Read a source directly and `id` is the record, one row each. Read it *through a
 resolver* and `id` is the resolver's entity, so several records share one:
 
 ```python
@@ -147,7 +147,7 @@ resolver.view(crn, dh, cleaning={"c": "crn_company", "d": "dh_company"}).data()
 ```
 
 A comparison on `l.d` is null on every crn row, so the entity can't be matched on its
-combined evidence. Grouping puts it on one populated row — `any_value` skips nulls:
+combined evidence. Grouping puts it on one populated row. `any_value` skips nulls:
 
 ```python
 resolver.view(
@@ -244,7 +244,7 @@ Steps are content-addressed by their configuration and their inputs' fingerprint
 * rebuilding the same plan in a new process is a cache hit, provided the warehouse data
   hasn't changed
 
-Sources are the exception: they hash the data they read, which is how a plan notices
+Sources are the exception. They hash the data they read, which is how a plan notices
 the warehouse has moved. Constructing a *fresh* `Source` re-reads the data. An
 existing `Source` object remembers it.
 
@@ -266,7 +266,7 @@ entities.collect(adapter=DuckDBAdapter("./run.duckdb"))
 ### Watching it run
 
 At a terminal, `collect()` draws the plan as a tree and redraws it in place as each
-step settles — one frame, not one tree per step:
+step settles. That's one frame, not one tree per step:
 
 ```
 ○ [6] resolver(Components)
@@ -280,7 +280,7 @@ step settles — one frame, not one tree per step:
 ○ waiting   ◐ running   ● ran
 ```
 
-The number in brackets is the step's **position**. It's the same number everywhere:
+The number in brackets is the step's **position**. It's the same number everywhere.
 `[5]` here is `[step 5]` in the log and `steps[5]` in a
 [document](../api/steps.md). Steps have no names, so that cross-reference is how
 you know which node a line is about. That's why every mode puts the tree somewhere.
@@ -291,7 +291,7 @@ anonymous `model` line. A source names itself in quotes, since a source is the o
 step with a name. A view is just a view.
 
 The legend lists only what's on screen. A node feeding two branches is still one
-node: it's drawn in full where you first meet it, and marked `↑` after. `[3]` above
+node. It's drawn in full where you first meet it, and marked `↑` after. `[3]` above
 feeds both models but runs once, computed once and read back by each of them. Its
 inputs are listed only under its first appearance, not repeated. On plans with a
 shared base, that's the difference between a readable tree and a few hundred lines.
@@ -299,7 +299,7 @@ shared base, that's the difference between a readable tree and a few hundred lin
 `cached` is the one to watch. It tells you your edit didn't invalidate that step, so
 nothing was recomputed.
 
-Where nothing is drawn — a scheduler, CI, a redirected stream — the same tree is logged
+Where nothing is drawn (a scheduler, CI, a redirected stream), the same tree is logged
 **once**, up front, with each step reporting beneath it:
 
 ```
@@ -344,13 +344,13 @@ logging.basicConfig(level=logging.INFO)
 ```
 
 The plan is put in **one** place, never two. A drawn tree is already the key those
-`[step N]` lines need: it's on screen throughout, and left there in full when the run
-ends. So it isn't logged as well. The per-step records are the same either way.
+`[step N]` lines need. It's on screen throughout, and left there in full when the run
+ends, so it isn't logged as well. The per-step records are the same either way.
 
 That choice is `collect(interactive=...)`, named for the assumption it makes rather
 than the widget it produces. Drawing means *someone is watching*, so the plan can be a
 thing on screen that the session throws away. `interactive=False` puts the tree in the
-log instead — what a run whose output outlives the session wants. The default,
+log instead. That's what a run whose output outlives the session wants. The default,
 `interactive=None`, reads a terminal or a notebook as a yes, and anything else as a no.
 
 A plan taller than your window is windowed rather than dropped. The frame shows the
@@ -387,7 +387,7 @@ Both look *upstream* only. A source can't reach the resolver built on top of it,
 because a step knows its inputs and nothing else. `crn.lineage()` is just `[crn]`,
 however much is built above it.
 
-There's no lookup-by-name: to hold on to a step, hold on to the variable.
+There's no lookup-by-name. To hold on to a step, hold on to the variable.
 
 ```python
 cleaned = crn.view(cleaning={"name": f"lower({crn.f('company')})"})
@@ -396,7 +396,7 @@ entities = cleaned.dedupe(...).resolve().collect()
 cleaned.data()  # still yours to inspect
 ```
 
-That goes for settings too: a resolver's per-model thresholds take the model itself,
+That goes for settings too. A resolver's per-model thresholds take the model itself,
 not its name.
 
 Steps have no names at all. To find a resolution later, **publish** it under a
@@ -407,13 +407,13 @@ entities = crn_dedupe.resolve(dh_dedupe).collect().publish("entities")
 ```
 
 Republishing the same label for the same resolution is a no-op. Aiming it at a
-different one needs `overwrite=True`. A plan you never publish still runs — it's just
+different one needs `overwrite=True`. A plan you never publish still runs. It's just
 unlabelled.
 
 A label is not a name. A *name* belongs to a source and is part of its output. A
 label belongs to the store, and points at whichever resolution you last aimed it at.
 
-Everything else goes by **position**: the order `collect` runs it in, which is what
+Everything else goes by **position**. That's the order `collect` runs it in, which is what
 logs quote and what `draw()` shows in brackets.
 
 ```
@@ -434,7 +434,7 @@ print(entities.draw())
 ```
 
 Positions are relative to the apex you collected or drew from, so a plan and a
-sub-plan of it number differently. But a run and that run's drawing always agree.
+sub-plan of it number differently, but a run and that run's drawing always agree.
 
 ## Reclaiming storage
 
@@ -443,7 +443,7 @@ never removes an artifact on its own initiative. That's deliberate. An artifact'
 has nothing to do with whether your program still holds the variable that produced it.
 The next process to rebuild the same plan wants a cache hit, not a rerun.
 
-The cost of that is real, so every collect reports it — the `Store 3.0 MB (+3.0 MB),
+The cost of that is real, so every collect reports it. That's the `Store 3.0 MB (+3.0 MB),
 7 artifacts` clause above. You can also ask directly:
 
 ```python
@@ -476,7 +476,7 @@ print(result.describe())
 # 'Removed 80 artifacts, kept 24, reclaimed 416.2 MB'
 ```
 
-`plan.fingerprints()` names every artifact a plan is made of: its own and its inputs'.
+`plan.fingerprints()` names every artifact a plan is made of, its own and its inputs'.
 Which artifacts those are is the plan's business, not the store's, so the plan is what
 answers. `keep` also takes the name of a published label, which keeps that resolution
 and the sources it reads through:
@@ -496,7 +496,7 @@ process that wrote it, so what some interpreter happens to have in scope says no
 about what is worth keeping. You say what to keep.
 
 Trimming rewrites the store, which reopens its connection. Any session setting applied
-through `adapter.conn` — see [Keeping memory bounded](#keeping-memory-bounded) — has to
+through `adapter.conn` (see [Keeping memory bounded](#keeping-memory-bounded)) has to
 be applied again afterwards.
 
 ### Starting from cold
@@ -533,8 +533,7 @@ warehouse data hasn't moved.
     and delete the old one", done for you and without the re-collect.
 
     A trim reports what it actually recovered, measured before and after. It never
-    reports what it deleted — those are different numbers, and only one of them is on
-    your disk.
+reports what it deleted. Those are different numbers, and only one of them is on
 
 ### Keeping memory bounded
 
@@ -549,7 +548,7 @@ adapter.conn.execute("SET temp_directory = '/fast/scratch'")
 ```
 
 That bounds the resident footprint without discarding anything. That's almost always
-what you want from a cache: paged out is cheap to read back, deleted has to be
+what you want from a cache. Paged out is cheap to read back, deleted has to be
 recomputed.
 
 ## Next
