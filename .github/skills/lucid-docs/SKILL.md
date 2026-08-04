@@ -69,7 +69,7 @@ Do not minimise the diff on the documentation you've been asked to review. Assum
 - Use British English.
 - Use sentence case headings.
 - Do not use semicolons.
-- Only use colons and dashes when they truly simplify.
+- Remove colons and dashes unless they truly simplify.
 - Use present tense for current behaviour.
 - Use one term for one concept.
 - Describe earlier or planned code only in migration guides.
@@ -113,13 +113,22 @@ Confirm that:
 
 ### Phase 2
 
-Perform a final check of the readability score:
+Perform a final check of the readability score and house style:
 
 ```bash
 uv run .github/skills/lucid-docs/readability.py <path>
 ```
 
-It should an acceptable reading level for the reader. You may make allowances for the requirements of technical writing. This script is a spot-check, not the target. It cannot detect semicolons, banned words, or fluent-but-wordy prose. 
+This takes the following options:
+
+* `--top <int>`: Show only the N worst-scoring blocks per file.
+* `--quiet`: Only print the punctuation-flag report.
+
+Ensure an acceptable reading level for the reader. You may make allowances for the requirements of technical writing.
+
+Colons and dashes are permissable only if they truly simplify.
+
+This script is a spot-check, not the target. It cannot detect banned words or fluent-but-wordy prose. 
 
 ## Output
 

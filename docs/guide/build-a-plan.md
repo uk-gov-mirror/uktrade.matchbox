@@ -24,10 +24,10 @@ crn = Source(
 `key_field` is the identifier you'll get back in results. It's read as a string
 whatever the warehouse stores it as, so an integer primary key needs no ceremony.
 
-`name` qualifies every column this source contributes — `company` becomes
+`name` qualifies every column this source contributes. `company` becomes
 `crn_company`. Those names end up in cleaning SQL, so a name has to work as the start
 of a column name: a letter or underscore, then letters, digits and underscores. A
-hyphen or a dot would parse as arithmetic or as a table reference, so matchlab rejects
+hyphen or a dot would parse as arithmetic or as a table reference. So matchlab rejects
 an invalid name when you build the source, rather than letting it fail three steps
 later. SQL keywords are fine, since the name is only ever a prefix.
 
@@ -111,7 +111,7 @@ deduped.view(crn, cleaning={"name": "crn_company"}).data()
 ```
 
 That's often what you want — more evidence per entity. When it isn't, `group=True`
-collapses each `id` to one row, and every expression becomes an aggregate so you say
+collapses each `id` to one row. Every expression then becomes an aggregate, so you say
 how each column combines:
 
 ```python
@@ -130,7 +130,7 @@ deduped.view(
 ```
 
 Any DuckDB aggregate works, `list` and `string_agg` included. A non-aggregate gets you
-DuckDB's own error naming the column. `group=True` needs cleaning expressions — there's
+DuckDB's own error naming the column. `group=True` needs cleaning expressions. There's
 no sensible default for how a column collapses.
 
 Grouping matters most when a view reads **several** sources through a resolver. Those
@@ -164,7 +164,7 @@ resolver.view(
 # acme    | ["london", "leeds", "bristol"]
 ```
 
-Grouping changes what the *model* sees. It never changes the resolution: record
+Grouping changes what the *model* sees. It never changes the resolution. Record
 identity travels separately, so a resolver below a grouped view still carries every
 record forward.
 
@@ -254,7 +254,7 @@ existing `Source` object remembers it.
     and reused. In practice, this means passing a `seed` to Splink training functions
     that sample. Otherwise, re-running gives you the cache, not a second opinion.
 
-Because the key is configuration-derived, it is also conservative: editing a cleaning
+Because the key is configuration-derived, it is also conservative. Editing a cleaning
 expression in a way that doesn't change the data still re-runs everything below it.
 
 To collect somewhere other than the default store:
@@ -296,8 +296,8 @@ feeds both models but runs once, computed once and read back by each of them. It
 inputs are listed only under its first appearance, not repeated. On plans with a
 shared base, that's the difference between a readable tree and a few hundred lines.
 
-`cached` is the one to watch: it is the plan telling you your edit didn't invalidate
-that step, so nothing was recomputed.
+`cached` is the one to watch. It tells you your edit didn't invalidate that step, so
+nothing was recomputed.
 
 Where nothing is drawn — a scheduler, CI, a redirected stream — the same tree is logged
 **once**, up front, with each step reporting beneath it:
@@ -439,9 +439,9 @@ sub-plan of it number differently. But a run and that run's drawing always agree
 ## Reclaiming storage
 
 **A store keeps everything you collect into it, until you delete the file.** matchlab
-never removes an artifact on its own initiative. That's deliberate: an artifact's value
-has nothing to do with whether your program still holds the variable that produced it,
-and the next process to rebuild the same plan wants a cache hit rather than a rerun.
+never removes an artifact on its own initiative. That's deliberate. An artifact's value
+has nothing to do with whether your program still holds the variable that produced it.
+The next process to rebuild the same plan wants a cache hit, not a rerun.
 
 The cost of that is real, so every collect reports it — the `Store 3.0 MB (+3.0 MB),
 7 artifacts` clause above. You can also ask directly:
@@ -456,7 +456,7 @@ print(stats.artifacts)  # {'source': 8, 'view': 40, 'model': 32, 'resolver': 24}
 print(stats.describe())  # 'Store 1.2 GB, 104 artifacts'
 ```
 
-Watch the artifact count rather than the size to see this happen: edit a cleaning
+Watch the artifact count rather than the size to see this happen. Edit a cleaning
 expression, re-collect, and the count grows while the plan stays the same size. The old
 artifacts are still there, and nothing will remove them.
 
@@ -517,7 +517,7 @@ warehouse data hasn't moved.
 !!! warning "DuckDB files do not shrink"
     Deleting rows or dropping tables inside a DuckDB file does **not** return space to
     the operating system. DuckDB marks the blocks free and reuses them for later
-    writes, but the file stays the size of its high-water mark — there is no
+    writes, but the file stays the size of its high-water mark. There is no
     `VACUUM FULL`, and `CHECKPOINT` will not do it either:
 
     ```
@@ -539,7 +539,7 @@ warehouse data hasn't moved.
 ### Keeping memory bounded
 
 An in-memory store (`DuckDBAdapter(":memory:")`) is not limited to RAM. DuckDB spills
-table data to a temporary directory once it exceeds `memory_limit`, which defaults to
+table data to a temporary directory once it exceeds `memory_limit`. That defaults to
 about 80% of your machine's memory:
 
 ```python
@@ -548,7 +548,7 @@ adapter.conn.execute("SET memory_limit = '4GB'")
 adapter.conn.execute("SET temp_directory = '/fast/scratch'")
 ```
 
-That bounds the resident footprint without discarding anything, which is almost always
+That bounds the resident footprint without discarding anything. That's almost always
 what you want from a cache: paged out is cheap to read back, deleted has to be
 recomputed.
 

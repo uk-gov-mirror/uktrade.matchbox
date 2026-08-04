@@ -137,7 +137,7 @@ def _mint_cluster_id(leaves: list[int]) -> int:
     (`process_judgements`) works without an explicit expansion row.
 
     A group uses `root_id`, the same function a resolver mints its roots with. That
-    match is load-bearing, not just tidy: scoring compares a judged group against the
+    match is load-bearing, not just tidy. Scoring compares a judged group against the
     resolution's clusters by ID. If the two ever disagree, every comparison misses,
     and precision and recall get computed over an empty set.
     """
@@ -209,7 +209,7 @@ class DuckDBAdapter(Adapter):
 
         Only ever called immediately before storing that same fingerprint again. A
         fingerprint addresses content, so the replacement is the same data by
-        construction. That is why any **label** pointing at `fp` is left alone: it
+        construction. That is why any **label** pointing at `fp` is left alone. It
         still resolves, to bytes indistinguishable from the ones it resolved to before.
         A re-collect should not quietly revoke a publication.
         """
@@ -273,9 +273,9 @@ class DuckDBAdapter(Adapter):
                 "SELECT block_size, free_blocks FROM pragma_database_size()"
             ).fetchone()
             free = blocks[0] * blocks[1] if blocks else 0
-            # Resolved because `self.path` is the constructor's argument verbatim: a
-            # store opened as "./run.duckdb" would otherwise report itself against a
-            # working directory that has since moved on.
+            # `self.path` is the constructor's argument verbatim, so it's resolved
+            # here. Otherwise a store opened as "./run.duckdb" would report itself
+            # against a working directory that has since moved on.
             path = Path(self.path).resolve()
             size = sum(
                 candidate.stat().st_size
@@ -363,8 +363,8 @@ class DuckDBAdapter(Adapter):
 
         if self._kind(resolver_fp) is not StepKind.RESOLVER:
             raise KeyError(f"No stored resolver for fingerprint {resolver_fp.hex()}")
-        # Both predicates in the query: `source` is what keeps this from scanning every
-        # source's rows, and `resolution` holds one generation per collect of the plan.
+        # Both predicates matter. `source` keeps this from scanning every source's
+        # rows, and `resolution` holds one generation per collect of the plan.
         return self.conn.execute(
             "SELECT root AS id, source, key, leaf "
             "FROM resolution WHERE fp = ? AND source = ?",
@@ -590,7 +590,7 @@ class DuckDBAdapter(Adapter):
         expansion = self.conn.execute("SELECT root, leaves FROM expansion").pl()
 
         # Present empty results with the right columns/dtypes. We deliberately do not
-        # re-validate against the arrow transport schemas here: those pin `leaves` to a
+        # re-validate against the arrow transport schemas here. Those pin `leaves` to a
         # small `list`, while polars naturally emits `large_list` — a serialisation
         # detail that is meaningless locally. Types are guaranteed by the table DDL, and
         # inputs are validated on write.
