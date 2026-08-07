@@ -1,26 +1,27 @@
 """Serialise a plan to a portable document, and rebuild it somewhere else.
 
-A `PlanDocument` is a **derived view** of a plan, not a source format: humans write
-Python, and this is what you hand to another environment so it can execute the same
-plan. So it is dumped, transferred and loaded — never hand-authored, which is why
-nodes refer to each other by position rather than by any human-facing name.
+A `PlanDocument` is a **derived view** of a plan, not a source format. Humans write
+Python, and a document is what you hand to another environment so it can run the same
+plan. It is dumped, transferred and loaded, never hand-authored. That is why nodes
+refer to each other by position rather than by any human-facing name.
 
 Nodes come out in `lineage.walk` order, so every input index is smaller than the index
-of the step that consumes it. Positions also preserve structural sharing: a view
-feeding two models is one node referenced twice, where nesting each step's inputs
-inside it would have inlined the whole subtree twice over.
+of the step that consumes it. Positions also preserve structural sharing. A view
+feeding two models is one node referenced twice. Nesting each step's inputs inside it
+would have inlined the whole subtree twice over instead.
 
 **Edges live here, settings live in the spec.** That split is the point of this
-module. A spec is hashed into a fingerprint, so it must carry everything that
-changes the step's output and nothing else; a serialised plan must additionally carry
-the edges, which a fingerprint already covers by folding in its parents'. Putting both
-in one model meant either a spec that lied about identity — a rename invalidating a
-subtree that produces identical bytes — or a document that could not be rebuilt.
+module. A spec is hashed into a fingerprint, so it must carry everything that changes
+the step's output and nothing else. A serialised plan must also carry the edges, which
+a fingerprint already covers by folding in its parents' fingerprints. Putting both in
+one model would have forced a choice: a spec that lied about identity, where a rename
+invalidates a subtree that produces identical bytes, or a document that could not be
+rebuilt.
 
 Edges are not the only thing that lands on this side of the split. A source's
 `LocationRef` says which location class to build and under what name, so that `load`
-can attach a client — and neither fact changes a byte the source produces, which is why
-a `SourceSpec` records nothing about where its rows came from.
+can attach a client. Neither fact changes a byte the source produces, which is why a
+`SourceSpec` records nothing about where its rows came from.
 
 **What a document cannot carry:**
 
@@ -29,14 +30,15 @@ a `SourceSpec` records nothing about where its rows came from.
 * *Code.* `model_class` and `resolver_class` are registry names, so the target
   environment must have the same classes registered (`add_model_class`). A document is
   portable across environments, not across codebases.
-* *Labels.* Publishing is something you do to a *result* — `Resolver.publish` — not
-  part of the plan, so the receiving environment collects and then publishes under
-  whatever label it wants. The only names in a document are sources', which are part
-  of their output.
+* *Labels.* Publishing is something you do to a *result*, using `Resolver.publish`. It
+  is not part of the plan, so the receiving environment collects and then publishes
+  under whatever label it wants. The only names in a document are sources' names,
+  which are part of their output.
 * *Data, or any hash of it.* A source's fingerprint folds in a content hash of what it
-  actually read, and that is derived on load from the target warehouse. Same rows,
-  same fingerprints, and the target store hits cache instead of recomputing; different
-  rows, different fingerprints, and it re-runs. Both are the intended behaviour.
+  actually read, and that hash is derived on load from the target warehouse. Same rows
+  give the same fingerprints, so the target store hits cache instead of recomputing.
+  Different rows give different fingerprints, so it re-runs. Both are the intended
+  behaviour.
 """
 
 from collections.abc import Mapping
@@ -92,7 +94,7 @@ class StepNode(BaseModel):
 
     kind: StepKind = Field(description="Which kind of step this is.")
     spec: StepSpec = Field(
-        description="This step's own settings — exactly what its fingerprint hashes."
+        description="This step's own settings, exactly what its fingerprint hashes."
     )
     inputs: tuple[int, ...] = Field(
         default=(),
@@ -106,14 +108,14 @@ class StepNode(BaseModel):
         default=None,
         description=(
             "For a source, how to rebuild the location it reads. Here rather than in "
-            "the spec because it describes reconstruction rather than output — see "
+            "the spec because it describes reconstruction rather than output. See "
             "`LocationRef`. Every other kind of step leaves it unset."
         ),
     )
 
     @model_validator(mode="after")
     def _check_location(self) -> "StepNode":
-        """A source names a location; nothing else has one to name."""
+        """A source names a location. Nothing else has one to name."""
         if self.kind is StepKind.SOURCE and self.location is None:
             raise ValueError("A source step must name the location it reads.")
         if self.kind is not StepKind.SOURCE and self.location is not None:
@@ -131,8 +133,9 @@ class StepNode(BaseModel):
         """
         if not isinstance(data, dict):
             return data
-        # `kind` is still whatever the input carried — a plain string, from JSON. It
-        # finds its entry anyway: a `StrEnum` member hashes and compares as its value.
+        # `kind` is still whatever the input carried, a plain string, from JSON. It
+        # finds its entry anyway, because a `StrEnum` member hashes and compares as
+        # its value.
         kind, spec = data.get("kind"), data.get("spec")
         if isinstance(spec, dict) and kind in _SPEC_TYPES:
             return {**data, "spec": _SPEC_TYPES[kind].model_validate(spec)}
@@ -208,7 +211,7 @@ def _node(step: Step, inputs: tuple[int, ...]) -> StepNode:
 def load(document: PlanDocument, clients: Mapping[str, Any]) -> Step:
     """Rebuild a plan from a document, returning its apex.
 
-    Nothing is collected: this reconstructs the same lazy plan, so the returned step
+    Nothing is collected. This reconstructs the same lazy plan, so the returned step
     fingerprints identically to the one that was dumped, given the same data.
 
     Args:
@@ -218,7 +221,7 @@ def load(document: PlanDocument, clients: Mapping[str, Any]) -> Step:
             connection.
 
     Returns:
-        The plan's apex — the last step in the document.
+        The plan's apex, the last step in the document.
 
     Raises:
         ValueError: If the document is empty, names a location with no client or an

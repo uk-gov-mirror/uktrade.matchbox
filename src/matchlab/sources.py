@@ -1,16 +1,15 @@
 """Source — the leaf of a plan.
 
 A source reads rows from a warehouse and content-addresses them. It takes no inputs,
-so it is where raw data (and therefore non-determinism) enters a plan: its spec key
+so it is where raw data, and therefore non-determinism, enters a plan. Its spec key
 includes a hash of the data it read, which is what makes a freshly constructed `Source`
 pick up warehouse changes while an existing object memoises its read.
 
 **The extract/transform is the whole declaration.** Every column it returns is part of
-the record, so every column except the key contributes to that record's identity — two
-rows are the same leaf when they agree on all of them. There is no second list of
-indexed fields to keep in step with the SQL, and no field types to restate: a column you
-do not want to affect identity is a column you should not select, and a type you want
-pinned is a `cast` in the SELECT.
+the record, so every column except the key contributes to that record's identity. Two
+rows are the same leaf when they agree on all of them. A column
+you do not want to affect identity is a column you should not select, and a type you
+want pinned is a `cast` in the SELECT.
 """
 
 import tempfile
@@ -76,7 +75,7 @@ class Source(Step):
 
         # A source's name is not a way of finding it later, the way a published
         # resolution's is. It prefixes every column this source contributes and tags
-        # its rows in a resolution, so it is part of the output — which is why it is
+        # its rows in a resolution, so it is part of the output. That is why it is
         # required, lives on the source itself, and is hashed into the fingerprint.
         self.name = name
         super().__init__()
@@ -116,7 +115,7 @@ class Source(Step):
     # A view built over several sources qualifies every column with the source it came
     # from, so `company` from `crn` becomes `crn_company`. These say what a column will
     # be called once that has happened, which is how you refer to it in a cleaning
-    # expression or a model's settings — before anything has been collected.
+    # expression or a model's settings, before anything has been collected.
 
     def f(self, fields: str | Iterable[str]) -> str | list[str]:
         """Prefix one or more field names with this source's name."""
@@ -155,7 +154,7 @@ class Source(Step):
                 return qualify(self.name, column)
 
         # Keys are always strings, whatever the warehouse returns them as. Every
-        # other column is read as the warehouse types it — pin one with a `cast` in
+        # other column is read as the warehouse types it. Pin one with a `cast` in
         # the extract/transform if you need it stable across drivers.
         selection = (self.key_field, keys) if keys else None
         yield from self.location.execute(
@@ -178,11 +177,11 @@ class Source(Step):
 
         Every column except the key contributes to the row hash, so two rows are the
         same leaf exactly when the extract returns identical values for both. Identity
-        is content, not the key — see `matchlab.core.resolution.leaf_id` for why that
+        is content, not the key. See `matchlab.core.resolution.leaf_id` for why that
         is the correct anchor for evaluation rather than a storage trick.
 
         Returns:
-            `(extract, hashes)` — the raw rows, and a `hash → keys` index in which
+            `(extract, hashes)`, the raw rows, and a `hash → keys` index in which
             byte-identical rows share a hash, so records a judge cannot tell apart share
             a leaf.
         """
@@ -217,12 +216,13 @@ class Source(Step):
                         f"Source '{self.name}' returns only its key field. The "
                         "extract/transform must select at least one other column."
                     )
-                # XXH3_128 rather than SHA-256, which this used to be: `leaf_id`
+                # XXH3_128 rather than SHA-256. `leaf_id`
                 # slices the row hash to 8 bytes, so a cryptographic digest's strength
                 # is discarded before it identifies anything, and the 128 bits that
                 # survive into `_spec_key` are ample for telling rows of one table
-                # apart. It is ~7x faster, on a path every collect pays — `_spec_key`
-                # re-reads and re-hashes the warehouse even when the artifact is cached.
+                # apart. It is ~7x faster, on a path every collect pays, because
+                # `_spec_key` re-reads and re-hashes the warehouse even when the
+                # artifact is cached.
                 row_hashes = hash_rows(
                     df=batch, columns=index, method=HashMethod.XXH3_128
                 )
@@ -238,7 +238,7 @@ class Source(Step):
         return self._read
 
     def leaves(self) -> pl.DataFrame:
-        """Return `(key, leaf)` — each source key mapped to its leaf cluster."""
+        """Return `(key, leaf)`, each source key mapped to its leaf cluster."""
         _, hashes = self._read_warehouse()
         return hashes.explode("keys", empty_as_null=True).select(
             pl.col("keys").alias("key"),
@@ -250,14 +250,14 @@ class Source(Step):
     def _spec_key(self) -> bytes:
         """The spec plus a content hash of the data read.
 
-        Including the data hash is what lets a plan detect that the warehouse changed:
-        a new `Source` object re-reads and gets a different key, invalidating
+        Including the data hash is what lets a plan detect that the warehouse changed.
+        A new `Source` object re-reads and gets a different key, invalidating
         everything downstream of it.
 
         Hashing `hashes` alone is sufficient because every non-key column feeds the row
         hash, and `hashes` records which keys carry each one. A change to any selected
         column therefore moves the fingerprint. This was not true while a separate list
-        of index fields could be narrower than the extract: a column outside it changed
+        of index fields could be narrower than the extract. A column outside it changed
         the stored extract without touching the fingerprint, so the source cache-hit,
         never re-stored, and downstream views kept reading the stale value.
         """
@@ -291,7 +291,7 @@ class Source(Step):
     ) -> "Model":
         """Deduplicate this source's records.
 
-        Shorthand for `self.view().dedupe(...)` — a view is only worth building
+        Shorthand for `self.view().dedupe(...)`. A view is only worth building
         explicitly when you want to clean, group, or read through a resolver.
         """
         return self.view().dedupe(

@@ -29,7 +29,7 @@ from matchlab.core.logging import logger
 
 
 class ClientType(StrEnum):
-    """Enumeration of the client libraries a relational location can be driven by."""
+    """The client libraries a relational location can be driven by."""
 
     SQLALCHEMY = "sqlalchemy"
     ADBC = "adbc"
@@ -75,7 +75,7 @@ class Location(ABC):
 
         Args:
             name: How a plan refers to this location. A handle for the client, not a
-                setting — it never reaches a fingerprint.
+                setting. It never reaches a fingerprint.
             client: The already-configured client to read through. Required: a location
                 without one can answer nothing, not even which SQL dialect it speaks.
 
@@ -157,7 +157,7 @@ class RelationalDBLocation(Location):
 
     @property
     def client_type(self) -> ClientType:
-        """Determine client type from the client.
+        """Which client type this location was built with.
 
         One `isinstance` decides it, because `client_classes` has already rejected
         anything that is neither an `Engine` nor an ADBC connection.
@@ -170,10 +170,10 @@ class RelationalDBLocation(Location):
 
     @contextmanager
     def _get_connection(self) -> Generator[Connection | AdbcConnection, None, None]:
-        """Context manager for getting database connections with proper cleanup."""
+        """Get a database connection, and close or release it properly afterwards."""
         if self.client_type == ClientType.ADBC:
-            # To prevent memory corruption in the ADBC driver when reusing a single
-            # connection for multiple queries, we clone the connection
+            # Cloning avoids memory corruption in the ADBC driver, which happens if
+            # a single connection is reused for multiple queries.
             with self.client.adbc_clone() as connection:
                 yield connection
         else:  # SQLAlchemy Engine
@@ -212,17 +212,16 @@ class RelationalDBLocation(Location):
     def validate_extract_transform(self, extract_transform: str) -> None:
         """Check that the SQL statement only contains a single data-extracting command.
 
-        We are NOT attempting a full sanitisation of the SQL statement
-        # Validation is done purely to stop accidental mistakes, not malicious actors
-        # Users should only run indexing using sources they trust and have read,
-        # using least privilege credentials
+        This does not fully sanitise the SQL statement. Validation only guards
+        against accidental mistakes, not malicious actors. Only run indexing using
+        sources you trust and have read, with least-privilege credentials.
 
         Args:
-            extract_transform: The SQL statement to validate
+            extract_transform: The SQL statement to validate.
 
         Raises:
-            ParseError: If the SQL statement cannot be parsed
-            ExtractTransformError: If validation requirements are not met
+            ParseError: If the SQL statement cannot be parsed.
+            ExtractTransformError: If validation requirements are not met.
         """
         if not extract_transform.strip():
             raise ExtractTransformError(
@@ -315,7 +314,7 @@ class RelationalDBLocation(Location):
         # silently ignored for ADBC ones. Polars registers ADBC with
         # `exact_batch_size: False` (see `polars/io/database/_arrow_registry.py`), so
         # it calls `fetch_record_batch()` with no size and the driver chunks however
-        # it likes — for in-process drivers, that is the whole result in one batch.
+        # it likes. In-process drivers return the whole result in one batch.
         # `Source.sample(n)` takes the first batch and so can return the entire
         # source, and `_read_warehouse`'s stream-to-Parquet stops bounding memory.
         # Fix by slicing the record-batch stream to `batch_size` in `sql_to_df`.
@@ -327,8 +326,8 @@ class RelationalDBLocation(Location):
                 # Only filter original SQL if keys are provided
                 if quoted_key_values:
                     comma_separated_values = ", ".join(quoted_key_values)
-                    # This "IN" expression is a SQL standard;
-                    # though this is hard to prove as the standard is behind a paywall
+                    # This "IN" expression is a SQL standard, though that is hard to
+                    # prove, since the standard is behind a paywall.
                     extract_transform = (
                         f"select * from ({extract_transform}) as sub "
                         f"where {key_field} in ({comma_separated_values})"

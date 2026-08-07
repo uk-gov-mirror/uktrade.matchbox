@@ -1,18 +1,19 @@
 """Step specs — what a fingerprint hashes.
 
 One model per step kind, and `Step._spec_key` hashes it to address that step's artifact.
-So what belongs in a spec is decided entirely by the fingerprint invariant: **it must
-carry everything the step's output depends on, and nothing else.** Omit something that
-changes the output and `collect` hands back a stale artifact without re-running; include
-something that doesn't and the step re-runs for nothing, along with everything below it.
+What belongs in a spec is therefore decided entirely by the fingerprint invariant.
+**It must carry everything the step's output depends on, and nothing else.** Omit
+something that changes the output, and `collect` hands back a stale artifact without
+re-running. Include something that doesn't, and the step re-runs for nothing, along
+with everything below it.
 
-Two things that rules out. **Edges**, because `_fingerprint` already folds in the
-parents' fingerprints — describing an input here would record it twice, and a rename
-would then invalidate a subtree producing identical bytes. And **names**, with one
-exception: `SourceSpec.name` is in the output it prefixes. A setting that must point at
-an input points at its position instead (`ComponentsSettings.thresholds`).
+That rules out two things. **Edges**, because `_fingerprint` already folds in the
+parents' fingerprints. Describing an input here would record it twice, and a rename
+would then invalidate a subtree producing identical bytes. **Names** are also excluded,
+with one exception: `SourceSpec.name` is in the output it prefixes. A setting that must
+point at an input points at its position instead (`ComponentsSettings.thresholds`).
 
-A spec is therefore not the serialisation format — rebuilding a plan needs the edges
+A spec is therefore not the serialisation format. Rebuilding a plan needs the edges
 that identifying a step must exclude. `matchlab.document` carries them alongside it.
 """
 
@@ -28,7 +29,7 @@ from pydantic import (
 
 
 class ModelType(StrEnum):
-    """Enumeration of supported model types."""
+    """Whether a model is a deduper or a linker."""
 
     LINKER = "linker"
     DEDUPER = "deduper"
@@ -38,7 +39,7 @@ class SourceSpec(BaseModel):
     """Specification of a source: what it extracts, and what keys it.
 
     There is no separate list of indexed fields. The extract/transform is the single
-    declaration of what a source *is* — every column it returns is part of the record,
+    declaration of what a source *is*. Every column it returns is part of the record,
     and therefore part of that record's identity. A column you do not want to affect
     identity is a column you should not select.
 
@@ -86,7 +87,7 @@ class SourceSpec(BaseModel):
 class ViewSpec(BaseModel):
     """Specification of a view: the shape it gives the records a model matches over.
 
-    *Which* records it reads is not here — that is an edge, and edges live on
+    *Which* records it reads is not here. That is an edge, and edges live on
     `Step.upstream` and in `PlanDocument`. A view over one source and a view over
     another are told apart by their inputs' fingerprints, which `_fingerprint` already
     folds in, in order.
@@ -97,8 +98,8 @@ class ViewSpec(BaseModel):
     cleaning: dict[str, str] | None = Field(
         default=None,
         description=(
-            "Output column to SQL expression. `None` passes every column through; "
-            "an empty dict projects to `id` only."
+            "Output column to SQL expression. `None` passes every column through. "
+            "An empty dict projects to `id` only."
         ),
     )
     group: bool = Field(

@@ -1,13 +1,13 @@
 """The `matchlab` command.
 
-Two commands, because there are only two things a terminal does better than a Python
-prompt: tell you what version you have, and give you a full-screen reviewer.
+Two commands. A terminal does two things better than a Python prompt. It tells you
+what version you have, and it gives you a full-screen reviewer.
 
-
-`review` takes either a `module:attribute` naming a resolver in your code - or, with
-`--store`, just the label of a resolution already published. The second needs no plan
-and no warehouse: a stored resolution knows which source artifacts it covers, and their
-extracts hold the values. Name more than one and you review their merged clusters.
+`review` takes a `module:attribute` naming a resolver in your code. With `--store`,
+it instead takes the label of a resolution already published. The second form needs
+no plan and no warehouse. A stored resolution knows which source artifacts it covers,
+and their extracts hold the values. Name more than one target and you review their
+merged clusters.
 """
 
 import argparse
@@ -24,9 +24,9 @@ if TYPE_CHECKING:
 def _load_target(target: str) -> "Resolver":
     """Import `module:attribute` and return the resolver it names.
 
-    The attribute may be a `Resolver`, or a callable returning one — useful when
-    building the plan needs a warehouse connection you'd rather not open at import
-    time. A `Resolver` isn't callable, so the two never blur.
+    The attribute may be a `Resolver`, or a callable returning one. The callable form
+    is useful when building the plan needs a warehouse connection you'd rather not
+    open at import time. A `Resolver` isn't callable, so the two never blur.
 
     Raises:
         SystemExit: If the target can't be imported or isn't a resolver.
@@ -35,13 +35,13 @@ def _load_target(target: str) -> "Resolver":
 
     if ":" not in target:
         raise SystemExit(
-            f"Target '{target}' should look like 'module:attribute' — for example "
+            f"Target '{target}' should look like 'module:attribute', for example "
             "'pipeline:entities', naming a Resolver in pipeline.py."
         )
 
     module_name, _, attribute = target.partition(":")
 
-    # So that a script in the working directory can be named directly.
+    # Lets a script in the working directory be named directly.
     if str(Path.cwd()) not in sys.path:
         sys.path.insert(0, str(Path.cwd()))
 
@@ -95,11 +95,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Review a resolver's clusters interactively.",
         description=(
             "Open the cluster reviewer. TARGET names a Resolver as "
-            "'module:attribute' — 'pipeline:companies' for a resolver assigned to "
-            "`companies` in pipeline.py — or a function returning one, if building "
+            "'module:attribute', such as 'pipeline:companies' for a resolver assigned "
+            "to `companies` in pipeline.py, or a function returning one, if building "
             "the plan needs a connection you'd rather open on demand. "
             "With --store, TARGET is instead the label of a resolution published in "
-            "that store, and no Python is imported: the values shown come from the "
+            "that store. Then no Python is imported. The values shown come from the "
             "extracts cached when the sources were collected, so no warehouse "
             "connection is needed. "
             "Name several targets to review their merged clusters, so one session's "
@@ -153,7 +153,7 @@ def main(argv: list[str] | None = None) -> None:
 
     adapter = DuckDBAdapter(args.store) if args.store else None
 
-    # With a store, a bare word is a label on a stored resolution — no plan to import.
+    # With a store, a bare word is a label on a stored resolution, so it needs no plan.
     targets: list[Any] = []
     for target in args.targets:
         if adapter is not None and ":" not in target:

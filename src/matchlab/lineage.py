@@ -1,17 +1,17 @@
 """Lineage algorithms over a plan tree.
 
-Steps hold references to their *inputs* only (`step.upstream`) — there is no
-registry and no downstream pointer, exactly as in Polars' logical plan. "The DAG"
-is therefore whatever is reachable upstream from the node you are holding, and
-every graph operation is a pure function of a root node.
+Steps hold references to their *inputs* only (`step.upstream`). There is no registry
+and no downstream pointer. "The DAG" is therefore
+whatever is reachable upstream from the node you are holding, and every graph
+operation is a pure function of a root node.
 
-Nodes are deduplicated by **object identity**, not by name or config: a node feeding
+Nodes are deduplicated by **object identity**, not by name or config. A node feeding
 two branches is one object and is visited once (structural sharing), while two
 structurally identical but distinct nodes are two plan entries.
 
-`draw` also owns the vocabulary for *how a step is doing* — `StepStatus` and
-`StepState` — because the tree is where that vocabulary is read. `matchlab.progress`
-drives it during a collection; nothing here executes anything.
+`draw` also owns the vocabulary for *how a step is doing*, meaning `StepStatus` and
+`StepState`, because the tree is where that vocabulary is read. `matchlab.progress`
+drives it during a collection. Nothing here executes anything.
 """
 
 from collections.abc import Mapping
@@ -27,9 +27,9 @@ if TYPE_CHECKING:
 class StepStatus(StrEnum):
     """Where a step has got to in a collection.
 
-    `CACHED` and `DONE` both mean the artifact is available; they differ in whether
+    `CACHED` and `DONE` both mean the artifact is available. They differ in whether
     this collection paid for it. That distinction is the whole point of showing
-    progress for a content-addressed plan — it is how you see what your edit
+    progress for a content-addressed plan. It is how you see what your edit
     invalidated.
     """
 
@@ -72,7 +72,7 @@ _STYLES: dict[StepStatus, str] = {
 }
 
 
-#: Statuses where an elapsed time is worth showing — the ones that spent any.
+#: Statuses where an elapsed time is worth showing, the ones that spent any.
 _TIMED = (StepStatus.RUNNING, StepStatus.DONE, StepStatus.FAILED)
 
 
@@ -86,7 +86,7 @@ class StepState:
     def annotation(self) -> str:
         """The trailing detail shown after a step in a drawing, possibly empty.
 
-        A time is shown only where it was spent: a cached step reads `cached` alone,
+        A time is shown only where it was spent. A cached step reads `cached` alone,
         because `0.0s` next to it says nothing.
         """
         parts: list[str] = []
@@ -106,7 +106,7 @@ def walk(root: "Step") -> list["Step"]:
     """
     ordered: list[Step] = []
     seen: set[int] = set()
-    # (step, expanded) — `expanded` marks the second visit, when the node's inputs
+    # (step, expanded). `expanded` marks the second visit, when the node's inputs
     # have already been pushed and it is safe to emit.
     stack: list[tuple[Step, bool]] = [(root, False)]
 
@@ -129,7 +129,7 @@ def walk(root: "Step") -> list["Step"]:
 def number(root: "Step") -> dict[int, int]:
     """Map each step in `root`'s plan to the position it is known by.
 
-    A step is referred to by position — in logs, in `draw()`, and in a document.
+    A step is referred to by position, in logs, in `draw()`, and in a document.
     The position belongs to the walk rather than to the step: the
     same node numbers differently in `walk(deduped)` and `walk(companies)`, so nothing
     is written back onto the steps. Callers that need one hold this mapping, as
@@ -159,8 +159,8 @@ def render(
 ) -> tuple[list[str], dict[int, int]]:
     """Render `root`'s sub-plan as an indented tree, inputs nested beneath consumers.
 
-    Each node carries its **position** — the index `collect` runs it at, and the index
-    it occupies in this plan's document. That is the cross-reference: a log line saying
+    Each node carries its **position**, the index `collect` runs it at, and the index
+    it occupies in this plan's document. The index is the cross-reference, where
     `step 7` is the node drawn as `[7]`. Positions come from `walk`, not from the order
     these lines happen to be printed in, since a tree nests consumers above their
     inputs while a walk lists inputs first.
@@ -169,20 +169,20 @@ def render(
         root: The step to draw, along with everything upstream of it.
         state: Per-step status, keyed by `id(step)` as `number` is. Steps missing from
             the mapping are drawn as `PENDING`. When omitted, each step is drawn from
-            its own `is_collected` flag instead — a static view of a plan you hold.
+            its own `is_collected` flag instead, a static view of a plan you hold.
         markup: Emit Rich markup, styling each marker and annotation by status. Off by
             default, so the return value stays printable anywhere.
 
     Returns:
-        The lines — one per node plus one per repeat reference — and the row each step
+        The lines, one per node plus one per repeat reference, and the row each step
         is first drawn on, keyed by `id(step)` as `number` is. The rows are what let a
         caller show part of a tree and still know where it is: `matchlab.progress`
         windows a plan too tall for the terminal around the row that is running.
 
     A node feeding several branches is expanded where it is first met and marked `↑`
     everywhere after, rather than having its whole subtree redrawn each time. Positions
-    are what make that readable — `↑ [12]` names the node you already have — and
-    without it the drawing contradicts the structural sharing it is meant to show: the
+    are what make that readable. `↑ [12]` names the node you already have, and without
+    it the drawing contradicts the structural sharing it is meant to show. The
     24-step plan in `examples/companies` draws 187 lines expanded, and 39 like this.
     """
     position = number(root)
@@ -211,7 +211,7 @@ def render(
         if repeat:
             label = f"{label} ↑"
 
-        # Escape the whole label, not just the step: `[7]` would itself parse as a
+        # Escape the whole label, not just the step. `[7]` would itself parse as a
         # style tag.
         row = (
             f"[{style}]{marker}[/] {_escape(label)}" if markup else f"{marker} {label}"
@@ -219,7 +219,7 @@ def render(
 
         rows.setdefault(id(step), len(lines))
         lines.append(f"{prefix}{connector}{row}")
-        if repeat:  # already drawn in full above; the reference is the whole line
+        if repeat:  # already drawn in full above, the reference is the whole line
             return
 
         child_prefix = prefix + ("    " if connector in ("└── ", "") else "│   ")

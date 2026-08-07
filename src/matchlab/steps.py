@@ -1,7 +1,7 @@
 """The lazy plan node.
 
 A `Step` holds references to its **inputs only** (`upstream`). There is no registry,
-no parent pointer, and no downstream list — "the DAG" is whatever is reachable
+no parent pointer, and no downstream list. "The DAG" is whatever is reachable
 upstream from the node you hold, and lineage operations are pure functions of a root
 node (`matchlab.lineage`).
 
@@ -9,9 +9,9 @@ Nothing is computed until `collect()`. Collection walks the plan upstream-first 
 runs only the steps whose artifact is not already stored.
 
 **Fingerprints identify artifacts.** A step's fingerprint combines its kind, its
-spec, and its inputs' fingerprints — so for everything downstream of a
-source it is derivable from the *plan alone*, before any work happens, and `collect`
-can skip a cached step without running it. Sources are the exception: raw data enters
+spec, and its inputs' fingerprints. Everything downstream of a source can therefore
+derive it from the *plan alone*, before any work happens, and `collect`
+can skip a cached step without running it. Sources are the exception. Raw data enters
 there, so a source's spec key includes a content hash of the data it read.
 Constructing a fresh `Source` therefore re-reads the warehouse (the documented way to
 refresh), while an existing `Source` object memoises its read.
@@ -59,19 +59,19 @@ class Step(ABC):
     def __init__(self, upstream: "tuple[Step, ...]" = ()) -> None:
         """Initialise a plan node with its direct inputs.
 
-        Steps have no names. They are identified by **position** — where they fall in
+        Steps have no names. They are identified by **position**, where they fall in
         `lineage.walk`, which is the order `collect` runs them in and the order
-        `PlanDocument` lists them in. So `step 7` in a log, `[7]` in `draw()`, and
-        `steps[7]` in a document are the same node.
+        `PlanDocument` lists them in. `step 7` in a log, `[7]` in `draw()`, and
+        `steps[7]` in a document are therefore the same node.
 
-        A position is not stored here, because it is not a property of the step: it
+        A position is not stored here, because it is not a property of the step. It
         belongs to the walk it came from, and the same step numbers differently in
         `walk(deduped)` and `walk(companies)`. Whoever does the walking passes it to
-        whoever needs it — `collect` to its reporter, `draw` to its own renderer.
+        whoever needs it, `collect` to its reporter, `draw` to its own renderer.
 
-        Finding a result later is a separate matter, and a separate act:
+        Finding a result later is a separate matter, and a separate act.
         `Resolver.publish` points a **label** at a resolution. `Source` is the one step
-        with a name, and it means something else again — a source's name is part of its
+        with a name, and it means something else again. A source's name is part of its
         output, prefixing every column it contributes and tagging its rows.
         """
         self.upstream = tuple(upstream)
@@ -99,7 +99,7 @@ class Step(ABC):
         """This step's settings, as a serialisable model.
 
         One model per step kind, in `matchlab.specs`. It must carry everything this
-        step's output depends on and nothing else — that is the invariant `_spec_key`
+        step's output depends on and nothing else. That is the invariant `_spec_key`
         rests on, and the one to check when adding a setting. Omit something that
         changes the output and collect will hand back a stale artifact without
         re-running (see `_fingerprint`).
@@ -123,23 +123,23 @@ class Step(ABC):
 
         The key is derived from the *plan*, not from the step's output. That is what
         makes it computable before the step runs, which is what lets `_ensure` skip
-        work: an output digest would only be knowable once the work was already done.
-        Sources are the exception — they fold a hash of the data they read into
+        work. An output digest would only be knowable once the work was already done.
+        Sources are the exception. They fold a hash of the data they read into
         `_spec_key`, because no spec reveals that the warehouse moved.
 
-        The trade-off is that the key can disagree with the bytes in both directions:
+        The trade-off is that the key can disagree with the bytes in both directions.
 
-        * the spec omits something that changes the output — a **stale hit**, because
+        * the spec omits something that changes the output, a **stale hit**, because
           `_ensure` never runs the step and reads the old artifact. `SplinkLinker`
           without an explicit seed is a live example. The only defence is that every
-          `_spec_key` covers everything its step's output depends on; treat that as
+          `_spec_key` covers everything its step's output depends on. Treat that as
           the invariant to protect when adding a step or a setting.
-        * the spec includes something that doesn't change the output — a **spurious
+        * the spec includes something that doesn't change the output, a **spurious
           miss**, re-running the step and everything below it. No spec does this
-          today, and the way to keep it that way is to record settings only: a spec
+          today, and the way to keep it that way is to record settings only. A spec
           that described an *input* would, since identity already arrives via the
           parent fingerprint. A setting that must point at an input points at its
-          position, which is not redundant — it decides which input the setting
+          position, which is not redundant. It decides which input the setting
           applies to.
 
         There is also no early cutoff. A `View` whose SQL is reformatted but
@@ -149,7 +149,7 @@ class Step(ABC):
         mapping to an output digest (content-derived, recorded by the adapter on
         write), and build a child's key from its parents' output digests rather than
         their action keys. That buys early cutoff, storage dedup and rename tolerance.
-        It does **not** fix stale hits — an output digest governs propagation, never
+        It does **not** fix stale hits. An output digest governs propagation, never
         admission, so a step whose action key is a hit still never runs and its digest
         is never consulted. Costs an indirection table in the adapter contract, a hash
         of every artifact on write, and the loss of a work-set knowable before running.
@@ -175,13 +175,13 @@ class Step(ABC):
         """Materialise this step unless its artifact is already stored.
 
         This classifies the outcome but reports none of it. `collect` holds the walk,
-        and therefore each step's position — the thing a record has to quote to be
-        findable in the plan — so reporting belongs there, with the single
+        and therefore each step's position, the thing a record has to quote to be
+        findable in the plan. Reporting belongs there, with the single
         `matchlab.progress.Progress` that owns what is drawn and what is logged. That is
         also what keeps the two from ever disagreeing. This keeps to the work.
 
         Returns:
-            What it took: `DONE` if this call computed the step, `CACHED` if the
+            What it took. `DONE` if this call computed the step, `CACHED` if the
             artifact was already stored.
         """
         self._adapter = adapter
@@ -191,7 +191,7 @@ class Step(ABC):
 
         fp = self._fingerprint()
 
-        if adapter.has(fp):  # cache hit — skip the work entirely
+        if adapter.has(fp):  # cache hit, skip the work entirely
             self._fp = fp
             return StepStatus.CACHED
 
@@ -212,9 +212,9 @@ class Step(ABC):
         Args:
             adapter: Where to read and write artifacts. Defaults to the module-level
                 adapter (a DuckDB store in the user cache directory).
-            interactive: Whether someone is watching. `None` — the default — takes a
+            interactive: Whether someone is watching. `None`, the default, takes a
                 terminal or a notebook as a yes. When they are, the plan is drawn as a
-                live tree redrawn in place, and not logged: the tree on screen is the
+                live tree redrawn in place, and not logged. The tree on screen is the
                 key those `[step N]` records need, and it stays there. When they are
                 not, the plan is logged instead. See `matchlab.progress`.
 
@@ -245,7 +245,7 @@ class Step(ABC):
         return lineage.draw(self)
 
     def fingerprints(self) -> set[Fingerprint]:
-        """Address every artifact this plan is made of — its own and its inputs'.
+        """Address every artifact this plan is made of, its own and its inputs'.
 
         Which artifacts belong to a plan is the plan's own business, so this is where
         a store gets told: `adapter.trim(keep=plan.fingerprints())` hands storage a set
@@ -254,7 +254,7 @@ class Step(ABC):
 
         Returns:
             One fingerprint per step in `lineage()`. A set, because two steps in one
-            plan can address the same artifact — identical specs over identical
+            plan can address the same artifact. Identical specs over identical
             inputs is the same bytes, and it is stored once.
 
         Raises:
@@ -270,7 +270,7 @@ class Step(ABC):
         """Return the adapter this step was collected into, and its fingerprint.
 
         Both together, because everything that reads a stored artifact needs both and
-        neither exists before collection — returning the pair is what lets a caller
+        neither exists before collection. Returning the pair is what lets a caller
         use the fingerprint without re-checking that it is there.
         """
         if self._adapter is None or self._fp is None:

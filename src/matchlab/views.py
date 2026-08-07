@@ -1,16 +1,16 @@
 """View — a queryable, optionally-cleaned view over one or more sources.
 
-`View` is a plan node like any other, and it stores its cleaned table like any other: a
-view feeding three models is computed once and read back three times, rather than
+`View` is a plan node like any other, and it stores its cleaned table like any other.
+A view feeding three models is computed once and read back three times, rather than
 rebuilt inside each of them. That is worth the storage because a view is usually a
-plan's most shared node — every pairwise link over the same sources reads the same few
-views — and because building the frame is the expensive part: a join over the stored
-source extracts, then the cleaning SQL.
+plan's most shared node. Every pairwise link over the same sources reads the same few
+views, and building the frame is the expensive part: a join over the stored source
+extracts, then the cleaning SQL.
 
 `data()` reads that same stored table, so inspecting "what does my cleaned data actually
 look like?" costs nothing beyond the collection that was going to happen anyway.
 
-What a view does *not* store is `identifiers()` — the `(id, source, key, leaf)` mapping
+What a view does *not* store is `identifiers()`, the `(id, source, key, leaf)` mapping
 a downstream resolver needs. That depends only on the sources and resolver a view reads,
 never on its cleaning, and the cleaned frame has dropped `source`, `key` and `leaf` by
 the time it is stored. It is read back from the source leaves and the upstream
@@ -66,10 +66,10 @@ class View(Step):
             resolver: Read the sources *through* this resolver, so `id` is its root
                 cluster rather than a source leaf.
             cleaning: Output column name → SQL expression over the source fields.
-                `None` passes every column through; `{}` is a real projection that
+                `None` passes every column through. `{}` is a real projection that
                 selects nothing, leaving only `id`.
             group: Collapse each `id` to a single row. Every cleaning expression must
-                then be an aggregate — `any_value(crn_company)` where records agree,
+                then be an aggregate, `any_value(crn_company)` where records agree,
                 `list(distinct crn_town)` where they don't. Useful when reading
                 through a resolver, where several records share an `id`.
 
@@ -114,7 +114,7 @@ class View(Step):
         One per source, naming what is read rather than reading it. Separate from
         `identifiers` because a downstream resolver wants the *set* of these across
         every view feeding it, and two views that clean the same source through the
-        same resolver differently read exactly the same rows — so quoting them lets
+        same resolver differently read exactly the same rows. Quoting them lets
         the resolver ask once instead of once per consuming model.
         """
         resolver_fp = self.resolver._fp if self.resolver is not None else None
@@ -125,7 +125,7 @@ class View(Step):
 
         `id` is the resolver's root cluster when reading through one, otherwise the
         source leaf. This is the *upstream resolution* a downstream resolver needs to
-        carry every reachable leaf forward — including records no model matched.
+        carry every reachable leaf forward, including records no model matched.
         """
         return pl.concat(
             [adapter.read_identifiers(*read) for read in self._identifier_reads],
@@ -155,8 +155,8 @@ class View(Step):
     def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
         """Return the cleaned data from the stored table.
 
-        Unconditional, because `collect` runs a step's inputs before the step itself —
-        so by the time a consumer asks, this view's `_ensure` has already stored it or
+        Unconditional, because `collect` runs a step's inputs before the step itself.
+        By the time a consumer asks, this view's `_ensure` has already stored it or
         found it cached. Reading rather than recomputing is what makes a shared view
         cost one computation instead of one per consumer, and it is what lets a plan
         rebuilt in a new process pick up a view stored by an earlier one.
@@ -213,8 +213,8 @@ def _apply_cleaning(
     """Apply cleaning SQL, passing `id` through automatically.
 
     `None` means "no cleaning" and passes the frame through untouched. An *empty*
-    dict is a real projection that selects no columns, so it yields just `id` — the
-    two are deliberately not the same.
+    dict is a real projection that selects no columns, so it yields just `id`.
+    Passing `{}` where you meant `None` silently drops every other column.
 
     With `group`, the projection becomes `GROUP BY id`, so every expression must be
     an aggregate. DuckDB reports a non-aggregate itself, naming the column.
