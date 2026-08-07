@@ -33,9 +33,9 @@ class Linker(BaseModel, ABC):
     @abstractmethod
     def prepare(self, left: pl.DataFrame, right: pl.DataFrame) -> None:
         """Run once before `link()`, for setup that shouldn't repeat per call."""
-        return
+        ...
 
     @abstractmethod
     def link(self, left: pl.DataFrame, right: pl.DataFrame) -> pl.DataFrame:
         """Score candidate matches between `left` and `right`."""
-        return
+        ...

@@ -30,9 +30,9 @@ class Deduper(BaseModel, ABC):
     @abstractmethod
     def prepare(self, data: pl.DataFrame) -> None:
         """Run once before `dedupe()`, for setup that shouldn't repeat per call."""
-        return
+        ...
 
     @abstractmethod
     def dedupe(self, data: pl.DataFrame) -> pl.DataFrame:
         """Score candidate duplicate pairs within `data`."""
-        return
+        ...

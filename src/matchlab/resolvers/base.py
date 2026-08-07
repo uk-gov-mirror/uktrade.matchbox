@@ -15,16 +15,17 @@ SCHEMA_CLUSTERS: Final[pa.Schema] = pa.schema(
         ("child_id", pa.uint64()),
     ]
 )
-"""The shape of a resolver's output: cluster assignments."""
+"""A resolver methodology's cluster assignments take this shape."""
 
 
 class ResolverType(StrEnum):
     """Enumeration of supported resolver methodology types.
 
-    Lives with `ResolverMethod` rather than in `matchlab.specs` because it is not part
-    of any spec: a `ResolverSpec` identifies a methodology by its registered
-    `resolver_class`, so this never reaches a fingerprint or a document. It is a class
-    attribute for methodologies to declare what family they belong to, and nothing more.
+    This lives with `ResolverMethod`, not in `matchlab.specs`, because it is not part
+    of any spec. A `ResolverSpec` identifies a methodology only by its registered
+    `resolver_class`, so a `ResolverType` never reaches a fingerprint or a document.
+    It is just a class attribute methodologies use to declare which family they
+    belong to, and nothing more.
     """
 
     COMPONENTS = "components"
@@ -34,9 +35,8 @@ class ResolverSettings(BaseModel, ABC):
     """Base settings type for resolver methodologies.
 
     Settings that point at one of the resolver's inputs refer to it by **position**.
-    Resolver` accepts the `Model` object at the API and translates it,
-    so nothing here holds a plan node: a methodology stays a pure function of edges
-    and numbers.
+    `Resolver` accepts the `Model` object at the API and translates it. Nothing here
+    holds a plan node. A methodology stays a pure function of edges and numbers.
     """
 
     model_config = ConfigDict(extra="forbid")

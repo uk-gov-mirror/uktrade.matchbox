@@ -22,7 +22,7 @@ class ComponentsSettings(ResolverSettings):
         default_factory=dict,
         description=(
             "Minimum score for an edge to count, per input, keyed by the input's "
-            "position. Write these as `{model: 0.9}` — `Resolver` takes the model "
+            "position. Write these as `{model: 0.9}`. `Resolver` takes the model "
             "object and works out the position."
         ),
     )
@@ -31,7 +31,7 @@ class ComponentsSettings(ResolverSettings):
 class Components(ResolverMethod):
     """Resolver methodology that computes connected components.
 
-    Thresholds are assumed to be 0.0 unless otherwise specified.
+    A threshold defaults to 0.0 if not set.
     """
 
     resolver_type: ClassVar[ResolverType] = ResolverType.COMPONENTS

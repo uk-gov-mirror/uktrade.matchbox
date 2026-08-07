@@ -24,12 +24,12 @@ class VariationRule(BaseModel, Generic[T], ABC):
     @abstractmethod
     def type(self) -> type[T]:
         """Python type this rule can be applied to."""
-        pass
+        ...
 
     @abstractmethod
     def apply(self, value: T) -> T:
         """Apply the variation to a value."""
-        pass
+        ...
 
 
 class SuffixRule(VariationRule[str]):

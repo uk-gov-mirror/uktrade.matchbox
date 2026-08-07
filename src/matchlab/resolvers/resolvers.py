@@ -1,4 +1,4 @@
-"""Resolve — collapse model edges into clusters and materialise the resolver output."""
+"""Resolver collapses model edges into clusters and materialises the resolver output."""
 
 from typing import Any, ClassVar, Self
 
@@ -83,16 +83,17 @@ class Resolver(Step):
     def _positions(self, field: str, value: Any) -> Any:  # noqa: ANN401 - any setting
         """Replace `Model` keys in a setting with the position of that input.
 
-        A setting that points at one of this resolver's inputs — per-model thresholds,
-        say — is written as `{model: 0.9}`, holding the object you already have rather
-        than retyping its name. Here is the only place that can be translated, because
-        here is where both the models and the order they were given in are known.
+        A setting that points at one of this resolver's inputs, such as a per-model
+        threshold, is written as `{model: 0.9}`. That holds the object you already
+        have, rather than retyping its name. Here is the only place that can be
+        translated, because here is where both the models and the order they were
+        given in are known.
 
-        Positions rather than names because a name is not identity: renaming a model
-        would otherwise move this resolver's fingerprint without changing a byte of its
-        output. Reordering the inputs *does* reassign thresholds, but reordering already
-        changes the fingerprint — parents are folded in order — so that is a different
-        resolver, not one behaving inconsistently.
+        Positions rather than names, because a name is not identity. Renaming a model
+        would move this resolver's fingerprint without changing a byte of its output.
+        Reordering the inputs *does* reassign thresholds, but that is not inconsistent.
+        Reordering already changes the fingerprint anyway, since parents fold in in
+        order, making this a genuinely different resolver.
 
         Raises:
             ValueError: If a setting names a model that is not an input.
@@ -134,15 +135,16 @@ class Resolver(Step):
     def publish(self, label: str, overwrite: bool = False) -> Self:
         """Point a label at this resolver's output, so it can be found without the plan.
 
-        Publishing is an act, not a property of the plan: a label changes nothing about
-        what gets computed, and there is nothing to point at until the resolver output
-        exists. So it happens after collection — `resolver.collect().publish("x")` —
-        and a plan that is never published is still perfectly runnable, just unlabelled.
+        Publishing is an act, not a property of the plan. A label changes nothing
+        about what gets computed, and there is nothing to point at until the resolver
+        output exists. Publish after collection, for example
+        `resolver.collect().publish("x")`. A plan that is never published is still
+        perfectly runnable, just unlabelled.
 
-        A *label* rather than a name, because a name is something else here: a source's
-        name is part of its output, prefixing every column it contributes. A label
-        belongs to the store, and points at whichever resolver output you last aimed it
-        at.
+        A *label* rather than a name, because a name is something else here. A
+        source's name is part of its output, prefixing every column it contributes. A
+        label belongs to the store, and points at whichever resolver output you last
+        aimed it at.
 
         Re-publishing the same label for the same resolver output is a no-op, so
         re-running an unchanged pipeline is safe. Aiming an existing label at a
@@ -181,15 +183,16 @@ class Resolver(Step):
         }
         clusters = self.resolver_instance.compute_clusters(model_edges=edges)
 
-        # Every leaf reachable through this resolver's inputs — including records no
-        # model formed an edge over. materialise_resolver_output carries those forward
+        # materialise_resolver_output carries forward every leaf reachable through
+        # this resolver's inputs, including records no model formed an edge over
         # (the merge-forward / fall-through requirement).
 
         # Deduplicate what is read. Linking every pair of n sources gives n(n-1)
-        # (model, view) pairs but only a handful of distinct readings between them:
-        # they share an upstream resolver and cover the same sources, so asking per pair
-        # repeats the same query a quadratic number of times. `dict.fromkeys` dedupes
-        # while keeping lineage order, so the frame is built the same way every run.
+        # (model, view) pairs, but only a handful of distinct readings between them,
+        # since they share an upstream resolver and cover the same sources. Asking
+        # per pair would otherwise repeat the same query a quadratic number of times.
+        # `dict.fromkeys` dedupes while keeping lineage order, so the frame is built
+        # the same way every run.
         reads = dict.fromkeys(
             read
             for model in self.inputs
@@ -202,10 +205,10 @@ class Resolver(Step):
         ).unique()
 
         # Record which source artifacts this resolver output covers. A resolver's
-        # output names its sources, but a store can hold several generations of a name
-        # — this is what lets it be read back without the plan that built it. Those
-        # names are data, tagging which source each row came from; they are nothing to
-        # do with publishing, which is `publish()` and happens after this.
+        # output names its sources, but a store can hold several generations of a
+        # name. That is what lets it be read back without the plan that built it.
+        # Those names are data, tagging which source each row came from. They are
+        # nothing to do with publishing, which is `publish()` and happens after this.
         adapter.store_resolver(
             fp=fp,
             resolver_output=materialise_resolver_output(clusters, upstream),
@@ -222,8 +225,8 @@ class Resolver(Step):
     def entities(self, sources: list[str] | None = None) -> pl.DataFrame:
         """Return `(root, leaf, key, source)`. Collects the plan first if needed.
 
-        One row per source record: `root` is the entity it resolved to, `leaf` its
-        content-addressed record identity, `key` its key in the original source.
+        One row per source record. `root` is the entity it resolved to, `leaf` its
+        content-addressed record identity, and `key` its key in the original source.
 
         Args:
             sources: Restrict to these source names. Defaults to all of them.
@@ -244,7 +247,7 @@ class Resolver(Step):
     def _named(self, sources: list[str]) -> list[str]:
         """Narrow this resolver's sources to those named, in lineage order.
 
-        A name that isn't one of them is an error rather than an empty result: asking
+        A name that isn't one of them is an error, not an empty result. Asking
         for a source this resolver never read is a mistake in the caller, and silently
         returning nothing is how it stays one.
         """
@@ -262,7 +265,7 @@ class Resolver(Step):
     def get_lookup(self, sources: list[str] | None = None) -> pl.DataFrame:
         """Return `root` plus one qualified-key column per source.
 
-        The wide form of `entities()`: a row per entity, joined across sources, with
+        The wide form of `entities()` is a row per entity, joined across sources, with
         nulls where a source has no record in it. This is the table you hand to
         someone who just wants their identifiers lined up.
 
@@ -272,8 +275,9 @@ class Resolver(Step):
         resolver_output = self.entities(sources)
         names = self._named(sources) if sources is not None else None
 
-        # Never empty: a resolver always has a source, and `_named` raises rather than
-        # narrow to none — so there is always a frame to start the join from.
+        # This is never empty. A resolver always has a source, and `_named` raises
+        # rather than narrow to none, so there is always a frame to start the join
+        # from.
         columns = [
             resolver_output.filter(pl.col("source") == source.name).select(
                 "root", pl.col("key").alias(source.qualified_key)
@@ -291,8 +295,8 @@ class Resolver(Step):
         """Return each entity as a sorted list of record identities.
 
         Cluster IDs are dropped, so two resolver outputs over the same records can be
-        compared by structure alone. Leaves are deduplicated: one appears once per key
-        it holds.
+        compared by structure alone. Leaves are deduplicated, so each one appears once
+        per key it holds.
 
         Args:
             sources: Restrict to these source names. Defaults to all of them.
@@ -304,8 +308,8 @@ class Resolver(Step):
         """Return the stored rows for every record in one entity.
 
         Values come from the extract cached when each source was collected, not from a
-        fresh warehouse read. That is the data the matching actually saw — the same
-        rows the reviewer puts on screen — and it means looking at an entity needs no
+        fresh warehouse read. That is the data the matching actually saw, the same
+        rows the reviewer puts on screen, and it means looking at an entity needs no
         warehouse connection.
 
         Args:

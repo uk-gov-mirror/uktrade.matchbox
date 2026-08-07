@@ -59,9 +59,9 @@ rather than a key, is what a judgement endorses or rejects.
 ## Label
 
 A pointer from a name someone chose to a [resolver](#resolver)'s
-[fingerprint](#fingerprint), created by `publish()`. A label belongs to the store, not
-the plan. It can be re-aimed at a different resolver, whereas a source's `name` is
-part of that source's own output and never moves.
+[fingerprint](#fingerprint), created by [publishing](#publish) a resolver's output. A
+label belongs to the store, not the plan. It can be re-aimed at a different resolver,
+whereas a source's `name` is part of that source's own output and never moves.
 
 ## Leaf
 
@@ -102,11 +102,31 @@ Nothing runs until you [collect](#collect) it.
 
 ## Position
 
-A step's place in `collect()`'s run order, shown in brackets by `draw()` and quoted in
-logs (`[step 5]`). Steps have no names, so position is how a log line, a drawn tree, and
-`plan.lineage()` all refer to the same step. Positions are relative to the step a plan
-or drawing starts from, so a sub-plan numbers its steps differently from the full plan
-it came from.
+Where something falls in an ordered sequence, used instead of a name. The repository
+uses the word for two different sequences, and the numbers do not agree with each
+other.
+
+A step's place in `collect()`'s run order is one sense. `draw()` shows it in brackets,
+and logs quote it (`[step 5]`). Steps have no names, so position is how a log line, a
+drawn tree, and `plan.lineage()` all refer to the same step. Positions are relative to
+the step a plan or drawing starts from, so a sub-plan numbers its steps differently
+from the full plan it came from.
+
+A setting that must point at one of a step's own inputs uses the other sense. It names
+that input by its index among the step's own inputs, not by that input's place in the
+whole plan. `ComponentsSettings.thresholds` keys a per-model threshold this way. A
+model can sit at plan position 5 while still being resolver-input position 0.
+
+## Publish
+
+Point a [label](#label) at a [resolver](#resolver)'s output, so it can be found
+without the plan that built it. Publishing is an act, not a property of the plan.
+Nothing exists to point at until the resolver has been [collected](#collect), so
+publishing always happens after collection, never before or instead of it.
+
+Re-publishing the same label at the same resolver output is a no-op. Aiming an
+existing label at a different resolver output needs `overwrite=True`, since that is
+how you lose track of what a label used to mean.
 
 ## Qualify
 
@@ -150,9 +170,9 @@ DuckDB database. A store keeps everything given to it until something explicitly
 
 ## Trim
 
-Delete every artifact except the ones named or published, and reclaim the space that
-frees. A file-backed store's trim rewrites the file itself, because deleting rows
-inside it does not return space to the operating system.
+Delete every artifact except the ones named or [published](#publish), and reclaim the
+space that frees. A file-backed store's trim rewrites the file itself, because
+deleting rows inside it does not return space to the operating system.
 
 ## View
 

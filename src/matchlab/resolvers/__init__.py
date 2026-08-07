@@ -1,4 +1,4 @@
-"""Resolver methodologies and the Resolve plan node."""
+"""Resolver methodologies and the Resolver plan node."""
 
 from matchlab.resolvers.base import ResolverMethod, ResolverSettings, ResolverType
 from matchlab.resolvers.components import Components, ComponentsSettings
