@@ -35,7 +35,7 @@ Read the [full documentation](https://uktrade.github.io/matchlab/).
   Nothing runs until you `collect()`.
 * **Content-addressed caching.** Re-collecting an unchanged plan does no work. Adding a
   step runs only that step.
-* **Materialised resolution.** A collected resolver writes a complete
+* **Materialised resolver output.** A collected resolver writes a complete
   `(root, leaf, key, source)` table, so lookups are reads, not re-derivations.
 * **Measurement as a first-class job.** Sample clusters, record judgements, score
   precision and recall, and compare methodologies on equal terms.

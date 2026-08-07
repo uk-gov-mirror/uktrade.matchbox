@@ -48,8 +48,8 @@ def measure(case: Case, path: Path, warehouse_rows: int) -> Measurement:
     script actually does.
 
     Raises:
-        AssertionError: If the resolution is not the size the shape guarantees. A fast
-            wrong answer is worse than a slow one, and without this the suite could
+        AssertionError: If the resolver output is not the size the shape guarantees. A
+            fast wrong answer is worse than a slow one, and without this the suite could
             report a beautifully scaling pipeline that had stopped matching anything.
     """
     with tempfile.TemporaryDirectory() as directory:

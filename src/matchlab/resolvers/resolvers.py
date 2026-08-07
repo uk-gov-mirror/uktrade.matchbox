@@ -1,4 +1,4 @@
-"""Resolve — collapse model edges into clusters and materialise the resolution."""
+"""Resolve — collapse model edges into clusters and materialise the resolver output."""
 
 from typing import Any, ClassVar, Self
 
@@ -8,7 +8,7 @@ from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.dataframes import qualify
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.kinds import StepKind
-from matchlab.core.resolution import materialise_resolution
+from matchlab.core.resolver_output import materialise_resolver_output
 from matchlab.models import Model
 from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 from matchlab.resolvers.components import Components
@@ -132,21 +132,22 @@ class Resolver(Step):
     # -- publishing -------------------------------------------------------------------
 
     def publish(self, label: str, overwrite: bool = False) -> Self:
-        """Point a label at this resolution, so it can be found without the plan.
+        """Point a label at this resolver's output, so it can be found without the plan.
 
         Publishing is an act, not a property of the plan: a label changes nothing about
-        what gets computed, and there is nothing to point at until the resolution
+        what gets computed, and there is nothing to point at until the resolver output
         exists. So it happens after collection — `resolver.collect().publish("x")` —
         and a plan that is never published is still perfectly runnable, just unlabelled.
 
         A *label* rather than a name, because a name is something else here: a source's
         name is part of its output, prefixing every column it contributes. A label
-        belongs to the store, and points at whichever resolution you last aimed it at.
+        belongs to the store, and points at whichever resolver output you last aimed it
+        at.
 
-        Re-publishing the same label for the same resolution is a no-op, so re-running
-        an unchanged pipeline is safe. Aiming an existing label at a *different*
-        resolution needs `overwrite=True`, because that is how you lose track of what a
-        label used to mean.
+        Re-publishing the same label for the same resolver output is a no-op, so
+        re-running an unchanged pipeline is safe. Aiming an existing label at a
+        *different* resolver output needs `overwrite=True`, because that is how you
+        lose track of what a label used to mean.
 
         Args:
             label: The label to publish under.
@@ -157,14 +158,14 @@ class Resolver(Step):
 
         Raises:
             RuntimeError: If this resolver has not been collected.
-            ValueError: If `label` already points at a different resolution and
+            ValueError: If `label` already points at a different resolver output and
                 `overwrite` is not set.
         """
         adapter, fp = self._collected()
         existing = adapter.find(label)
         if existing is not None and existing != fp and not overwrite:
             raise ValueError(
-                f"The label '{label}' already points at a different resolution "
+                f"The label '{label}' already points at a different resolver output "
                 f"({existing.hex()[:8]}). Pass overwrite=True to move it, or publish "
                 "under another label."
             )
@@ -181,7 +182,7 @@ class Resolver(Step):
         clusters = self.resolver_instance.compute_clusters(model_edges=edges)
 
         # Every leaf reachable through this resolver's inputs — including records no
-        # model formed an edge over. materialise_resolution carries those forward
+        # model formed an edge over. materialise_resolver_output carries those forward
         # (the merge-forward / fall-through requirement).
 
         # Deduplicate what is read. Linking every pair of n sources gives n(n-1)
@@ -200,14 +201,14 @@ class Resolver(Step):
             how="vertical",
         ).unique()
 
-        # Record which source artifacts this resolution covers. A resolution names
-        # its sources, but a store can hold several generations of a name — this is
-        # what lets it be read back without the plan that built it. Those names are
-        # data, tagging which source each row came from; they are nothing to do with
-        # publishing, which is `publish()` and happens after this.
+        # Record which source artifacts this resolver output covers. A resolver's
+        # output names its sources, but a store can hold several generations of a name
+        # — this is what lets it be read back without the plan that built it. Those
+        # names are data, tagging which source each row came from; they are nothing to
+        # do with publishing, which is `publish()` and happens after this.
         adapter.store_resolver(
             fp=fp,
-            resolution=materialise_resolution(clusters, upstream),
+            resolver_output=materialise_resolver_output(clusters, upstream),
             sources={source.name: source._fp for source in self.sources},
         )
 
@@ -233,12 +234,12 @@ class Resolver(Step):
         if not self.is_collected:
             self.collect()
         adapter, fp = self._collected()
-        resolution = adapter.read_resolver(fp)
+        resolver_output = adapter.read_resolver(fp)
 
         if sources is None:
-            return resolution
+            return resolver_output
 
-        return resolution.filter(pl.col("source").is_in(self._named(sources)))
+        return resolver_output.filter(pl.col("source").is_in(self._named(sources)))
 
     def _named(self, sources: list[str]) -> list[str]:
         """Narrow this resolver's sources to those named, in lineage order.
@@ -268,13 +269,13 @@ class Resolver(Step):
         Args:
             sources: Restrict to these source names. Defaults to all of them.
         """
-        resolution = self.entities(sources)
+        resolver_output = self.entities(sources)
         names = self._named(sources) if sources is not None else None
 
         # Never empty: a resolver always has a source, and `_named` raises rather than
         # narrow to none — so there is always a frame to start the join from.
         columns = [
-            resolution.filter(pl.col("source") == source.name).select(
+            resolver_output.filter(pl.col("source") == source.name).select(
                 "root", pl.col("key").alias(source.qualified_key)
             )
             for source in self.sources
@@ -289,8 +290,9 @@ class Resolver(Step):
     def leaf_sets(self, sources: list[str] | None = None) -> list[list[int]]:
         """Return each entity as a sorted list of record identities.
 
-        Cluster IDs are dropped, so two resolutions of the same records can be compared
-        by structure alone. Leaves are deduplicated: one appears once per key it holds.
+        Cluster IDs are dropped, so two resolver outputs over the same records can be
+        compared by structure alone. Leaves are deduplicated: one appears once per key
+        it holds.
 
         Args:
             sources: Restrict to these source names. Defaults to all of them.
@@ -316,13 +318,15 @@ class Resolver(Step):
             KeyError: If no source has a record in that entity.
         """
         adapter, fp = self._collected()
-        resolution = self.entities().filter(pl.col("root") == root)
-        stored = adapter.resolution_sources(fp)
+        resolver_output = self.entities().filter(pl.col("root") == root)
+        stored = adapter.resolver_output_sources(fp)
 
         rows: list[pl.DataFrame] = []
         key_columns: list[str] = []
         for source in self.sources:
-            keys = resolution.filter(pl.col("source") == source.name)["key"].to_list()
+            keys = resolver_output.filter(pl.col("source") == source.name)[
+                "key"
+            ].to_list()
             if not keys:
                 continue
 
@@ -363,14 +367,14 @@ class Resolver(Step):
         Returns:
             Source name → matching keys, including `from_source` itself.
         """
-        resolution = self.entities()
-        origin = resolution.filter(
+        resolver_output = self.entities()
+        origin = resolver_output.filter(
             (pl.col("source") == from_source) & (pl.col("key") == key)
         )
         if origin.height == 0:
             raise StepNotFound(f"Key '{key}' not found in source '{from_source}'")
 
-        cluster = resolution.filter(pl.col("root") == origin["root"][0])
+        cluster = resolver_output.filter(pl.col("root") == origin["root"][0])
 
         def keys_in(source_name: str) -> list[str]:
             return cluster.filter(pl.col("source") == source_name)["key"].to_list()

@@ -4,10 +4,10 @@ Two commands. A terminal does two things better than a Python prompt. It tells y
 what version you have, and it gives you a full-screen reviewer.
 
 `review` takes a `module:attribute` naming a resolver in your code. With `--store`,
-it instead takes the label of a resolution already published. The second form needs
-no plan and no warehouse. A stored resolution knows which source artifacts it covers,
-and their extracts hold the values. Name more than one target and you review their
-merged clusters.
+it instead takes the label of a resolver output already published. The second form
+needs no plan and no warehouse. A stored resolver output knows which source artifacts
+it covers, and their extracts hold the values. Name more than one target and you
+review their merged clusters.
 """
 
 import argparse
@@ -98,8 +98,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "'module:attribute', such as 'pipeline:companies' for a resolver assigned "
             "to `companies` in pipeline.py, or a function returning one, if building "
             "the plan needs a connection you'd rather open on demand. "
-            "With --store, TARGET is instead the label of a resolution published in "
-            "that store. Then no Python is imported. The values shown come from the "
+            "With --store, TARGET is instead the label of a resolver output published "
+            "in that store. Then no Python is imported. The values shown come from the "
             "extracts cached when the sources were collected, so no warehouse "
             "connection is needed. "
             "Name several targets to review their merged clusters, so one session's "
@@ -110,7 +110,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "targets",
         metavar="TARGET",
         nargs="+",
-        help="module:attribute, or a resolution's label when --store is given",
+        help="module:attribute, or a resolver output's label when --store is given",
     )
     review.add_argument(
         "-n", "--samples", type=int, default=5, help="Clusters to queue (default: 5)."
@@ -153,14 +153,15 @@ def main(argv: list[str] | None = None) -> None:
 
     adapter = DuckDBAdapter(args.store) if args.store else None
 
-    # With a store, a bare word is a label on a stored resolution, so it needs no plan.
+    # With a store, a bare word is a label on a stored resolver output, so it needs no
+    # plan.
     targets: list[Any] = []
     for target in args.targets:
         if adapter is not None and ":" not in target:
             known = adapter.labels()
             if target not in known:
                 raise SystemExit(
-                    f"No resolution is labelled '{target}' in {args.store}. "
+                    f"No resolver output is labelled '{target}' in {args.store}. "
                     f"Known labels: {', '.join(known) or 'none'}."
                 )
             targets.append(target)

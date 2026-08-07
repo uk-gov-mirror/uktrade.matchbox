@@ -122,7 +122,7 @@ reports it, and a store nobody can measure is one that fills a disk quietly.
 rules it has to hold to:
 
 * **Keep what the caller named, and never work out the rest for yourself.** 
-* **Keep every published label, listed or not**, along with whatever its resolution
+* **Keep every published label, listed or not**, along with whatever its resolver output
   needs to stay readable — and never touch stored judgements, which are the one thing in
   a store that cannot be recomputed.
 * **Report what you actually reclaimed**, measured. Deleting and reclaiming are not the

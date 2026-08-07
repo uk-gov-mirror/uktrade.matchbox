@@ -1,7 +1,7 @@
 """Storage adapters for matchlab.
 
 An adapter persists collected DAG-step artifacts keyed by fingerprint. It is storage,
-not a resolution engine. `DuckDBAdapter` is the reference implementation.
+not an engine that resolves on demand. `DuckDBAdapter` is the reference implementation.
 """
 
 from matchlab.adapters.base import (

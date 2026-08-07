@@ -2,8 +2,8 @@
 
 The rule for where comparison lives: **free functions convert and compare; methods exist
 only to supply truth.** So the conversions and `diff_entities` are here, while
-`LinkedSources.diff_resolution` and `.diff_model_edges` are methods — that object is the
-only one that knows the planted answer.
+`LinkedSources.diff_resolver_output` and `.diff_model_edges` are methods — that object
+is the only one that knows the planted answer.
 
 Every comparison returns `(identical, report)`, where the report classifies each cluster
 as perfect, subset, superset, wrong or invalid. That breakdown is the point: "eight
@@ -18,8 +18,8 @@ from matchlab.core.dsu import DisjointSet
 from matchlab.testkit.entities import Cluster, EntityReference
 
 
-def resolution_to_clusters(resolution: pl.DataFrame) -> set[Cluster]:
-    """Convert a collected resolution into entities comparable with truth.
+def resolver_output_to_clusters(resolver_output: pl.DataFrame) -> set[Cluster]:
+    """Convert a collected resolver output into entities comparable with truth.
 
     This is the other half of measuring a plan against generated data: the testkit
     plants known entities, the plan resolves records into clusters, and this turns
@@ -29,18 +29,18 @@ def resolution_to_clusters(resolution: pl.DataFrame) -> set[Cluster]:
 
         identical, report = diff_entities(
             expected=linked.true_entity_subset("crn", "cdms"),
-            actual=list(resolution_to_clusters(resolution)),
+            actual=list(resolver_output_to_clusters(resolver_output)),
         )
 
     A `Cluster` compares by its keys and never by its ID
-    (`Cluster.__eq__`), which is what lets this work at all: the resolution's
+    (`Cluster.__eq__`), which is what lets this work at all: the resolver output's
     `root` is a content-derived hash minted at collect time and has no counterpart in
     the testkit's synthetic ID space. Only the `(source, key)` membership is comparable,
     and that is exactly what a cluster asserts.
 
     Args:
-        resolution: A resolution conforming to `SCHEMA_RESOLUTION` — the frame returned
-            by `Resolver.entities()`, with `root`, `key` and `source` columns.
+        resolver_output: A frame conforming to `SCHEMA_RESOLVER_OUTPUT` — the frame
+            returned by `Resolver.entities()`, with `root`, `key` and `source` columns.
 
     Returns:
         One Cluster per distinct `root`.
@@ -49,14 +49,14 @@ def resolution_to_clusters(resolution: pl.DataFrame) -> set[Cluster]:
         ValueError: If the required columns are absent.
     """
     required = {"root", "key", "source"}
-    missing = required - set(resolution.columns)
+    missing = required - set(resolver_output.columns)
     if missing:
         raise ValueError(
-            f"Fields {sorted(missing)} must be included in the resolution and are "
-            f"missing. Available: {sorted(resolution.columns)}"
+            f"Fields {sorted(missing)} must be included in the resolver output and "
+            f"are missing. Available: {sorted(resolver_output.columns)}"
         )
 
-    clusters = resolution.group_by("root").agg("source", "key")
+    clusters = resolver_output.group_by("root").agg("source", "key")
 
     entities: set[Cluster] = set()
     for cluster in clusters.iter_rows(named=True):

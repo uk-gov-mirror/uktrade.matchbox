@@ -6,7 +6,7 @@ under different keys — which is what makes linking testable at all.
 
 The object it returns is the only one that knows the answer, so everything needing the
 answer hangs off it: build a plan with `dedupe()`/`link()` and score one with
-`diff_resolution()`/`diff_model_edges()`, none of which need to be told the truth.
+`diff_resolver_output()`/`diff_model_edges()`, none of which need to be told the truth.
 """
 
 import warnings
@@ -28,7 +28,7 @@ from matchlab.sources import Source
 from matchlab.testkit._generate import generate_entities, generate_source
 from matchlab.testkit.compare import (
     diff_entities,
-    resolution_to_clusters,
+    resolver_output_to_clusters,
     scores_to_clusters,
 )
 from matchlab.testkit.entities import Cluster, EntityReference, TrueEntity
@@ -125,10 +125,10 @@ class LinkedSources(BaseModel):
             ),
         )
 
-    def diff_resolution(
-        self, resolution: pl.DataFrame, *sources: str
+    def diff_resolver_output(
+        self, resolver_output: pl.DataFrame, *sources: str
     ) -> tuple[bool, dict]:
-        """Diff a collected resolution against the planted true entities.
+        """Diff a collected resolver output against the planted true entities.
 
         The counterpart to `diff_model_edges` for a plan that has run: it scores
         the `(root, key, source)` table `Resolver.entities()` returns, whose IDs are
@@ -136,7 +136,7 @@ class LinkedSources(BaseModel):
         record membership is comparable, which is exactly what a cluster asserts.
 
         Args:
-            resolution: The frame returned by `Resolver.entities()`.
+            resolver_output: The frame returned by `Resolver.entities()`.
             *sources: The source names to compare over, e.g. `"crn", "cdms"`.
 
         Returns:
@@ -146,7 +146,7 @@ class LinkedSources(BaseModel):
         """
         return diff_entities(
             expected=self.true_entity_subset(*sources),
-            actual=list(resolution_to_clusters(resolution)),
+            actual=list(resolver_output_to_clusters(resolver_output)),
         )
 
     def write_to_location(self, client: Any | None = None) -> Self:  # noqa: ANN401

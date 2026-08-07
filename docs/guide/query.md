@@ -1,7 +1,7 @@
 # Query the result
 
-Once a resolver is collected, its output is a table you can read directly — there is no
-resolution happening at query time. Everything was computed when you collected.
+Once a resolver is collected, its output is a table you can read directly — nothing is
+being resolved at query time. Everything was computed when you collected.
 
 ## The entities
 
@@ -54,7 +54,8 @@ companies.leaf_sets()  # entities as lists of record identities
 
 `get_lookup()` is the wide form: a `root` column plus one qualified-key column per
 source, with nulls where a source has no record in that entity. `leaf_sets()` drops the
-IDs entirely, so two resolutions of the same records can be compared by structure alone.
+IDs entirely, so two resolver outputs of the same records can be compared by structure
+alone.
 Both take the same `sources` filter as `entities()`.
 
 ## Inspecting one entity

@@ -54,7 +54,7 @@ class SourceSpec(BaseModel):
         description=(
             "The source's name within the plan. Part of the spec because it is "
             "part of the output: it prefixes every column this source contributes "
-            "and tags its rows in a resolution."
+            "and tags its rows in a resolver's output."
         )
     )
     extract_transform: str = Field(

@@ -3,7 +3,7 @@
 An adapter is **storage, not an engine**. It persists the artifacts each collected DAG
 step produces, keyed by that step's content fingerprint, and reads them back. It does
 *not* resolve anything on demand. Resolvers materialise their complete, merge-forward
-resolution at collect time and hand the adapter a finished table.
+output at collect time and hand the adapter a finished table.
 
 Artifacts, by step kind (schemas in `matchlab.core.schemas`, which holds exactly the
 shapes that cross this boundary):
@@ -11,16 +11,16 @@ shapes that cross this boundary):
 * Source   → warehouse extract (arbitrary schema) + leaf assignment `(key, leaf)`.
 * View     → the cleaned view (arbitrary schema).
 * Model    → edge list, `SCHEMA_MODEL_EDGES` `(left_id, right_id, score)`.
-* Resolver → complete flat resolution, `SCHEMA_RESOLUTION` `(root, leaf, key, src)`.
+* Resolver → complete flat output, `SCHEMA_RESOLVER_OUTPUT` `(root, leaf, key, src)`.
              This is the merge-forward guarantee. It computes `merge(upstream complete
-             resolution, own clusters)`, not just the resolver's own clusters.
+             output, own clusters)`, not just the resolver's own clusters.
 
 Plus evaluation storage (judgements + cluster expansion), publication (`publish` points
-a label at a resolution) and `close`.
+a label at a resolver's output) and `close`.
 
 **Nothing here deletes an artifact on the store's own initiative.** A store keeps what
 it is given until the owner disposes of it. `trim` is that disposal. It deletes only
-what the caller has said it may, and never a published resolution. See the guide's
+what the caller has said it may, and never a published resolver output. See the guide's
 "Reclaiming storage".
 """
 
@@ -169,7 +169,7 @@ class Adapter(ABC):
         Args:
             fp: The source step's fingerprint.
             key_field: Which column of `extract` holds the key. Stored so the extract
-                can be read back and joined to a resolution without the plan.
+                can be read back and joined to a resolver's output without the plan.
             extract: The warehouse extract (arbitrary schema) to cache.
             leaves: The leaf assignment, columns `(key: str, leaf: uint64)`.
         """
@@ -197,20 +197,20 @@ class Adapter(ABC):
         """Return `(id, source, key, leaf)` for one source's records.
 
         `id` is `resolver_fp`'s root cluster when reading through a resolver, otherwise
-        the source's own leaf. This is the *upstream resolution* a downstream resolver
+        the source's own leaf. This is the *upstream output* a downstream resolver
         needs in order to carry every reachable leaf forward, including records no model
         matched.
 
         A query rather than an artifact. Nothing here is computed. Both readings are
         projections of tables this store already holds, `source_leaves` and
-        `resolution`. There is nothing to cache, and caching it under a view's
+        `resolver_output`. There is nothing to cache, and caching it under a view's
         fingerprint would be wrong anyway. The result depends only on the source and
         resolver read, not on how a view cleans the data.
 
         Args:
             source_fp: Fingerprint of the stored source whose records are wanted.
             source_name: The source's name, which is returned in the `source` column
-                and tags each row for the resolution below.
+                and tags each row for the resolver output below.
             resolver_fp: Fingerprint of the resolver to read through, or `None` to read
                 the source's own leaves.
         """
@@ -250,28 +250,28 @@ class Adapter(ABC):
     def store_resolver(
         self,
         fp: Fingerprint,
-        resolution: pl.DataFrame,
+        resolver_output: pl.DataFrame,
         sources: Mapping[str, Fingerprint] | None = None,
     ) -> None:
-        """Store a resolver's complete flat resolution.
+        """Store a resolver's complete flat output.
 
         Args:
             fp: The resolver step's fingerprint.
-            resolution: `SCHEMA_RESOLUTION` columns `(root, leaf, key, source)`,
-                already merged forward over all upstream leaves. The adapter does not
-                verify the merge. That is the client's contract. The adapter does
-                validate the schema.
-            sources: Source name to fingerprint, for every source this resolution
-                covers. A resolution names its sources but one store can hold several
+            resolver_output: `SCHEMA_RESOLVER_OUTPUT` columns `(root, leaf, key,
+                source)`, already merged forward over all upstream leaves. The adapter
+                does not verify the merge. That is the client's contract. The adapter
+                does validate the schema.
+            sources: Source name to fingerprint, for every source this output covers. A
+                resolver's output names its sources but one store can hold several
                 generations of a name, so this records which were actually used.
         """
         ...
 
     # -- labels -----------------------------------------------------------------------
     #
-    # A **label** is a pointer, kept here, from a string you chose to a resolution you
-    # want to find again. It is deliberately not called a name. A *name* belongs to a
-    # source and is part of its output. A label belongs to the store and is part of
+    # A **label** is a pointer, kept here, from a string you chose to a resolver output
+    # you want to find again. It is deliberately not called a name. A *name* belongs to
+    # a source and is part of its output. A label belongs to the store and is part of
     # finding things in it. Storing an artifact and labelling one are separate acts.
     # `Resolver.publish` does the second, after the first.
     #
@@ -311,8 +311,9 @@ class Adapter(ABC):
         `read_source_extract` composed.
 
         The extract cached when the source was collected *is* the data the matching saw.
-        That is what you want in front of you when judging a resolution, and it means
-        both reading an entity and reviewing one work with no warehouse connection.
+        That is what you want in front of you when judging a resolver's output, and it
+        means both reading an entity and reviewing one work with no warehouse
+        connection.
 
         Args:
             source_fp: Fingerprint of the stored source whose rows are wanted.
@@ -332,13 +333,13 @@ class Adapter(ABC):
         return rows, qualified_key
 
     @abstractmethod
-    def resolution_sources(self, fp: Fingerprint) -> dict[str, Fingerprint]:
-        """Return source name to fingerprint for a stored resolution."""
+    def resolver_output_sources(self, fp: Fingerprint) -> dict[str, Fingerprint]:
+        """Return source name to fingerprint for a stored resolver output."""
         ...
 
     @abstractmethod
     def read_resolver(self, fp: Fingerprint) -> pl.DataFrame:
-        """Return a resolver's stored resolution `(root, leaf, key, source)`."""
+        """Return a resolver's stored output `(root, leaf, key, source)`."""
         ...
 
     # -- evaluation -------------------------------------------------------------------
@@ -363,10 +364,10 @@ class Adapter(ABC):
     def sample(
         self, resolver_fp: Fingerprint, n: int, seed: int | None = None
     ) -> pl.DataFrame:
-        """Sample up to `n` clusters from a stored resolution for evaluation.
+        """Sample up to `n` clusters from a stored resolver output for evaluation.
 
-        Returns `SCHEMA_RESOLUTION` rows `(root, leaf, key, source)` for the sampled
-        roots.
+        Returns `SCHEMA_RESOLVER_OUTPUT` rows `(root, leaf, key, source)` for the
+        sampled roots.
         """
         ...
 
@@ -397,8 +398,8 @@ class Adapter(ABC):
         `gc()` that used to live here. That one worked out what was still alive from
         which Python objects happened to be reachable. A fresh interpreter has nothing
         reachable, so it considered the whole store garbage and duly emptied one
-        that had a published resolution in it. An artifact's worth has nothing to do
-        with whether some process is holding the variable that produced it. The root
+        that had a published resolver output in it. An artifact's worth has nothing to
+        do with whether some process is holding the variable that produced it. The root
         set therefore arrives as an argument, from a caller who has just named it.
 
         Both kinds of name are ones a store already understands. A plan is different.
@@ -407,7 +408,7 @@ class Adapter(ABC):
         order to know what it may delete.
 
         **Published labels are kept whether or not they are named**, along with the
-        sources their resolutions need in order to stay readable. Publishing is the
+        sources their resolver output needs in order to stay readable. Publishing is the
         strongest "keep this" the system has, and losing one because a caller forgot to
         list it would be the old mistake in new clothes.
 
@@ -421,8 +422,8 @@ class Adapter(ABC):
 
         Args:
             keep: What to preserve. Either a `Fingerprint`, or a `str` naming a
-                published label, which keeps that resolution and the sources it reads
-                through.
+                published label, which keeps that resolver output and the sources it
+                reads through.
 
         Returns:
             What was removed and what that recovered.

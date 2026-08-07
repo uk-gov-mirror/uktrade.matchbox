@@ -2,7 +2,7 @@
 
 `entities()` is the whole answer, flat; `get_lookup`, `leaf_sets` and `view_entity` are
 projections of it. They used to live on a `ResolverMatches` object built by
-`get_matches()`, which renamed the resolution's columns on the way in and back out
+`get_matches()`, which renamed the resolver output's columns on the way in and back out
 again.
 
 Scenario — a dedupe feeding a cross-source link:
@@ -104,13 +104,13 @@ def _root_of(apex: Resolver, source: str, key: str) -> int:
 # -- entities -------------------------------------------------------------------------
 
 
-def test_entities_is_the_flat_resolution(apex: Resolver) -> None:
-    resolution = apex.entities()
+def test_entities_is_the_flat_resolver_output(apex: Resolver) -> None:
+    resolver_output = apex.entities()
 
-    assert set(resolution.columns) == {"root", "leaf", "key", "source"}
+    assert set(resolver_output.columns) == {"root", "leaf", "key", "source"}
     # One row per source record, and every record is reachable.
-    assert resolution.height == 5
-    assert set(resolution["key"]) == {"a1", "a2", "a3", "b1", "b2"}
+    assert resolver_output.height == 5
+    assert set(resolver_output["key"]) == {"a1", "a2", "a3", "b1", "b2"}
 
     # The dedupe survived the link, and the link joined acme across sources.
     assert _root_of(apex, "crn", "a1") == _root_of(apex, "crn", "a2")
@@ -182,7 +182,7 @@ def test_get_lookup_of_one_source_does_not_explode(apex: Resolver) -> None:
 
 
 def test_leaf_sets_are_entities_without_their_ids(apex: Resolver) -> None:
-    """Structure alone, so two resolutions of the same records can be compared."""
+    """Structure alone, so two resolver outputs of the same records can be compared."""
     sets = apex.leaf_sets()
 
     assert sorted(len(group) for group in sets) == [1, 1, 3]

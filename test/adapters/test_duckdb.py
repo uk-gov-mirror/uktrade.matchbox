@@ -62,8 +62,8 @@ def _edges() -> pl.DataFrame:
     )
 
 
-def _resolution() -> pl.DataFrame:
-    # root/leaf/key/source == SCHEMA_RESOLUTION
+def _resolver_output() -> pl.DataFrame:
+    # root/leaf/key/source == SCHEMA_RESOLVER_OUTPUT
     return pl.DataFrame(
         {
             "root": [10, 10, 20, 20],
@@ -114,9 +114,9 @@ def test_model_round_trip(adapter: DuckDBAdapter) -> None:
 
 
 def test_resolver_round_trip(adapter: DuckDBAdapter) -> None:
-    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.store_resolver(FP_RESOLVER, _resolver_output())
     out = adapter.read_resolver(FP_RESOLVER).sort("leaf")
-    assert out.equals(_resolution().sort("leaf"))
+    assert out.equals(_resolver_output().sort("leaf"))
 
 
 # -- introspection --------------------------------------------------------------------
@@ -169,7 +169,7 @@ def test_stats_counts_what_is_stored(adapter: DuckDBAdapter) -> None:
 
     adapter.store_source(FP_SRC, "key", _extract(), _leaves())
     adapter.store_model(FP_MODEL, _edges())
-    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.store_resolver(FP_RESOLVER, _resolver_output())
     adapter.publish("production", FP_RESOLVER)
 
     stats = adapter.stats()
@@ -203,7 +203,7 @@ def test_stats_size_matches_what_is_on_disk(tmp_path: Path) -> None:
     db = tmp_path / "store.duckdb"
     store = DuckDBAdapter(db)
     try:
-        store.store_resolver(FP_RESOLVER, _resolution())
+        store.store_resolver(FP_RESOLVER, _resolver_output())
         stats = store.stats()
         on_disk = sum(f.stat().st_size for f in tmp_path.iterdir())
 
@@ -232,9 +232,10 @@ def test_stats_size_grows_with_what_is_stored(tmp_path: Path) -> None:
 
 
 def _labelled_store(store: DuckDBAdapter) -> None:
-    """A published resolution over one source, plus an unrelated model to throw away."""
+    """A published resolver output over one source, plus an unrelated model to throw
+    away."""
     store.store_source(FP_SRC, "key", _extract(), _leaves())
-    store.store_resolver(FP_RESOLVER, _resolution(), sources={"crn": FP_SRC})
+    store.store_resolver(FP_RESOLVER, _resolver_output(), sources={"crn": FP_SRC})
     store.store_model(FP_MODEL, _edges())
     store.publish("entities", FP_RESOLVER)
 
@@ -284,10 +285,10 @@ def test_trim_keeps_every_label_and_the_sources_it_reads_through(
 ) -> None:
     """A publication survives a trim that never mentioned it — and stays *usable*.
 
-    Keeping the label row alone is not enough. Reading a published resolution without a
-    plan goes through `resolution_sources` to each source's extract, so a label kept
-    without its sources resolves to a fingerprint whose data has gone, and fails with a
-    bare `KeyError` well away from the cause.
+    Keeping the label row alone is not enough. Reading a published resolver output
+    without a plan goes through `resolver_output_sources` to each source's extract, so
+    a label kept without its sources resolves to a fingerprint whose data has gone, and
+    fails with a bare `KeyError` well away from the cause.
     """
     store = DuckDBAdapter(tmp_path / "store.duckdb")
     try:
@@ -301,7 +302,7 @@ def test_trim_keeps_every_label_and_the_sources_it_reads_through(
         fp = store.find("entities")
         assert fp == FP_RESOLVER
         assert store.sample(fp, n=10).height > 0
-        assert store.resolution_sources(fp) == {"crn": FP_SRC}
+        assert store.resolver_output_sources(fp) == {"crn": FP_SRC}
         assert store.read_source_extract(FP_SRC).height == _extract().height
         assert store.source_key_field(FP_SRC) == "key"
     finally:
@@ -371,7 +372,7 @@ def test_identifiers_read_a_source_directly(adapter: DuckDBAdapter) -> None:
 def test_identifiers_read_through_a_resolver(adapter: DuckDBAdapter) -> None:
     """Through a resolver, `id` is the root cluster and `leaf` still names the row."""
     adapter.store_source(FP_SRC, "key", _extract(), _leaves())
-    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.store_resolver(FP_RESOLVER, _resolver_output())
 
     out = adapter.read_identifiers(FP_SRC, "crn", FP_RESOLVER).sort("key")
 
@@ -382,14 +383,14 @@ def test_identifiers_read_through_a_resolver(adapter: DuckDBAdapter) -> None:
 
 
 def test_identifiers_filter_to_the_source_asked_for(adapter: DuckDBAdapter) -> None:
-    """The whole point: one source's rows, not every source in the resolution.
+    """The whole point: one source's rows, not every source in the resolver output.
 
-    `_resolution()` holds crn and dh together. Reading crn must not return dh's rows —
-    a plan linking every pair of sources asks for this once per pair, so returning the
-    whole table and filtering afterwards is what made it quadratic.
+    `_resolver_output()` holds crn and dh together. Reading crn must not return dh's
+    rows — a plan linking every pair of sources asks for this once per pair, so
+    returning the whole table and filtering afterwards is what made it quadratic.
     """
     adapter.store_source(FP_SRC, "key", _extract(), _leaves())
-    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.store_resolver(FP_RESOLVER, _resolver_output())
 
     assert adapter.read_identifiers(FP_SRC, "crn", FP_RESOLVER).height == 2
     assert adapter.read_identifiers(FP_SRC, "dh", FP_RESOLVER).height == 2
@@ -421,9 +422,9 @@ def test_store_model_rejects_bad_schema(adapter: DuckDBAdapter) -> None:
 
 
 def test_store_is_idempotent(adapter: DuckDBAdapter) -> None:
-    adapter.store_resolver(FP_RESOLVER, _resolution())
-    adapter.store_resolver(FP_RESOLVER, _resolution())  # no duplicate rows
-    assert adapter.read_resolver(FP_RESOLVER).height == _resolution().height
+    adapter.store_resolver(FP_RESOLVER, _resolver_output())
+    adapter.store_resolver(FP_RESOLVER, _resolver_output())  # no duplicate rows
+    assert adapter.read_resolver(FP_RESOLVER).height == _resolver_output().height
 
 
 # -- sampling -------------------------------------------------------------------------
@@ -432,7 +433,7 @@ def test_store_is_idempotent(adapter: DuckDBAdapter) -> None:
 def test_sample_returns_whole_clusters_and_is_seed_stable(
     adapter: DuckDBAdapter,
 ) -> None:
-    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.store_resolver(FP_RESOLVER, _resolver_output())
 
     sample_a = adapter.sample(FP_RESOLVER, n=1, seed=42)
     sample_b = adapter.sample(FP_RESOLVER, n=1, seed=42)
@@ -441,14 +442,14 @@ def test_sample_returns_whole_clusters_and_is_seed_stable(
     # Sampling one root returns all of that root's rows, nothing partial.
     roots = sample_a["root"].unique().to_list()
     assert len(roots) == 1
-    full = _resolution().filter(pl.col("root") == roots[0]).sort("leaf")
+    full = _resolver_output().filter(pl.col("root") == roots[0]).sort("leaf")
     assert sample_a.sort("leaf").equals(full)
 
 
 def test_sample_caps_at_available_clusters(adapter: DuckDBAdapter) -> None:
-    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.store_resolver(FP_RESOLVER, _resolver_output())
     everything = adapter.sample(FP_RESOLVER, n=999)
-    assert everything.height == _resolution().height
+    assert everything.height == _resolver_output().height
 
 
 # -- evaluation round-trip (Phase 1 exit criterion) -----------------------------------
@@ -496,7 +497,7 @@ def test_read_eval_data_empty_has_correct_schema(adapter: DuckDBAdapter) -> None
 def test_persists_across_reopen(tmp_path: Path) -> None:
     db = tmp_path / "nested" / "store.duckdb"
     a = DuckDBAdapter(db)
-    a.store_resolver(FP_RESOLVER, _resolution())
+    a.store_resolver(FP_RESOLVER, _resolver_output())
     a.publish("entities", FP_RESOLVER)
     a.store_judgement(Judgement(shown=[1, 2], endorsed=[[1, 2]]))
     a.close()
@@ -504,7 +505,7 @@ def test_persists_across_reopen(tmp_path: Path) -> None:
     b = DuckDBAdapter(db)
     try:
         assert b.has(FP_RESOLVER)
-        assert b.read_resolver(FP_RESOLVER).height == _resolution().height
+        assert b.read_resolver(FP_RESOLVER).height == _resolver_output().height
         # Publications and judgements survive a reopen too. Artifacts are a cache and
         # can be recomputed; these cannot, and `_open_schema` drops every table in the
         # database when the schema version moves — so this is what would catch a bump
@@ -523,8 +524,8 @@ def test_a_label_is_a_movable_pointer(adapter: DuckDBAdapter) -> None:
     old (kind, name) column on `artifacts` did not: several generations shared a name
     and the lookup picked whichever row came back first.
     """
-    adapter.store_resolver(FP_RESOLVER, _resolution())
-    adapter.store_resolver(FP_RESOLVER_B, _resolution())
+    adapter.store_resolver(FP_RESOLVER, _resolver_output())
+    adapter.store_resolver(FP_RESOLVER_B, _resolver_output())
 
     assert adapter.find("entities") is None
     assert adapter.labels() == []
@@ -545,13 +546,13 @@ def test_restoring_an_artifact_keeps_the_label_pointing_at_it(
 
     Storing replaces the artifact for a fingerprint, and a fingerprint addresses
     content — so the label resolves to the same bytes it always did. Dropping it here
-    used to mean a re-collect silently unpublished your resolution.
+    used to mean a re-collect silently unpublished your resolver output.
     """
-    adapter.store_resolver(FP_RESOLVER, _resolution())
+    adapter.store_resolver(FP_RESOLVER, _resolver_output())
     adapter.publish("entities", FP_RESOLVER)
 
-    adapter.store_resolver(FP_RESOLVER, _resolution())  # same fingerprint, again
+    adapter.store_resolver(FP_RESOLVER, _resolver_output())  # same fingerprint, again
 
     assert adapter.find("entities") == FP_RESOLVER
     assert adapter.labels() == ["entities"]
-    assert adapter.read_resolver(FP_RESOLVER).height == _resolution().height
+    assert adapter.read_resolver(FP_RESOLVER).height == _resolver_output().height

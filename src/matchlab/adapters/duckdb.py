@@ -1,9 +1,9 @@
 """DuckDB storage adapter — the reference local backend for matchlab.
 
 A single DuckDB database (a file, or `:memory:`) holds every collected artifact,
-keyed by step fingerprint. There is no resolution engine here. Resolvers arrive
-already materialised (merge-forward), so reads are plain table scans. Analysts can
-point their own SQL at the `resolution` table. That is the whole point.
+keyed by step fingerprint. There is no engine here that resolves on demand. Resolvers
+arrive already materialised (merge-forward), so reads are plain table scans. Analysts
+can point their own SQL at the `resolver_output` table. That is the whole point.
 """
 
 import os
@@ -15,12 +15,12 @@ import polars as pl
 
 from matchlab.adapters.base import Adapter, Fingerprint, StoreStats, TrimResult
 from matchlab.core.kinds import StepKind
-from matchlab.core.resolution import root_id_of
+from matchlab.core.resolver_output import root_id_of
 from matchlab.core.schemas import (
     SCHEMA_CLUSTER_EXPANSION,
     SCHEMA_JUDGEMENTS,
     SCHEMA_MODEL_EDGES,
-    SCHEMA_RESOLUTION,
+    SCHEMA_RESOLVER_OUTPUT,
     check_schema_subset,
 )
 from matchlab.eval.judgements import Judgement
@@ -28,7 +28,7 @@ from matchlab.eval.judgements import Judgement
 # Bumped whenever the stored shape changes, or stored IDs stop meaning what they did.
 # A store written by an older matchlab is recreated rather than half-read. That's the
 # honest failure mode for a cache.
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 
 _SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -50,21 +50,21 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS artifacts (
     fp BLOB PRIMARY KEY, kind VARCHAR
 );
--- A label: a pointer from a string someone chose to the resolution they want to find
--- again. It is kept separate from `artifacts` because labelling is an act, not a
+-- A label: a pointer from a string someone chose to the resolver output they want to
+-- find again. It is kept separate from `artifacts` because labelling is an act, not a
 -- property. Most artifacts carry no label, and moving a label to a newer fingerprint
 -- never disturbs the artifact it used to point at.
 CREATE TABLE IF NOT EXISTS labels (
     label VARCHAR PRIMARY KEY, fp BLOB, published_at TIMESTAMP
 );
 -- A stored source knows its own key column, so its extract can be read back and
--- joined to a resolution without the plan that built it.
+-- joined to a resolver output without the plan that built it.
 CREATE TABLE IF NOT EXISTS source_meta (
     fp BLOB PRIMARY KEY, key_field VARCHAR
 );
--- Which source artifacts a resolution was built from. A resolution records source
--- *names*, and one store can hold several generations of the same name.
-CREATE TABLE IF NOT EXISTS resolution_sources (
+-- Which source artifacts a resolver's output was built from. A resolver's output
+-- records source *names*, and one store can hold several generations of the same name.
+CREATE TABLE IF NOT EXISTS resolver_output_sources (
     fp BLOB, source_name VARCHAR, source_fp BLOB
 );
 -- The three tables below hold every artifact of their kind side by side. They are the
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS source_leaves (
 CREATE TABLE IF NOT EXISTS model_edges (
     fp BLOB, left_id UBIGINT, right_id UBIGINT, score FLOAT
 );
-CREATE TABLE IF NOT EXISTS resolution (
+CREATE TABLE IF NOT EXISTS resolver_output (
     fp BLOB, root UBIGINT, leaf UBIGINT, key VARCHAR, source VARCHAR
 );
 CREATE TABLE IF NOT EXISTS judgements (
@@ -139,8 +139,8 @@ def _mint_cluster_id(leaves: list[int]) -> int:
 
     A group uses `root_id`, the same function a resolver mints its roots with. That
     match is load-bearing, not just tidy. Scoring compares a judged group against the
-    resolution's clusters by ID. If the two ever disagree, every comparison misses,
-    and precision and recall get computed over an empty set.
+    resolver output's clusters by ID. If the two ever disagree, every comparison
+    misses, and precision and recall get computed over an empty set.
     """
     if len(leaves) == 1:
         return int(leaves[0])
@@ -227,8 +227,8 @@ class DuckDBAdapter(Adapter):
         elif kind is StepKind.MODEL:
             self.conn.execute("DELETE FROM model_edges WHERE fp = ?", [fp])
         elif kind is StepKind.RESOLVER:
-            self.conn.execute("DELETE FROM resolution WHERE fp = ?", [fp])
-            self.conn.execute("DELETE FROM resolution_sources WHERE fp = ?", [fp])
+            self.conn.execute("DELETE FROM resolver_output WHERE fp = ?", [fp])
+            self.conn.execute("DELETE FROM resolver_output_sources WHERE fp = ?", [fp])
         self.conn.execute("DELETE FROM artifacts WHERE fp = ?", [fp])
 
     # -- existence --------------------------------------------------------------------
@@ -366,10 +366,10 @@ class DuckDBAdapter(Adapter):
         if self._kind(resolver_fp) is not StepKind.RESOLVER:
             raise KeyError(f"No stored resolver for fingerprint {resolver_fp.hex()}")
         # Both predicates matter. `source` keeps this from scanning every source's
-        # rows, and `resolution` holds one generation per collect of the plan.
+        # rows, and `resolver_output` holds one generation per collect of the plan.
         return self.conn.execute(
             "SELECT root AS id, source, key, leaf "
-            "FROM resolution WHERE fp = ? AND source = ?",
+            "FROM resolver_output WHERE fp = ? AND source = ?",
             [resolver_fp, source_name],
         ).pl()
 
@@ -379,9 +379,9 @@ class DuckDBAdapter(Adapter):
         """Every fingerprint that must survive a trim.
 
         Labels go in whether or not they were named. A label also drags in the sources
-        its resolution needs. Reading a published resolution without a plan goes
-        through `resolution_sources` to each source's extract. Without them, a kept
-        label resolves to a fingerprint whose data is gone.
+        its resolver output needs. Reading a published resolver output without a plan
+        goes through `resolver_output_sources` to each source's extract. Without them,
+        a kept label resolves to a fingerprint whose data is gone.
         """
         kept: set[Fingerprint] = set()
         for item in keep:
@@ -393,14 +393,14 @@ class DuckDBAdapter(Adapter):
         return kept
 
     def _label_closure(self, label: str) -> set[Fingerprint]:
-        """A published resolution's fingerprint, plus the sources it reads through."""
+        """A label's resolver-output fingerprint, plus the sources it reads through."""
         fp = self.find(label)
         if fp is None:
             raise ValueError(
-                f"No resolution is labelled '{label}' in this store. "
+                f"No resolver output is labelled '{label}' in this store. "
                 f"Known labels: {', '.join(self.labels()) or 'none'}."
             )
-        return {fp, *self.resolution_sources(fp).values()}
+        return {fp, *self.resolver_output_sources(fp).values()}
 
     def trim(self, keep: Iterable[Fingerprint | str] = ()) -> TrimResult:
         """Delete every artifact except the ones named, and reclaim what that frees.
@@ -524,27 +524,27 @@ class DuckDBAdapter(Adapter):
     def store_resolver(
         self,
         fp: Fingerprint,
-        resolution: pl.DataFrame,
+        resolver_output: pl.DataFrame,
         sources: Mapping[str, Fingerprint] | None = None,
     ) -> None:
-        check_schema_subset(SCHEMA_RESOLUTION, resolution.to_arrow().schema)
+        check_schema_subset(SCHEMA_RESOLVER_OUTPUT, resolver_output.to_arrow().schema)
         self._purge(fp)
-        resolution = resolution.select(
+        resolver_output = resolver_output.select(
             pl.col("root").cast(pl.UInt64),
             pl.col("leaf").cast(pl.UInt64),
             pl.col("key").cast(pl.Utf8),
             pl.col("source").cast(pl.Utf8),
         )
-        self._register("_reg_res", resolution)
+        self._register("_reg_res", resolver_output)
         self.conn.execute(
-            "INSERT INTO resolution "
+            "INSERT INTO resolver_output "
             "SELECT ? AS fp, root, leaf, key, source FROM _reg_res",
             [fp],
         )
         self.conn.unregister("_reg_res")
         for source_name, source_fp in (sources or {}).items():
             self.conn.execute(
-                "INSERT INTO resolution_sources VALUES (?, ?, ?)",
+                "INSERT INTO resolver_output_sources VALUES (?, ?, ?)",
                 [fp, source_name, source_fp],
             )
         self._register_artifact(fp, StepKind.RESOLVER)
@@ -553,7 +553,7 @@ class DuckDBAdapter(Adapter):
         if self._kind(fp) is not StepKind.RESOLVER:
             raise KeyError(f"No stored resolver for fingerprint {fp.hex()}")
         return self.conn.execute(
-            "SELECT root, leaf, key, source FROM resolution WHERE fp = ?", [fp]
+            "SELECT root, leaf, key, source FROM resolver_output WHERE fp = ?", [fp]
         ).pl()
 
     # -- evaluation -------------------------------------------------------------------
@@ -606,11 +606,11 @@ class DuckDBAdapter(Adapter):
     def sample(
         self, resolver_fp: Fingerprint, n: int, seed: int | None = None
     ) -> pl.DataFrame:
-        resolution = self.read_resolver(resolver_fp)
-        roots = resolution["root"].unique()
+        resolver_output = self.read_resolver(resolver_fp)
+        roots = resolver_output["root"].unique()
         if n < roots.len():
             roots = roots.sample(n=n, seed=seed, shuffle=True)
-        return resolution.filter(pl.col("root").is_in(roots.to_list())).select(
+        return resolver_output.filter(pl.col("root").is_in(roots.to_list())).select(
             "root", "leaf", "key", "source"
         )
 
@@ -643,11 +643,12 @@ class DuckDBAdapter(Adapter):
             raise KeyError(f"No stored source for fingerprint {fp.hex()}")
         return row[0]
 
-    def resolution_sources(self, fp: Fingerprint) -> dict[str, Fingerprint]:
+    def resolver_output_sources(self, fp: Fingerprint) -> dict[str, Fingerprint]:
         return {
             name: source_fp
             for name, source_fp in self.conn.execute(
-                "SELECT source_name, source_fp FROM resolution_sources WHERE fp = ?",
+                "SELECT source_name, source_fp FROM resolver_output_sources "
+                "WHERE fp = ?",
                 [fp],
             ).fetchall()
         }

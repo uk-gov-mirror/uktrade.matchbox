@@ -164,7 +164,7 @@ resolver.view(
 # acme    | ["london", "leeds", "bristol"]
 ```
 
-Grouping changes what the *model* sees. It never changes the resolution. Record
+Grouping changes what the *model* sees. It never changes the resolver output. Record
 identity travels separately, so a resolver below a grouped view still carries every
 record forward.
 
@@ -214,7 +214,7 @@ with no threshold will contribute every edge.
 
 ## Layering
 
-To match *on top of* an earlier resolution, read a source through it:
+To match *on top of* an earlier resolver output, read a source through it:
 
 ```python
 deduped_crn = crn.dedupe(...).resolve()
@@ -228,7 +228,7 @@ entities = (
 
 The link now sees crn's deduplicated clusters rather than its raw rows. Records the
 link never matches keep their upstream grouping. A resolver always carries its inputs'
-resolutions forward, so nothing silently reverts to singletons.
+resolver outputs forward, so nothing silently reverts to singletons.
 
 ## Collecting
 
@@ -399,19 +399,20 @@ cleaned.data()  # still yours to inspect
 That goes for settings too. A resolver's per-model thresholds take the model itself,
 not its name.
 
-Steps have no names at all. To find a resolution later, **publish** it under a
+Steps have no names at all. To find a resolver output later, **publish** it under a
 label. That's an operation on the collected result, not a property of the plan:
 
 ```python
 entities = crn_dedupe.resolve(dh_dedupe).collect().publish("entities")
 ```
 
-Republishing the same label for the same resolution is a no-op. Aiming it at a
+Republishing the same label for the same resolver output is a no-op. Aiming it at a
 different one needs `overwrite=True`. A plan you never publish still runs. It's just
 unlabelled.
 
 A label is not a name. A *name* belongs to a source and is part of its output. A
-label belongs to the store, and points at whichever resolution you last aimed it at.
+label belongs to the store, and points at whichever resolver output you last aimed it
+at.
 
 Everything else goes by **position**. That's the order `collect` runs it in, which is what
 logs quote and what `draw()` shows in brackets.
@@ -478,8 +479,8 @@ print(result.describe())
 
 `plan.fingerprints()` names every artifact a plan is made of, its own and its inputs'.
 Which artifacts those are is the plan's business, not the store's, so the plan is what
-answers. `keep` also takes the name of a published label, which keeps that resolution
-and the sources it reads through:
+answers. `keep` also takes the name of a published label, which keeps that resolver
+output and the sources it reads through:
 
 ```python
 default_adapter().trim(keep=[*entities.fingerprints(), "production"])

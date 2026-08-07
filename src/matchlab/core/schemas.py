@@ -29,7 +29,7 @@ SCHEMA_MODEL_EDGES: Final[pa.Schema] = pa.schema(
 )
 """A deduper's or linker's output: a scored edge list."""
 
-SCHEMA_RESOLUTION: Final[pa.Schema] = pa.schema(
+SCHEMA_RESOLVER_OUTPUT: Final[pa.Schema] = pa.schema(
     [
         ("root", pa.uint64()),
         ("leaf", pa.uint64()),
@@ -37,10 +37,10 @@ SCHEMA_RESOLUTION: Final[pa.Schema] = pa.schema(
         ("source", pa.large_string()),
     ]
 )
-"""A resolver's complete flat resolution: one row per reachable source record.
+"""A resolver's complete flat output: one row per reachable source record.
 
 Evaluation sampling returns a row-subset of this, which is why it is named for the
-resolution rather than for the sample.
+resolver's output rather than for the sample.
 """
 
 SCHEMA_JUDGEMENTS: Final[pa.Schema] = pa.schema(

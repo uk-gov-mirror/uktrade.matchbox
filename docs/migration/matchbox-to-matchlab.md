@@ -15,7 +15,8 @@ real: a large codebase, a worse interface, slower pipelines, and no way for anal
 outside government to adopt it at all.
 
 Removing it deleted more than half the code and made the pipeline faster, because
-resolution is now computed once when you collect rather than re-derived on every query.
+the resolver output is now computed once when you collect rather than re-derived on
+every query.
 
 ## Install
 
@@ -61,18 +62,18 @@ its own inputs, so the step you're holding is the pipeline.
 ## Publishing replaced naming
 
 Steps have no names. In Matchbox every step took one; now a name is not part of a plan
-at all, because it changes nothing about what gets computed. **Publishing a resolution
-under a label is an operation you perform on the result:**
+at all, because it changes nothing about what gets computed. **Publishing a resolver's
+output under a label is an operation you perform on the result:**
 
 ```python
 entities = crn_dedupe.resolve(dh_dedupe).collect().publish("entities")
 ```
 
-That label is what `matchlab review <label>` and `get_samples(resolution=...)` find. A
+That label is what `matchlab review <label>` and `get_samples(resolver=...)` find. A
 plan you never publish still runs perfectly well — it is just unlabelled, addressed by
 fingerprint like everything else.
 
-Republishing the same label for the same resolution is a no-op, so re-running an
+Republishing the same label for the same resolver output is a no-op, so re-running an
 unchanged pipeline is safe. Aiming an existing label somewhere new is deliberate:
 
 ```python
@@ -80,11 +81,11 @@ entities.publish("entities", overwrite=True)
 ```
 
 **Sources keep their name**, and it is a different thing entirely: it prefixes every
-column that source contributes (`crn_company`) and tags its rows in a resolution, so it
-is part of the output rather than a way of finding it. That two things called `name` did
-such different jobs is exactly why the other one became an operation, and why what it
-produces is called a *label* — the word is now unambiguous. A name belongs to a source;
-a label belongs to a store.
+column that source contributes (`crn_company`) and tags its rows in a resolver output,
+so it is part of the output rather than a way of finding it. That two things called
+`name` did such different jobs is exactly why the other one became an operation, and
+why what it produces is called a *label* — the word is now unambiguous. A name belongs
+to a source; a label belongs to a store.
 
 ### Everything else goes by position
 
@@ -324,7 +325,7 @@ process is a cache hit if the warehouse data is unchanged.
 **To refresh a source, construct a new one.** A `Source` object memoises the data it
 read. `Source(...)` again re-reads the warehouse and invalidates everything downstream.
 
-**Resolution is materialised, not queried.** A resolver writes a complete
+**A resolver output is materialised, not queried.** A resolver writes a complete
 `(root, leaf, key, source)` table when it collects. Queries are reads against that
 table, which is why `lookup_key` and `entities` are now fast and offline.
 
@@ -343,9 +344,9 @@ configuration, and the evaluation metrics all behave as before.
 
 ### Reads moved onto the resolver
 
-`ResolverMatches` is gone. Every one of its methods was a projection of the resolution
-the resolver already materialises, so they sit on `Resolver` directly — no intermediate
-object, and no second spelling of `root` and `leaf`.
+`ResolverMatches` is gone. Every one of its methods was a projection of the resolver
+output the resolver already materialises, so they sit on `Resolver` directly — no
+intermediate object, and no second spelling of `root` and `leaf`.
 
 | Matchbox | matchlab |
 |---|---|
@@ -355,7 +356,7 @@ object, and no second spelling of `root` and `leaf`.
 | `matches.view_cluster(id)` | `resolver.view_entity(root)` |
 | `get_matches(source_filter=[...])` | `entities(sources=[...])`, and the same on the rest |
 | `ResolverMatches.from_dump(...)` | publish a label, and read the store |
-| `matches.merge(other)` | `get_samples`/`review` over several resolutions |
+| `matches.merge(other)` | `get_samples`/`review` over several resolvers |
 
 Two behavioural changes worth knowing about:
 
@@ -363,7 +364,7 @@ Two behavioural changes worth knowing about:
   source through its `extract_transform`, so it could show different values from the
   ones the reviewer had on screen. It now reads the extract cached at collect time —
   the data the matching actually saw — and needs no connection.
-* **Comparing methodologies is an evaluation job.** `merge()` unioned two resolutions'
+* **Comparing methodologies is an evaluation job.** `merge()` unioned two resolvers'
   components client-side so you could dump them to parquet and review the merged
   clusters. `get_samples`, `review` and `EvalData.precision_recall` now take several
-  resolutions directly, and `review(..., seed=...)` replaces passing that file around.
+  resolvers directly, and `review(..., seed=...)` replaces passing that file around.

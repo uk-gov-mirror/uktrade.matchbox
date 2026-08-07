@@ -2,12 +2,12 @@
 
 The testkit generates sources whose true entities are known, then a perfect matcher
 matches on row *values* — so the edges it emits reference whatever content-derived IDs
-the plan actually produced. That makes it possible to assert the resolution against
-truth rather than against hand-built fixtures.
+the plan actually produced. That makes it possible to assert the resolver output
+against truth rather than against hand-built fixtures.
 
 Every test here is the same three steps: generate and write, build a plan, diff it.
-`linked` planted the entities, so `.dedupe()`/`.link()` and `.diff_resolution()` all
-know the answer without being told it. The diff reports *how* a mismatch failed
+`linked` planted the entities, so `.dedupe()`/`.link()` and `.diff_resolver_output()`
+all know the answer without being told it. The diff reports *how* a mismatch failed
 (perfect/subset/superset/wrong/invalid) rather than only that it did.
 
 This is the capability the brief calls out as a differentiator (ER evaluation), and
@@ -53,9 +53,9 @@ def test_dedupe_recovers_the_true_entities(warehouse: Engine) -> None:
     """A perfect deduper must resolve each source's records to its true entities."""
     linked = planted(10, warehouse)
 
-    resolution = linked.dedupe("crn").model.resolve().collect().entities()
+    resolver_output = linked.dedupe("crn").model.resolve().collect().entities()
 
-    identical, report = linked.diff_resolution(resolution, "crn")
+    identical, report = linked.diff_resolver_output(resolver_output, "crn")
     assert identical, report
 
 
@@ -63,24 +63,24 @@ def test_link_recovers_the_true_entities(warehouse: Engine) -> None:
     """A perfect linker must join one entity's records across two sources."""
     linked = planted(10, warehouse)
 
-    resolution = linked.link("crn", "cdms").model.resolve().collect().entities()
+    resolver_output = linked.link("crn", "cdms").model.resolve().collect().entities()
 
     # Clusters span both sources and match the planted entities exactly.
-    assert set(resolution["source"].unique().to_list()) == {"crn", "cdms"}
-    identical, report = linked.diff_resolution(resolution, "crn", "cdms")
+    assert set(resolver_output["source"].unique().to_list()) == {"crn", "cdms"}
+    identical, report = linked.diff_resolver_output(resolver_output, "crn", "cdms")
     assert identical, report
 
 
-def test_resolution_covers_every_record(warehouse: Engine) -> None:
-    """No record may be dropped: the resolution is complete over the source."""
+def test_resolver_output_covers_every_record(warehouse: Engine) -> None:
+    """No record may be dropped: the resolver output is complete over the source."""
     linked = planted(6, warehouse)
 
-    resolution = linked.dedupe("crn").model.resolve().collect().entities()
+    resolver_output = linked.dedupe("crn").model.resolve().collect().entities()
 
     expected_keys = {
         str(key) for entity in linked.true_entities for key in entity.get_keys("crn")
     }
-    assert set(resolution["key"].to_list()) == expected_keys
+    assert set(resolver_output["key"].to_list()) == expected_keys
 
 
 def test_link_through_a_dedupe_carries_it_forward(warehouse: Engine) -> None:
@@ -95,10 +95,10 @@ def test_link_through_a_dedupe_carries_it_forward(warehouse: Engine) -> None:
 
     dedupe = linked.dedupe("crn").model.resolve()
     apex = linked.link("crn", "cdms", through=dedupe).model.resolve()
-    resolution = apex.collect().entities()
+    resolver_output = apex.collect().entities()
 
-    assert set(resolution["source"].unique().to_list()) == {"crn", "cdms"}
-    identical, report = linked.diff_resolution(resolution, "crn", "cdms")
+    assert set(resolver_output["source"].unique().to_list()) == {"crn", "cdms"}
+    identical, report = linked.diff_resolver_output(resolver_output, "crn", "cdms")
     assert identical, report
 
 
@@ -106,32 +106,32 @@ def test_clusters_never_merge_distinct_entities(warehouse: Engine) -> None:
     """Precision: no cluster may contain records from two different true entities."""
     linked = planted(12, warehouse)
 
-    resolution = linked.dedupe("crn").model.resolve().collect().entities()
+    resolver_output = linked.dedupe("crn").model.resolve().collect().entities()
 
     key_to_entity = {
         str(key): entity.id
         for entity in linked.true_entities
         for key in entity.get_keys("crn")
     }
-    for row in resolution.group_by("root").agg("key").iter_rows(named=True):
+    for row in resolver_output.group_by("root").agg("key").iter_rows(named=True):
         entities = {key_to_entity[key] for key in row["key"]}
         assert len(entities) == 1, f"cluster merged entities {entities}"
 
 
-def test_the_diff_reports_how_a_resolution_is_wrong(warehouse: Engine) -> None:
-    """`diff_resolution` must classify a bad resolution, not merely reject it.
+def test_the_diff_reports_how_a_resolver_output_is_wrong(warehouse: Engine) -> None:
+    """`diff_resolver_output` must classify a bad resolver output, not merely reject it.
 
     It derives both sides from the testkit, so a bug that compared something against
     itself would make every other test in this file pass. Over-merging must be reported
     as a *superset* of the entities it swallowed.
     """
     linked = planted(8, warehouse)
-    resolution = linked.link("crn", "cdms").model.resolve().collect().entities()
+    resolver_output = linked.link("crn", "cdms").model.resolve().collect().entities()
 
     # Collapse every record into a single cluster.
-    over_merged = resolution.with_columns(root=resolution["root"].first())
+    over_merged = resolver_output.with_columns(root=resolver_output["root"].first())
 
-    identical, report = linked.diff_resolution(over_merged, "crn", "cdms")
+    identical, report = linked.diff_resolver_output(over_merged, "crn", "cdms")
     assert not identical
     assert report["superset"] > 0
     assert report["perfect"] == 0

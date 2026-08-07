@@ -30,7 +30,7 @@ All four match identically — `NaiveDeduper` and `DeterministicLinker` on a cle
 |---|---|---|
 | `dedupe` | one source, one model, one resolver | the floor: no link, no layer |
 | `hub` | dedupe all, then link the hub to each spoke | a star: `n-1` links, one apex |
-| `chain` | add one source per level, on the resolution below | depth |
+| `chain` | add one source per level, on the resolver output below | depth |
 | `mesh` | dedupe all, then link every pair | breadth: `n(n-1)/2` links |
 
 `hub` is not a cheaper way of writing `mesh`. It cannot merge two spokes that share an entity the hub has never seen, so over the same rows it resolves *more* entities. The tables report entity count per case so that trade is visible rather than assumed.
@@ -43,7 +43,7 @@ All four match identically — `NaiveDeduper` and `DeterministicLinker` on a cle
 | `steps` | nodes in the plan |
 | `cold` | collecting the whole plan into an empty store |
 | `µs/row` | the same, per row. **Flat means linear scaling.** |
-| `read` | `entities()` — reading the complete resolution back |
+| `read` | `entities()` — reading the complete resolver output back |
 | `warm` | collecting an unchanged plan again: every step a cache hit |
 | `peak` | high-water resident memory of the measuring process |
 | `B/row` | the same, above the idle floor, per row |
@@ -64,7 +64,7 @@ Peak memory is `getrusage(RUSAGE_SELF).ru_maxrss`, not `tracemalloc`: almost non
 
 matchlab content-addresses records: two rows with identical field values share a leaf cluster before any model runs. So the generator renders **every row of an entity differently** — case, suffix, spacing — and cleans every rendering back to the same value. Render an entity the same way in two sources and they arrive already merged, the linkers have nothing to do, and every topology returns the same answer at the same price.
 
-That is why this does not use `matchlab.testkit`. The testkit is the right tool for correctness — planted `TrueEntity`s, `diff_resolution`, `PerfectDeduper` — and the wrong one for scale, since it generates entity by entity through Faker. What a benchmark needs from ground truth is much weaker: a `_truth` column, so a case can check it resolved something sane before reporting how fast it did it.
+That is why this does not use `matchlab.testkit`. The testkit is the right tool for correctness — planted `TrueEntity`s, `diff_resolver_output`, `PerfectDeduper` — and the wrong one for scale, since it generates entity by entity through Faker. What a benchmark needs from ground truth is much weaker: a `_truth` column, so a case can check it resolved something sane before reporting how fast it did it.
 
 Every case asserts its resolved entity count against what its shape guarantees, and fails loudly rather than reporting a fast wrong answer. `test/test_benchmarks.py` covers the same ground in CI at a few thousand rows.
 

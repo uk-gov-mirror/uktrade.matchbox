@@ -8,8 +8,8 @@ Two types, and the difference between them is the thing to hold on to:
   that membership alone.
 
 They are compared by projecting the first onto the second with `TrueEntity.cluster()`,
-because only membership is comparable: a resolution's IDs are minted at collect time and
-have no counterpart in generated data.
+because only membership is comparable: a resolver output's IDs are minted at collect
+time and have no counterpart in generated data.
 """
 
 from random import getrandbits
@@ -123,9 +123,9 @@ class Cluster(BaseModel, EntityIDMixin, SourceKeyMixin):
 
     The unit of comparison: both sides of `diff_entities` are clusters, the expected
     side projected from `TrueEntity.cluster()` and the actual side read back off a
-    model or a resolution. It carries membership and nothing else, because membership
-    is the only thing the two sides can agree on — a resolution's IDs are minted at
-    collect time and have no counterpart in generated data.
+    model or a resolver's output. It carries membership and nothing else, because
+    membership is the only thing the two sides can agree on — a resolver output's IDs
+    are minted at collect time and have no counterpart in generated data.
 
     Hence equality and hashing are over `keys` alone; `id` is carried for bookkeeping
     and deliberately ignored when comparing. Contrast `TrueEntity`, which is the

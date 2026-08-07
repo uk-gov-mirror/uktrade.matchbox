@@ -71,11 +71,10 @@ You don't need the plan, or the warehouse, to review what it produced:
 matchlab review companies --store ./run.duckdb
 ```
 
-With `--store`, the target is the label a resolution was **published** under —
+With `--store`, the target is the label a resolver output was **published** under —
 `companies.collect().publish("companies")` — rather than Python to import. This works
-because collecting a source caches its extract, and
-a stored resolution records which source artifacts it covers — so the values on screen
-come out of the store.
+because collecting a source caches its extract, and a stored resolver output records
+which source artifacts it covers — so the values on screen come out of the store.
 
 That's also the more correct thing to review: it's the data the matching actually saw,
 not what the warehouse says today. And it means you can hand someone a `.duckdb` file
@@ -110,7 +109,7 @@ Records shown together but assigned to different groups are recorded as *negativ
 evidence, not just absence of positive evidence — which is what makes precision
 measurable rather than guessed.
 
-## Score a resolution
+## Score a resolver output
 
 ```python
 from matchlab.eval import EvalData
@@ -120,8 +119,9 @@ precision, recall = evaluation.precision_recall(companies)
 ```
 
 Pass a resolver or the label one was published under — the same either/or as everywhere
-else on this page. Only pairs that appear in both the judgements and the resolution are
-compared, so two methodologies scored against the same judgements are compared fairly.
+else on this page. Only pairs that appear in both the judgements and the resolver output
+are compared, so two methodologies scored against the same judgements are compared
+fairly.
 
 ## Measuring against known truth
 
@@ -133,15 +133,15 @@ from matchlab.testkit import linked_sources_factory
 
 linked = linked_sources_factory(n_true_entities=100).write_to_location()
 
-resolution = linked.link("crn", "cdms").model.resolve().collect().entities()
+resolver_output = linked.link("crn", "cdms").model.resolve().collect().entities()
 
-identical, report = linked.diff_resolution(resolution, "crn", "cdms")
+identical, report = linked.diff_resolver_output(resolver_output, "crn", "cdms")
 ```
 
 `linked` is the whole handle: it planted the entities, so `.dedupe()`, `.link()` and
-`.diff_resolution()` all know the answer without being told it. To stack a link on top
-of a dedupe — the case where the apex has to carry an upstream grouping forward as well
-as its own — read the left side *through* the upstream resolver:
+`.diff_resolver_output()` all know the answer without being told it. To stack a link on
+top of a dedupe — the case where the apex has to carry an upstream grouping forward as
+well as its own — read the left side *through* the upstream resolver:
 
 ```python
 dedupe = linked.dedupe("crn").model.resolve()
@@ -163,8 +163,9 @@ That breakdown is the point: "0.94 recall" tells you less than "eight clusters w
 subsets", which tells you the matcher is too strict rather than too loose.
 
 This works because a cluster is compared by the `(source, key)` records it contains and
-never by its ID — the resolution's `root` is content-derived at collect time and has no
-counterpart in the generated data. To measure a *methodology* rather than a whole plan,
+never by its ID — the resolver output's `root` is content-derived at collect time and
+has no counterpart in the generated data. To measure a *methodology* rather than a whole
+plan,
 use `linked.diff_model_edges(edges, left=source)` instead, which compares an edge
 table without needing a warehouse.
 
@@ -194,15 +195,15 @@ evaluation.precision_recall([naive, splink])
 # [(0.91, 0.84), (0.95, 0.79)]
 ```
 
-Handing `review()` several resolutions samples from their *merged* components: two
+Handing `review()` several resolvers samples from their *merged* components: two
 records appear together if either methodology put them there. That's what makes the
 comparison honest — every cluster where the two could disagree is on screen, one
 judgement settles it for both, and neither gets to pick the clusters it's scored on.
 
 Scoring them together matters for the same reason. `precision_recall` keeps only the
-pairs present in every resolution *and* in the judgements, so each candidate is measured
-over the same records. Score them one at a time and each gets its own comparison set;
-those numbers don't line up.
+pairs present in every resolver output *and* in the judgements, so each candidate is
+measured over the same records. Score them one at a time and each gets its own
+comparison set; those numbers don't line up.
 
 Publishing each one — `naive.publish("naive")` — is what lets you come back to it later
 with `matchlab review naive`. A candidate you only wanted to score once needs no label.

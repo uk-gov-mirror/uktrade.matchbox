@@ -19,7 +19,7 @@ class Measurement(BaseModel):
         n_rows: Rows in the warehouse it read.
         n_steps: Steps in the plan, so a shape's cost can be read per step.
         collect_cold_s: Materialising the whole plan into an empty store.
-        entities_s: Reading the complete resolution back out of it.
+        entities_s: Reading the complete resolver output back out of it.
         collect_warm_s: Collecting the same plan again into the same store. Every step
             is a cache hit, so this is the price of establishing that nothing changed —
             the number that matters if you iterate, which matching is.

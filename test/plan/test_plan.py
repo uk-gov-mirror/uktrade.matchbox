@@ -513,21 +513,27 @@ def test_a_resolver_reads_identifiers_once_per_source_not_once_per_model(
 def test_deduplicating_the_readings_keeps_every_record(warehouse: Engine) -> None:
     """The merge-forward guarantee, which the dedup must not weaken.
 
-    Every reachable leaf has to reach the resolution — including records no model
+    Every reachable leaf has to reach the resolver output — including records no model
     matched. A reading dropped here loses clusters silently rather than failing, so
     assert on the records rather than on the call count.
     """
     apex, _models = _fan_out_plan(warehouse)
 
-    resolution = apex.collect().entities()
+    resolver_output = apex.collect().entities()
 
-    assert dict(resolution.group_by("source").len().iter_rows()) == {"crn": 3, "dh": 2}
-    assert set(resolution.filter(pl.col("source") == "crn")["key"]) == {
+    assert dict(resolver_output.group_by("source").len().iter_rows()) == {
+        "crn": 3,
+        "dh": 2,
+    }
+    assert set(resolver_output.filter(pl.col("source") == "crn")["key"]) == {
         "a1",
         "a2",
         "a3",
     }
-    assert set(resolution.filter(pl.col("source") == "dh")["key"]) == {"b1", "b2"}
+    assert set(resolver_output.filter(pl.col("source") == "dh")["key"]) == {
+        "b1",
+        "b2",
+    }
 
 
 # -- lineage navigation ---------------------------------------------------------------
@@ -718,10 +724,10 @@ def test_group_gives_one_row_per_entity(warehouse: Engine) -> None:
 
 
 def test_a_grouped_view_still_merges_forward(warehouse: Engine) -> None:
-    """Grouping changes the view's grain, never the resolution's.
+    """Grouping changes the view's grain, never the resolver output's.
 
     Leaves travel via `identifiers()`, read from the adapter, so collapsing rows in
-    the view cannot lose a record from the resolution below it.
+    the view cannot lose a record from the resolver output below it.
     """
     crn = _source(warehouse, "crn")
     dh = _source(warehouse, "dh")
@@ -886,7 +892,7 @@ def test_a_drawing_is_the_key_to_the_log(warehouse: Engine) -> None:
     assert "resolver(Components)" in drawing
 
 
-def test_publishing_points_a_label_at_a_resolution(
+def test_publishing_points_a_label_at_a_resolver_output(
     warehouse: Engine, adapter: DuckDBAdapter
 ) -> None:
     """Publishing is an act on a result, not a property of the plan."""
@@ -906,18 +912,20 @@ def test_publishing_is_idempotent_but_will_not_silently_move_a_label(
     """Re-running an unchanged pipeline must not fail; repointing must be deliberate."""
     apex, crn, _dh = _apex(warehouse)
     apex.collect(adapter).publish("entities")
-    apex.publish("entities")  # same resolution, same name — a no-op
+    apex.publish("entities")  # same resolver output, same name — a no-op
 
     other = _dedupe_crn(crn).collect(adapter)
-    with pytest.raises(ValueError, match="already points at a different resolution"):
+    with pytest.raises(
+        ValueError, match="already points at a different resolver output"
+    ):
         other.publish("entities")
 
     other.publish("entities", overwrite=True)
     assert adapter.find("entities") == other._fp
 
 
-def test_publishing_needs_a_collected_resolution(warehouse: Engine) -> None:
-    """There is nothing to point a name at until the resolution exists."""
+def test_publishing_needs_a_collected_resolver_output(warehouse: Engine) -> None:
+    """There is nothing to point a name at until the resolver output exists."""
     apex, _crn, _dh = _apex(warehouse)
     with pytest.raises(RuntimeError, match="has not been collected"):
         apex.publish("entities")

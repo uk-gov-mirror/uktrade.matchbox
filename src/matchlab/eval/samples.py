@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from matchlab.core.dataframes import qualify
 from matchlab.core.dsu import DisjointSet
 from matchlab.core.exceptions import SourceTableError
-from matchlab.core.resolution import root_id
+from matchlab.core.resolver_output import root_id
 from matchlab.eval.judgements import Judgement
 from matchlab.eval.metrics import PrecisionRecall, precision_recall
 
@@ -215,7 +215,7 @@ def _sources_of(readings: list[Reading]) -> dict[str, Reading]:
     """
     located: dict[str, Reading] = {}
     for store, fp in readings:
-        for name, source_fp in store.resolution_sources(fp).items():
+        for name, source_fp in store.resolver_output_sources(fp).items():
             seen = located.setdefault(name, (store, source_fp))
             if seen[1] != source_fp:
                 raise SourceTableError(

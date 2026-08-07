@@ -3,8 +3,8 @@
 Every topology here uses `NaiveDeduper` and `DeterministicLinker` on the same two
 cleaned fields. That is deliberate: exact matching is close to the cheapest thing
 matchlab can be asked to do, so what the timings show is the cost of the *plan* —
-hashing, storing, reading identifiers back, materialising resolutions, layering one on
-another — rather than the cost of a clever matcher, which would swamp it.
+hashing, storing, reading identifiers back, materialising resolver outputs, layering
+one on another — rather than the cost of a clever matcher, which would swamp it.
 
 The four shapes and what each isolates:
 
@@ -12,7 +12,7 @@ The four shapes and what each isolates:
 |---|---|---|
 | `DEDUPE` | one source, one model, one resolver | the floor: no link, no layer |
 | `HUB` | dedupe all, then link the hub to each spoke | a star: `n-1` links, one apex |
-| `CHAIN` | add one source per level, on top of the last resolution | depth |
+| `CHAIN` | add one source per level, on top of the last resolver output | depth |
 | `MESH` | dedupe all, then link every pair | breadth: `n(n-1)/2` links, one apex |
 
 `HUB` and `MESH` are not two ways of writing the same plan. A hub cannot merge two
@@ -114,7 +114,7 @@ def _cleaning(sources: Sequence[Source]) -> dict[str, str]:
 
 
 def _view(sources: Sequence[Source], resolver: Resolver | None = None) -> View:
-    """A cleaned view of these sources, optionally read through a resolution.
+    """A cleaned view of these sources, optionally read through a resolver output.
 
     Passing a resolver is the layering move: `id` becomes the entity that resolver
     assigned rather than the record, so whatever is built on top compares entities.
@@ -183,12 +183,12 @@ def _every_pair(views: Sequence[View]) -> list[tuple[View, View]]:
 
 
 def _star(sources: Sequence[Source], pairs: Pairs) -> Resolver:
-    """Dedupe everything into one resolution, then link the pairs `pairs` chooses.
+    """Dedupe everything into one resolver output, then link the pairs `pairs` chooses.
 
     `HUB` and `MESH` differ only in which pairs get linked, so they share everything
-    else: one dedupe per source collapsed into a single resolution, every source read
-    back through it — each view built once and structurally shared by every link that
-    uses it — and one apex resolver over all the links.
+    else: one dedupe per source collapsed into a single resolver output, every source
+    read back through it — each view built once and structurally shared by every link
+    that uses it — and one apex resolver over all the links.
     """
     dedupes = [_dedupe(_view([source])) for source in sources]
     deduped = dedupes[0].resolve(*dedupes[1:])
@@ -199,13 +199,13 @@ def _star(sources: Sequence[Source], pairs: Pairs) -> Resolver:
 
 
 def _chain(sources: Sequence[Source]) -> Resolver:
-    """Add one source per level, each level built on the resolution below it.
+    """Add one source per level, each level built on the resolver output below it.
 
-    Where `MESH` is one resolution over many links, this is many resolutions stacked:
-    `n-1` levels, each reading every source seen so far back through the level below.
-    Each level's resolver takes two models — the new source's dedupe, and the link
-    joining it to everything already resolved — so every source is still deduplicated
-    exactly once and the shapes stay comparable.
+    Where `MESH` is one resolver output over many links, this is many resolver outputs
+    stacked: `n-1` levels, each reading every source seen so far back through the level
+    below. Each level's resolver takes two models — the new source's dedupe, and the
+    link joining it to everything already resolved — so every source is still
+    deduplicated exactly once and the shapes stay comparable.
     """
     resolved = _dedupe(_view(sources[:1])).resolve()
 

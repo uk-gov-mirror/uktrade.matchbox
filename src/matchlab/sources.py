@@ -30,7 +30,7 @@ from matchlab.core.dataframes import (
 from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
 from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
-from matchlab.core.resolution import leaf_id
+from matchlab.core.resolver_output import leaf_id
 from matchlab.locations import Location
 from matchlab.specs import SourceSpec
 from matchlab.steps import Step
@@ -74,9 +74,10 @@ class Source(Step):
         validate_col_prefix(name)
 
         # A source's name is not a way of finding it later, the way a published
-        # resolution's is. It prefixes every column this source contributes and tags
-        # its rows in a resolution, so it is part of the output. That is why it is
-        # required, lives on the source itself, and is hashed into the fingerprint.
+        # resolver output's is. It prefixes every column this source contributes and
+        # tags its rows in a resolver's output, so it is part of the output. That is
+        # why it is required, lives on the source itself, and is hashed into the
+        # fingerprint.
         self.name = name
         super().__init__()
 
@@ -177,8 +178,8 @@ class Source(Step):
 
         Every column except the key contributes to the row hash, so two rows are the
         same leaf exactly when the extract returns identical values for both. Identity
-        is content, not the key. See `matchlab.core.resolution.leaf_id` for why that
-        is the correct anchor for evaluation rather than a storage trick.
+        is content, not the key. See `matchlab.core.resolver_output.leaf_id` for why
+        that is the correct anchor for evaluation rather than a storage trick.
 
         Returns:
             `(extract, hashes)`, the raw rows, and a `hash → keys` index in which

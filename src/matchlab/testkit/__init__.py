@@ -17,12 +17,12 @@ entities, nothing downstream has to be told the answer.
 | one source only | `source_factory()` → `GeneratedSource` |
 | rows I wrote by hand | `source_from_tuple()` |
 | a plan to test | `linked.dedupe(...)` / `linked.link(..., through=...)` |
-| to score a collected plan | `linked.diff_resolution(resolution, *sources)` |
+| to score a collected plan | `linked.diff_resolver_output(resolver_output, *sources)` |
 | to score a methodology's edges | `linked.diff_model_edges(edges, left=...)` |
 | different columns | `FeatureConfig` + `SuffixRule` / `ReplaceRule` |
 | a matcher that already knows the answer | `PerfectDeduper` / `PerfectLinker` |
 | to build or bend the answer it matches on | `AnswerKey.from_sources(...)` |
-| to compose a comparison by hand | `resolution_to_clusters` + `diff_entities` |
+| to compose a comparison by hand | `resolver_output_to_clusters` + `diff_entities` |
 
 `dedupe()` and `link()` wire a perfect matcher up for you, so the last two rows are
 only for when you want a matcher that is deliberately wrong in a particular way.
@@ -37,9 +37,9 @@ from matchlab.testkit import linked_sources_factory
 linked = linked_sources_factory(
     n_true_entities=10, engine=warehouse
 ).write_to_location()
-resolution = linked.link("crn", "cdms").model.resolve().collect().entities()
+resolver_output = linked.link("crn", "cdms").model.resolve().collect().entities()
 
-identical, report = linked.diff_resolution(resolution, "crn", "cdms")
+identical, report = linked.diff_resolver_output(resolver_output, "crn", "cdms")
 assert identical, report
 ```
 
@@ -52,7 +52,7 @@ picking the wrong one is the easiest mistake to make here:
 |---|---|---|
 | Asks | does this *methodology* work? | does the *plan* carry grouping forward? |
 | Built from | `GeneratedModel.predicted_clusters` | `AnswerKey` + `Perfect*` |
-| Scored with | `diff_model_edges` | `diff_resolution` |
+| Scored with | `diff_model_edges` | `diff_resolver_output` |
 | Needs a warehouse | no — the view read is mocked | yes, and a real `collect()` |
 | Example | `test/methodologies/` | `test/plan/test_ground_truth.py` |
 
@@ -65,7 +65,7 @@ Names not re-exported below are still importable from their module, but they are
 plumbing rather than entry points.
 """
 
-from matchlab.testkit.compare import diff_entities, resolution_to_clusters
+from matchlab.testkit.compare import diff_entities, resolver_output_to_clusters
 from matchlab.testkit.entities import Cluster, TrueEntity
 from matchlab.testkit.features import (
     FeatureConfig,
@@ -97,7 +97,7 @@ __all__ = (
     "SourceParameters",
     # score results against the answer
     "diff_entities",
-    "resolution_to_clusters",
+    "resolver_output_to_clusters",
     # the vocabulary you get back
     "TrueEntity",
     "Cluster",

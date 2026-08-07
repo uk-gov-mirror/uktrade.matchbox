@@ -118,7 +118,7 @@ def topology_sweep(warehouse: Warehouse, store: Store) -> Sweep:
 
 
 def entity_sweep(counts: Sequence[int], store: Store) -> Sweep:
-    """More entities, same records each. Grows the resolution, not the duplication."""
+    """More entities, same records each. Grows the resolver output, not duplication."""
     warehouses = [BASELINE.model_copy(update={"n_entities": count}) for count in counts]
     return Sweep(
         title="Number of entities",

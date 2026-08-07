@@ -14,7 +14,7 @@ What a view does *not* store is `identifiers()`, the `(id, source, key, leaf)` m
 a downstream resolver needs. That depends only on the sources and resolver a view reads,
 never on its cleaning, and the cleaned frame has dropped `source`, `key` and `leaf` by
 the time it is stored. It is read back from the source leaves and the upstream
-resolution instead, both of which are already stored.
+resolver output instead, both of which are already stored.
 """
 
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -124,8 +124,9 @@ class View(Step):
         """Return `(id, source, key, leaf)` for every record this view reads.
 
         `id` is the resolver's root cluster when reading through one, otherwise the
-        source leaf. This is the *upstream resolution* a downstream resolver needs to
-        carry every reachable leaf forward, including records no model matched.
+        source leaf. This is the *upstream resolver output* a downstream resolver
+        needs to carry every reachable leaf forward, including records no model
+        matched.
         """
         return pl.concat(
             [adapter.read_identifiers(*read) for read in self._identifier_reads],

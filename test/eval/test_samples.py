@@ -186,7 +186,7 @@ def judged(by_company: Resolver, adapter: DuckDBAdapter) -> DuckDBAdapter:
     return adapter
 
 
-def test_one_resolution_scores_to_a_pair(
+def test_one_resolver_scores_to_a_pair(
     judged: DuckDBAdapter, by_company: Resolver
 ) -> None:
     precision, recall = EvalData(judged, tag="bakeoff").precision_recall(by_company)
@@ -194,7 +194,7 @@ def test_one_resolution_scores_to_a_pair(
     assert (precision, recall) == (1.0, 1.0)
 
 
-def test_several_resolutions_score_to_a_list(
+def test_several_resolvers_score_to_a_list(
     judged: DuckDBAdapter, by_company: Resolver, by_town: Resolver
 ) -> None:
     """Ranked against one another over the same records, in the order given."""
@@ -214,7 +214,7 @@ def test_a_label_scores_the_same_as_the_resolver_it_names(
     )
 
 
-def test_entities_of_the_two_resolutions_really_do_differ(
+def test_entities_of_the_two_resolvers_really_do_differ(
     by_company: Resolver, by_town: Resolver
 ) -> None:
     """Guards the fixtures: the scores above mean nothing if these agree."""

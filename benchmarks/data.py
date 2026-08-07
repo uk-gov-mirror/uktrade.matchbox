@@ -2,7 +2,7 @@
 
 The two things a benchmark wants to vary independently are how many *entities* exist
 and how many *records* describe each one. Those cost different things — entities drive
-the size of every resolution artifact, records drive how much the matchers chew
+the size of every resolver output artifact, records drive how much the matchers chew
 through — so conflating them into a single `n_rows` knob, as the old example benchmark
 did, makes the resulting curve uninterpretable. Here they are separate arguments.
 

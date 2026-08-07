@@ -200,7 +200,7 @@ def test_views_shared(
 
     views = [step for step in plan.lineage() if step.kind == "view"]
 
-    # Four cleaned views for the dedupes, four read back through the resolution.
+    # Four cleaned views for the dedupes, four read back through the resolver output.
     assert len(views) == 2 * SMALL.n_sources
 
 

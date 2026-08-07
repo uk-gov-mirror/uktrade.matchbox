@@ -22,7 +22,7 @@ Mapping from entities to records at each stage has the potential to go quietly w
 - **Projection** — collapsing an entity to one row means deciding what its name *is*;
   picking an arbitrary row's value is a silent data bug.
 
-matchlab's resolver does all three (the "merge-forward" property), so you can trust resolution to be correct by construction.
+matchlab's resolver does all three (the "merge-forward" property), so you can trust its output to be correct by construction.
 
 ## Iterate fast
 
@@ -58,7 +58,7 @@ score it with no warehouse access and no copy of your pipeline — `matchlab rev
 entities --store run.duckdb`. They see what the data the matching actually saw, which is also
 the more correct thing to judge against than whatever the warehouse says today.
 
-matchlab also simplifies the export of a resolution as a lookup file translating and grouping IDs from different datasets. This can be written back to a data warehouse to allow analysts to easily deduplicate and link data from the warehouse that you have resolved for them.
+matchlab also simplifies the export of a resolver's output as a lookup file translating and grouping IDs from different datasets. This can be written back to a data warehouse to allow analysts to easily deduplicate and link data from the warehouse that you have resolved for them.
 
 
 ## Make your matching pipelines reproducible

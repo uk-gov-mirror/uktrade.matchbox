@@ -36,7 +36,7 @@ nav:
     - Interactive review: api/eval-tui.md
   - Core:
     - Schemas: api/core/schemas.md
-    - Resolution: api/core/resolution.md
+    - Resolver output: api/core/resolver_output.md
     - Exceptions: api/core/exceptions.md
     - Hashing: api/core/hash.md
     - Transform: api/core/transform.md

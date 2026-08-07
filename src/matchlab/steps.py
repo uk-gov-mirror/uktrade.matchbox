@@ -70,9 +70,9 @@ class Step(ABC):
         whoever needs it, `collect` to its reporter, `draw` to its own renderer.
 
         Finding a result later is a separate matter, and a separate act.
-        `Resolver.publish` points a **label** at a resolution. `Source` is the one step
-        with a name, and it means something else again. A source's name is part of its
-        output, prefixing every column it contributes and tagging its rows.
+        `Resolver.publish` points a **label** at a resolver's output. `Source` is the
+        one step with a name, and it means something else again. A source's name is
+        part of its output, prefixing every column it contributes and tagging its rows.
         """
         self.upstream = tuple(upstream)
         self._fp: Fingerprint | None = None
