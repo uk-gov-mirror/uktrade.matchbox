@@ -8,9 +8,18 @@ from matchlab.core.logging import logger
 
 
 def comparison(sql_condition: str, dialect: str = "postgres") -> str:
-    """Validates any number of SQL conditions and prepares for a WHERE clause.
+    """Validate a SQL WHERE-clause condition and recompile it for `dialect`.
 
-    Requires all column references be explicitly declared as from "l" and "r" tables.
+    Every column must be qualified with the alias `l` or `r`, the two sides a
+    [`Model`][matchlab.models.Model] compares. Raises `ParseError` if a column isn't
+    qualified this way, if the condition isn't a valid boolean expression, or if it
+    doesn't reference both sides.
+
+    `dialect` only changes how the validated condition renders back to SQL, not how
+    it's parsed, so `sql_condition` must already be syntax `sqlglot` can parse
+    without help.
+
+    Logs a warning for `OR` conditions, since DuckDB can't use an index to prune them.
     """
     parsed_sql = parse_one(sql_condition)
 

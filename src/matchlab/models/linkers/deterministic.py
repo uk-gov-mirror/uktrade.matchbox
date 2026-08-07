@@ -12,40 +12,35 @@ from matchlab.models.linkers.base import Linker, LinkerSettings
 
 
 class DeterministicSettings(LinkerSettings):
-    """A data class to enforce the Deterministic linker's settings dictionary shape."""
+    """Settings for `DeterministicLinker`."""
 
     comparisons: list[str] | list[list[str]] = Field(
         description="""
-            Comparison rules for matching using DuckDB SQL syntax.
-            
-            Can be specified as:
-            - A flat list of strings: All comparisons applied in parallel (OR logic)
-            - A nested list of lists: Sequential rounds of matching
-            
-            Flat list (parallel):
-            [
-                "left.company_number = right.company_number",
-                "left.name = right.name",
-            ]
-            All comparisons applied to full datasets, results unioned.
-            
-            Nested list (sequential rounds):
-            [
+            Match conditions, in DuckDB SQL. Qualify every column with `l` or `r`.
+
+            A flat list applies every condition in parallel, unioned with OR logic:
+
                 [
-                    "left.company_number = right.company_number",
-                    "left.name = right.name",
-                ],
+                    "l.company_number = r.company_number",
+                    "l.name = r.name",
+                ]
+
+            A nested list runs sequential rounds instead. Conditions within a round
+            use OR logic. After a round, matched records leave the pool before the
+            next round runs:
+
                 [
-                    "left.name_normalised = right.name_normalised",
-                    "left.website = right.website",
-                ],
-            ]
-            Each inner list is a "round". Within each round, comparisons use OR 
-            logic. After each round, matched records are removed from the pool 
-            before the next round.
-            
-            Use left.field and right.field to refer to columns in the respective 
-            sources. Supports all DuckDB SQL operations and functions.
+                    [
+                        "l.company_number = r.company_number",
+                        "l.name = r.name",
+                    ],
+                    [
+                        "l.name_normalised = r.name_normalised",
+                        "l.website = r.website",
+                    ],
+                ]
+
+            Supports any DuckDB SQL expression, not just equality.
         """,
     )
 
@@ -54,7 +49,7 @@ class DeterministicSettings(LinkerSettings):
     def validate_comparison(
         cls, value: str | list[str] | list[list[str]]
     ) -> list[list[str]]:
-        """Normalise to list of lists format."""
+        """Normalise to a list of rounds, and validate each comparison string."""
         if isinstance(value, str):
             return [[comparison(value, dialect="duckdb")]]
         if not value:
@@ -85,7 +80,7 @@ class DeterministicLinker(Linker):
     settings: DeterministicSettings
 
     def prepare(self, left: pl.DataFrame, right: pl.DataFrame) -> None:
-        """Prepare the linker for linking."""
+        """No preparation needed."""
         pass
 
     def link(self, left: pl.DataFrame, right: pl.DataFrame) -> pl.DataFrame:

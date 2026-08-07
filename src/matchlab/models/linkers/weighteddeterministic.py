@@ -9,19 +9,15 @@ from matchlab.models.linkers.base import Linker, LinkerSettings
 
 
 class WeightedComparison(BaseModel):
-    """A valid comparison and a weight to give it."""
+    """A comparison condition, and the weight it contributes to a pair's score."""
 
     comparison: str = Field(
         description="""
-            A valid ON clause to compare fields between the left and 
-            the right data.
+            A valid ON clause comparing fields between the left and the right data.
 
-            Use left.field and right.field to refer to fields in the 
-            respective sources.
+            Qualify every column with `l` or `r`. For example:
 
-            For example:
-
-            "left.company_name = right.company_name"
+            "l.company_name = r.company_name"
         """
     )
     weight: float = Field(
@@ -35,17 +31,15 @@ class WeightedComparison(BaseModel):
     @classmethod
     def validate_comparison(cls, v: str) -> str:
         """Validate the comparison string."""
-        comp_val = comparison(v)
+        comp_val = comparison(v, dialect="duckdb")
         return comp_val
 
 
 class WeightedDeterministicSettings(LinkerSettings):
-    """A data class to enforce the Weighted linker's settings dictionary shape.
+    """Settings for `WeightedDeterministicLinker`.
 
     Example:
         >>> {
-        ...     left_id: "hash",
-        ...     right_id: "hash",
         ...     weighted_comparisons: [
         ...         ("l.company_name = r.company_name", 0.7),
         ...         ("l.postcode = r.postcode", 0.7),
@@ -71,7 +65,7 @@ class WeightedDeterministicSettings(LinkerSettings):
 
 
 class WeightedDeterministicLinker(Linker):
-    """A deterministic linker that applies different weights to field comparisons."""
+    """Scores a pair by the weighted share of comparisons it matches on."""
 
     settings: WeightedDeterministicSettings
 
@@ -79,11 +73,14 @@ class WeightedDeterministicLinker(Linker):
     _id_dtype_r: pl.DataType
 
     def prepare(self, left: pl.DataFrame, right: pl.DataFrame) -> None:
-        """Prepare the linker for linking."""
+        """No preparation needed."""
         pass
 
     def link(self, left: pl.DataFrame, right: pl.DataFrame) -> pl.DataFrame:
-        """Link the left and right dataframes."""
+        """Score each pair by summed matching weight over total weight.
+
+        Keeps only pairs scoring at or above `settings.threshold`.
+        """
         self._id_dtype_l = left[self.settings.left_id].dtype
         self._id_dtype_r = right[self.settings.right_id].dtype
 

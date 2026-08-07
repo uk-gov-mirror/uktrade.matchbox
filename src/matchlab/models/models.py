@@ -35,7 +35,14 @@ def add_model_class(model_class: type[Linker] | type[Deduper]) -> None:
 
 
 def normalise_model_scores(scores: pl.DataFrame) -> pl.DataFrame:
-    """Validate and normalise model output scores."""
+    """Validate a methodology's raw output and cast it to `SCHEMA_MODEL_EDGES`.
+
+    Raises `ValueError` if `scores` isn't a `DataFrame` with exactly `left_id`,
+    `right_id`, and a numeric `score` in `[0.0, 1.0]`. An unordered pair can appear
+    twice, once as `(a, b)` and once as `(b, a)`. When that happens, this keeps only
+    the highest-scoring row and logs a warning, since a resolver expects one edge per
+    pair.
+    """
     if not isinstance(scores, pl.DataFrame):
         raise ValueError(f"Expected a polars DataFrame, got {type(scores)}.")
 
@@ -86,7 +93,7 @@ def normalise_model_scores(scores: pl.DataFrame) -> pl.DataFrame:
 
 
 class Model(Step):
-    """A deduper or linker over one or two cleaned views."""
+    """A step that runs one methodology (a Deduper or a Linker) over cleaned views."""
 
     kind: ClassVar[StepKind] = StepKind.MODEL
 

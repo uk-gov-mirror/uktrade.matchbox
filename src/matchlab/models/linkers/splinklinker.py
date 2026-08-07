@@ -142,18 +142,6 @@ class SplinkSettings(LinkerSettings):
     )
 
     @model_validator(mode="after")
-    def check_ids_match(self) -> "SplinkSettings":
-        """Ensure left_id and right_id match."""
-        l_id = self.left_id
-        r_id = self.right_id
-        if l_id is not None and r_id is not None and l_id != r_id:
-            raise ValueError(
-                "Left and right ID do not match. "
-                "left_id and right_id must match in a Splink linker."
-            )
-        return self
-
-    @model_validator(mode="after")
     def check_link_only(self) -> "SplinkSettings":
         """Ensure link_type is set to "link_only"."""
         if self.linker_settings.link_type != "link_only":
@@ -192,7 +180,11 @@ class SplinkLinker(Linker):
     _id_dtype_r: pl.DataType
 
     def prepare(self, left: pl.DataFrame, right: pl.DataFrame) -> None:
-        """Prepare the linker for linking."""
+        """Build the Splink linker over left and right, and run its training functions.
+
+        Runs each function in `settings.linker_training_functions`, in order, against
+        the built linker. `link()` then just predicts against the trained state.
+        """
         if (set(left.columns) != set(right.columns)) or not left.dtypes == right.dtypes:
             raise ValueError(
                 "SplinkLinker requires input data to be conformant, meaning they "
@@ -224,7 +216,12 @@ class SplinkLinker(Linker):
     def link(
         self, left: pl.DataFrame = None, right: pl.DataFrame = None
     ) -> pl.DataFrame:
-        """Link the left and right dataframes."""
+        """Predict match scores using the linker trained in `prepare()`.
+
+        `left`/`right` are accepted only to satisfy the `Linker` contract. The data
+        was already fixed when `prepare()` built the underlying Splink linker, so
+        passing values here logs a warning and has no effect.
+        """
         if left is not None or right is not None:
             logger.warning(
                 "Left and right data are declared in .prepare() for SplinkLinker. "
@@ -258,7 +255,7 @@ class SplinkLinker(Linker):
                 ]
             )
             .select(["left_id", "right_id", "score"])
-            # Mutiple blocking rules can lead to multiple matches
+            # Multiple blocking rules can lead to multiple matches
             .group_by(["left_id", "right_id"])
             .agg(pl.col("score").max())
             .collect()

@@ -6,14 +6,14 @@ code and documentation.
 ## Adapter
 
 Where a plan's artifacts are stored and read back, keyed by [fingerprint](#fingerprint).
-An adapter is storage, not an engine — it does not resolve anything itself.
+An adapter is storage, not an engine. It does not resolve anything itself.
 `DuckDBAdapter` is the reference implementation, backing a single DuckDB database file
 (or `:memory:`).
 
 ## Artifact
 
-The stored output of one [step](#step): a source's [extract](#extract) and leaf
-assignment, a view's materialised table, a model's edge list, or a
+The stored output of one [step](#step), such as a source's [extract](#extract) and
+leaf assignment, a view's materialised table, a model's edge list, or a
 [resolver](#resolver)'s complete, merge-forward output. A [store](#store) keeps every
 artifact it is given until something explicitly [trims](#trim) it.
 
@@ -27,7 +27,7 @@ to a collected plan runs only the new one. See [content-addressed](#content-addr
 
 Identified by what it is, not by when or how it was built. A step's
 [fingerprint](#fingerprint) comes from its own configuration and its inputs'
-fingerprints, so the same plan always keys the same artifact — collecting it twice
+fingerprints, so the same plan always keys the same artifact. Collecting it twice
 reads the cached one back rather than recomputing it.
 
 ## Entity
@@ -60,15 +60,16 @@ rather than a key, is what a judgement endorses or rejects.
 
 A pointer from a name someone chose to a [resolver](#resolver)'s
 [fingerprint](#fingerprint), created by `publish()`. A label belongs to the store, not
-the plan — it can be re-aimed at a different resolver, whereas a source's `name` is
+the plan. It can be re-aimed at a different resolver, whereas a source's `name` is
 part of that source's own output and never moves.
 
 ## Leaf
 
-The stable ID of one record — a hash of its content, not its key. Identity coming from
-content rather than key is why a leaf ID changes only when the underlying data does,
-which is the basis matchlab anchors evaluation judgements to. Reading a source or view
-directly, without going through a resolver, exposes the leaf as the `id` column.
+The stable ID of one record, a hash of its content rather than its key. Identity
+coming from content rather than key is why a leaf ID changes only when the underlying
+data does, which is the basis matchlab anchors evaluation judgements to. Reading a
+source or view directly, without going through a resolver, exposes the leaf as the
+`id` column.
 
 ## Merge-forward
 
@@ -78,16 +79,25 @@ record no model touches keeps its upstream grouping, or becomes a singleton, rat
 than vanishing. matchlab's resolvers materialise this complete table once, at collect
 time, rather than resolving on demand.
 
+## Methodology
+
+The matching algorithm a [model](#model) or [resolver](#resolver) step runs. Models
+run `NaiveDeduper`, `DeterministicLinker`, `SplinkLinker`, or
+`WeightedDeterministicLinker`. Resolvers run connected components. A model wraps one
+methodology, chosen by `model_class`, using a **Deduper** to match within one view or
+a **Linker** to match between two. Swapping the methodology only means changing
+`model_class` (or `resolver_class`), never restructuring the plan around it.
+
 ## Model
 
-A step that scores candidate matches: `.dedupe()` within one view, or `.link()` between
-two. A model produces edges, not clusters — turning edges into entities is a
-[resolver's](#resolver) job.
+A step that scores candidate matches by running one [methodology](#methodology),
+either `.dedupe()` within one view or `.link()` between two. A model produces edges,
+not clusters. Turning edges into entities is a [resolver's](#resolver) job.
 
 ## Plan
 
 A tree of [steps](#step). Each step holds a reference to its own inputs, so the step
-you are holding is the pipeline — there is no separate object to register steps with.
+you are holding is the pipeline. There is no separate object to register steps with.
 Nothing runs until you [collect](#collect) it.
 
 ## Position
@@ -112,41 +122,41 @@ A step that collapses a model's scored edges into clusters, one per [entity](#en
 complete and [merge-forward](#merge-forward).
 
 Call this a **Resolver**, or its **merge-forwarded Resolver output** if you mean the
-stored table specifically. Don't call it "a resolution" — that noun has been retired.
+stored table specifically. Don't call it "a resolution". That noun has been retired.
 
 ## Root
 
-The ID of a cluster a resolver produces — a hash of the sorted set of [leaf](#leaf) IDs
+The ID of a cluster a resolver produces, a hash of the sorted set of [leaf](#leaf) IDs
 it contains. Two runs that produce the same clustering produce the same root ID,
 whatever order the underlying algorithm found its clusters in. Reading a view through a
 resolver exposes the root as the `id` column, so several records can share one `id`.
 
 ## Source
 
-Where a plan starts: a warehouse query, plus the column that keys it. Every column the
+The warehouse query a plan starts from, plus the column that keys it. Every column the
 query returns is part of a record's identity, so two rows are the same record exactly
 when the query returns identical values for both.
 
 ## Step
 
-One node in a [plan](#plan): a source, view, model, or resolver. A step's kind decides
-what it produces, and what [artifact](#artifact) a store keeps for it.
+One node in a [plan](#plan). Steps are sources, views, models, or resolvers. A step's
+kind decides what it produces, and what [artifact](#artifact) a store keeps for it.
 
 ## Store
 
-Where a plan's artifacts live once collected — the reference implementation is a
+Where a plan's artifacts live once collected. The reference implementation is a
 DuckDB database. A store keeps everything given to it until something explicitly
 [trims](#trim) it or the file is deleted.
 
 ## Trim
 
 Delete every artifact except the ones named or published, and reclaim the space that
-frees. For a file-backed store this rewrites the file, because deleting rows inside it
-does not return space to the operating system.
+frees. A file-backed store's trim rewrites the file itself, because deleting rows
+inside it does not return space to the operating system.
 
 ## View
 
 A step that says which records a model matches over, and what shape they're in. Only
-the columns named in its cleaning survive, plus `id` — the grouping the model matches
+the columns named in its cleaning survive, plus `id`, the grouping the model matches
 on.
 
