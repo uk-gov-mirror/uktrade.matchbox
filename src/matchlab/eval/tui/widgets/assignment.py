@@ -34,7 +34,7 @@ class AssignmentBar(Static):
         """Reset the bar with a new number of positions.
 
         Args:
-            num_positions: The number of columns to represent
+            num_positions: The number of columns to represent.
         """
         self.positions = [None] * num_positions
         self._render_bar()
@@ -43,9 +43,9 @@ class AssignmentBar(Static):
         """Set a position to a letter and colour.
 
         Args:
-            index: The position index to set
-            letter: The group letter (a-z)
-            colour: The colour name for the group
+            index: The position index to set.
+            letter: The group letter (a-z).
+            colour: The colour name for the group.
         """
         if 0 <= index < len(self.positions):
             self.positions[index] = GroupSelect(letter, colour)
@@ -61,7 +61,7 @@ class AssignmentBar(Static):
         for i, pos in enumerate(self.positions):
             colour = "dim" if pos is None else pos.colour
 
-            # Add the character (letter if new block, else ■)
+            # Show the letter only where a block starts, otherwise •
             if pos is None or (i > 0 and self.positions[i - 1] == pos):
                 char = "•"
             else:

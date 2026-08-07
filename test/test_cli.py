@@ -145,17 +145,17 @@ def test_several_targets_are_reviewed_together(
     """Naming two resolvers reviews their merged clusters: one session judges both."""
     captured: dict = {}
 
-    def fake_review(resolution: object, **kwargs: object) -> None:
-        captured["resolution"] = resolution
+    def fake_review(resolver: object, **kwargs: object) -> None:
+        captured["resolver"] = resolver
         captured.update(kwargs)
 
     monkeypatch.setattr("matchlab.eval.review", fake_review)
 
     main(["review", f"{pipeline}:entities", f"{pipeline}:entities"])
 
-    assert isinstance(captured["resolution"], list)
-    assert len(captured["resolution"]) == 2
-    assert all(isinstance(one, Resolver) for one in captured["resolution"])
+    assert isinstance(captured["resolver"], list)
+    assert len(captured["resolver"]) == 2
+    assert all(isinstance(one, Resolver) for one in captured["resolver"])
 
 
 def test_logging_is_redirected_to_a_file(tmp_path: Path) -> None:

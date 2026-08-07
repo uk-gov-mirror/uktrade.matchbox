@@ -1,4 +1,4 @@
-"""Common operations to produce model evaluation scores."""
+"""Score a resolver's clusters against stored human judgements."""
 
 from itertools import chain, combinations
 from typing import TypeAlias
@@ -16,32 +16,34 @@ def precision_recall(
     judgements: pl.DataFrame,
     expansion: pl.DataFrame,
 ) -> list[PrecisionRecall]:
-    """From models and eval data, compute scores inspired by precision-recall.
+    """Compute precision and recall for each model's clusters against judgements.
 
-    This function does the following:
+    The function turns both model clusters and judgements into pairs of leaves, then
+    compares them:
 
-    - Convert model and judgement clusters to implied pair-wise connections.
-        For judgments, this includes the pairs shown to users, but rejected.
-        Sum how many times pairs were endorsed (+1) or rejected (-1).
-    - Keep only the pairs where leaves are present in all models and in the judgements,
-    so the comparison is fair.
-    - If a validation pair was rejected as many times as it was endorsed, discard it
-        from both model and validation pairs.
-    - If a validation pair was rejected more times than it was endorsed, remove it from
-        validation pairs, but keep it in model pairs.
-    - Precision and recall are computed for each model against validation pairs.
+    - Convert each model's clusters and the judgements into pairwise connections
+      between leaves. For judgements, this includes pairs the user was shown but
+      rejected, not just the ones they endorsed. Each pair's net score is the number
+      of times it was endorsed, minus the number of times it was rejected.
+    - Keep only pairs whose leaves appear in every model and in the judgements, so
+      each model is compared over the same data.
+    - Drop a pair from both model and validation pairs if it was rejected as often as
+      it was endorsed. If it was rejected more often than endorsed, drop it from
+      validation pairs only, and keep it in model pairs.
+    - Compute precision and recall for each model against the remaining validation
+      pairs.
 
-    At the moment, this function ignores user IDs.
+    This ignores user IDs, so judgements are not yet weighted by reviewer.
 
     Args:
-        models_root_leaf: list of tables with root and leaf columns, one per model.
-            They must include all the clusters that resolve from a model, all the way
-            to the original source clusters if no model in the lineage merged them.
-        judgements: Dataframe following `SCHEMA_JUDGEMENTS`.
-        expansion: Dataframe following `SCHEMA_CLUSTER_EXPANSION`.
+        models_root_leaf: One `(root, leaf)` table per model. Each must be
+            merge-forward, including every leaf reachable from the model's inputs,
+            even ones no model touched, which appear as their own root.
+        judgements: Table following `SCHEMA_JUDGEMENTS`.
+        expansion: Table following `SCHEMA_CLUSTER_EXPANSION`.
 
     Returns:
-        List of tuples of precision and recall scores, one per model.
+        One `(precision, recall)` pair per model, in the order given.
     """
     leaves_per_set: list[set[int]] = []  # one entry for each model, one for judgements
     pairs_per_model: list[Pairs] = []
@@ -71,9 +73,9 @@ def precision_recall(
     )
     leaves_per_set.append(validation_leaves)
 
-    # Filter pairs based on overlap between leaves
-    # For example, if model1 has (1,2),(1,3),(2,3); model2 has (1,10),(2,20);
-    # judgements have (1),(2,3); then only keep (1,2)
+    # Filter pairs to the leaves shared by every model and the judgements. For
+    # example, if model1 has (1,2), (1,3), (2,3), model2 has (1,10), (2,20), and
+    # judgements have (1), (2,3), only (1,2) is kept.
     shared_leaves = set.intersection(*leaves_per_set)
 
     for i, model_pairs in enumerate(pairs_per_model):
@@ -119,32 +121,31 @@ def precision_recall(
 def process_judgements(
     judgements: pl.DataFrame, expansion: pl.DataFrame
 ) -> tuple[Pairs, dict[Pair, float], set[int]]:
-    """Convert judgements to pairs, net counts per pair, and set of source cluster IDs.
+    """Turn judgements into leaf pairs, a net score per pair, and the leaves shown.
 
-    In general, pairs include all (sorted) pair-wise combinations of elements in a list
-    of cluster IDs. For example, (123) will give us (1,2), (1,3), (2,3). We, however,
-    need to capture the difference between when a user is shown (12) and endorses (12),
-    vs. when the user is shown (123) and endorses (12). In the second case, the user
-    implies a negative judgement over pairs (1,3) and (2,3). We return the net value of
-    pairs by summing 1 for an endorsement and subtracting 1 for a rejection.
+    Expanding a cluster's leaves into every sorted pair is not quite enough on its
+    own. When a user is shown (123) and endorses (12), they also reject pairs (1,3)
+    and (2,3), not just endorse (1,2). Each pair's net score sums +1 for every
+    endorsement and -1 for every rejection implied this way.
 
-    This function relies on the input data being well-formed. For example,
+    This function assumes well-formed input:
 
-    - All shown cluster IDs need to have an expansion.
-    - All endorsed cluster IDs need to have an expansion, unless they're leaves.
-    - No partial splintered clusters, i.e. if (123)->(12) is in the data, (123)->(3)
-        must be as well.
+    - Every shown cluster ID has a matching row in `expansion`.
+    - Every endorsed cluster ID has a matching row in `expansion`, unless it is a
+      single leaf.
+    - No cluster is split across judgement rows unless every other part is expanded
+      too. For example, if (123)->(12) appears, (123)->(3) must appear too.
 
     Args:
-        judgements: Dataframe following `SCHEMA_JUDGEMENTS`.
-        expansion: Dataframe following `SCHEMA_CLUSTER_EXPANSION`.
+        judgements: Table following `SCHEMA_JUDGEMENTS`.
+        expansion: Table following `SCHEMA_CLUSTER_EXPANSION`.
 
     Returns:
-        Tuple of:
+        A tuple of:
 
-        - Set of pairs, for all endorsements and rejections.
-        - Dict mapping pairs to net (positive or negative) number of judgements.
-        - Set of all cluster IDs shown to users.
+        - Every pair implied by an endorsement or a rejection.
+        - Each pair's net score, where positive means endorsed more than rejected.
+        - Every leaf ID shown to a user.
     """
     expanded_judgements = (
         judgements.join(expansion, left_on="shown", right_on="root")
@@ -153,7 +154,7 @@ def process_judgements(
             expansion, left_on="endorsed", right_on="root", how="left"
         )  # left join as singleton leaves won't be expanded
         .rename({"leaves": "endorsed_leaves"})
-        # If missing expansion, assume we're dealing with singleton leaves
+        # Assume a missing expansion means a singleton leaf
         .with_columns(
             pl.when(pl.col("endorsed_leaves").is_null())
             .then(
@@ -183,46 +184,43 @@ def process_judgements(
         potential_pairs = set(combinations(sorted(shown), r=2))
         negative_pairs = potential_pairs - positive_pairs
 
-        # -- EXAMPLE --
-        # User is shown cluster (1234) and endorses three groups: (1), (23), and (4).
-        # This means: pair (2,3) is GOOD, but (1,2), (1,3), (1,4), (2,4), (3,4) are BAD.
-        # We want to return: +1 for (2,3), -1 for each rejected pair.
+        # -- WORKED EXAMPLE --
+        # A user is shown cluster (1234) and endorses three groups: (1), (23), (4).
+        # This makes pair (2,3) good, and (1,2), (1,3), (1,4), (2,4), (3,4) bad.
+        # Target result: +1 for (2,3), -1 for every bad pair.
 
-        # THE CHALLENGE: Data arrives as separate rows, not as a complete judgement
-        # Instead of one row with the full judgement, we get 3 separate rows:
-        # Row A: [shown: (1234), endorsed: (1)]
-        # Row B: [shown: (1234), endorsed: (23)]
-        # Row C: [shown: (1234), endorsed: (4)]
-        # These rows might be mixed with other users' judgements!
+        # The data does not arrive as one row holding the whole judgement. It arrives
+        # as one row per endorsed group, and these rows can be mixed with other users'
+        # judgements:
+        #   Row A: shown (1234), endorsed (1)
+        #   Row B: shown (1234), endorsed (23)
+        #   Row C: shown (1234), endorsed (4)
+        # Each row below is scored on its own. The partial scores still add up to the
+        # right total, whatever order the rows arrive in.
 
-        # THE SOLUTION: Process each row individually using weighted scoring
+        # Row A: shown (1234), endorsed (1)
+        # - Potential pairs: (1,2) (1,3) (1,4) (2,3) (2,4) (3,4).
+        # - Endorsed pairs: none. A single item forms no pair.
+        # - Every potential pair is tentatively rejected, weight -1/4, because this
+        #   endorsed group holds 1 of the 4 shown items.
+        # - Running scores: all pairs = -0.25.
 
-        # Processing Row A: [shown: (1234), endorsed: (1)]
-        # - We see potential pairs: (1,2), (1,3), (1,4), (2,3), (2,4), (3,4)
-        # - We see endorsed pairs: none (single item can't form pairs)
-        # - We tentatively reject ALL potential pairs with weight -1/4
-        #   (Why 1/4? Because this endorsed group has 1 item out of 4 total items)
-        # - Current scores: all pairs = -0.25
+        # Row B: shown (1234), endorsed (23)
+        # - Endorsed pair (2,3) gets +1, plus +2/4 to cancel the rejection weight it
+        #   took in rows A and C, the non-endorsed share of this group.
+        #   Total for (2,3): +1 + 0.5 = +1.5.
+        # - Remaining rejected pairs take a further -2/4 = -0.5.
+        # - Running scores: (2,3) = -0.25 + 1.5 = +1.25, others = -0.25 - 0.5 = -0.75.
 
-        # Processing Row B: [shown: (1234), endorsed: (23)]
-        # - Potential pairs: same as before
-        # - Endorsed pairs: (2,3)
-        # - For endorsed pair (2,3): Add +1, PLUS compensation for negative scoring from
-        #   other rows for this judgement (i.e. Row A and Row C)
-        #   Compensation = +2/4 (non-endorsed group size / total size)
-        #   Final addition: +1 + 0.5 = +1.5
-        # - For rejected pairs: Add more negative weight = -2/4 = -0.5
-        # - Current scores: (2,3) = -0.25 + 1.5 = +1.25, others = -0.25 - 0.5 = -0.75
+        # Row C: shown (1234), endorsed (4)
+        # - Final -1/4 rejection weight lands on every potential pair.
+        # - Final scores: (2,3) = +1.25 - 0.25 = +1.0, others = -0.75 - 0.25 = -1.0.
 
-        # Processing Row C: [shown: (1234), endorsed: (4)]
-        # - Add final negative weight of -1/4 to all potential pairs
-        # - Final scores: (2,3) = +1.25 - 0.25 = +1.0, others = -0.75 - 0.25 = -1.0
+        # Result: (2,3) nets +1, matching the endorsement, and every rejected pair
+        # nets -1, whatever order the rows arrive in or however they interleave with
+        # other judgements, as long as no cluster is split without expanding its
+        # other part too.
 
-        # RESULT: Perfect! (2,3) gets +1 (endorsed), rejected pairs get -1 each.
-        # The maths works regardless of row order or interleaving with other judgements
-        # as long as no partial or splintered clusters are present.
-
-        # As in the example above:
         # Subtract negative weight for all shown pairs not endorsed on this row
         negative_adjustment = len(endorsed) / len(shown)
         validation_net_count.update(

@@ -1,4 +1,4 @@
-"""Sampling and scoring across more than one resolution.
+"""Sampling and scoring across more than one resolver.
 
 Scenario — one source, two ways of deduplicating it:
 
@@ -85,18 +85,18 @@ def _leaves(resolver: Resolver) -> dict[str, int]:
 # -- merged sampling ------------------------------------------------------------------
 
 
-def test_one_resolution_samples_its_own_clusters(by_company: Resolver) -> None:
-    samples = get_samples(n=999, resolution=by_company)
+def test_one_resolver_samples_its_own_clusters(by_company: Resolver) -> None:
+    samples = get_samples(n=999, resolver=by_company)
 
     assert sorted(len(item.leaves) for item in samples.values()) == [1, 2]
 
 
-def test_several_resolutions_sample_their_merged_clusters(
+def test_several_resolvers_sample_their_merged_clusters(
     by_company: Resolver, by_town: Resolver
 ) -> None:
-    """The union: two records land together if *either* resolution put them there.
+    """The union: two records land together if *either* resolver put them there.
 
-    Individually each resolution splits the source into a pair and a singleton, and
+    Individually each resolver splits the source into a pair and a singleton, and
     they disagree about which. Merged, everything is connected — which is the point:
     every cluster where the two could differ is on screen, so one judgement settles it
     for both, and neither gets to choose the clusters it is scored on.
@@ -107,7 +107,7 @@ def test_several_resolutions_sample_their_merged_clusters(
     ]
     assert sorted(len(s.leaves) for s in get_samples(999, by_town).values()) == [1, 2]
 
-    merged = get_samples(n=999, resolution=[by_company, by_town])
+    merged = get_samples(n=999, resolver=[by_company, by_town])
 
     assert len(merged) == 1
     item = next(iter(merged.values()))
@@ -118,13 +118,13 @@ def test_merged_roots_are_content_addressed(
     by_company: Resolver, by_town: Resolver
 ) -> None:
     """Two people running the same comparison key on the same IDs."""
-    once = get_samples(n=999, resolution=[by_company, by_town])
-    twice = get_samples(n=999, resolution=[by_town, by_company])
+    once = get_samples(n=999, resolver=[by_company, by_town])
+    twice = get_samples(n=999, resolver=[by_town, by_company])
 
     assert set(once) == set(twice)
 
 
-def test_resolutions_over_different_source_artifacts_are_rejected(
+def test_resolvers_over_different_source_artifacts_are_rejected(
     warehouse: Engine,
 ) -> None:
     """Same source *name*, different data — so the clusters are not comparable.
@@ -138,12 +138,12 @@ def test_resolutions_over_different_source_artifacts_are_rejected(
     ).collect()
 
     with pytest.raises(SourceTableError, match="disagree about source 'crn'"):
-        get_samples(n=999, resolution=[wide, narrow])
+        get_samples(n=999, resolver=[wide, narrow])
 
 
 def test_an_empty_sequence_is_an_error(by_company: Resolver) -> None:
-    with pytest.raises(ValueError, match="At least one resolution"):
-        get_samples(n=1, resolution=[])
+    with pytest.raises(ValueError, match="At least one resolver"):
+        get_samples(n=1, resolver=[])
 
 
 # -- seeding --------------------------------------------------------------------------
@@ -151,8 +151,8 @@ def test_an_empty_sequence_is_an_error(by_company: Resolver) -> None:
 
 def test_a_seed_fixes_which_clusters_come_back(by_company: Resolver) -> None:
     """What replaced passing a dumped sample file around."""
-    first = get_samples(n=1, resolution=by_company, seed=7)
-    again = get_samples(n=1, resolution=by_company, seed=7)
+    first = get_samples(n=1, resolver=by_company, seed=7)
+    again = get_samples(n=1, resolver=by_company, seed=7)
     assert set(first) == set(again)
 
 
@@ -160,8 +160,8 @@ def test_a_seed_fixes_the_merged_sample_too(
     by_company: Resolver, by_town: Resolver
 ) -> None:
     merged = [by_company, by_town]
-    assert set(get_samples(n=1, resolution=merged, seed=7)) == set(
-        get_samples(n=1, resolution=merged, seed=7)
+    assert set(get_samples(n=1, resolver=merged, seed=7)) == set(
+        get_samples(n=1, resolver=merged, seed=7)
     )
 
 

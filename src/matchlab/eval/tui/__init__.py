@@ -3,7 +3,7 @@
 `review()` opens a terminal app showing one cluster at a time: the records that were
 grouped together, laid out so you can see what matched. You paint them into groups and
 each decision is stored as a `Judgement`, which `EvalData.precision_recall` then scores
-a resolution against.
+a resolver against.
 
 `app` is imported inside `review()` rather than here, so that importing `matchlab.eval`
 for its scoring helpers doesn't pay for Textual's import.
@@ -14,11 +14,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from matchlab.adapters import Adapter
-    from matchlab.eval.samples import Resolution
+    from matchlab.eval.samples import ResolverRef
 
 
 def review(
-    resolution: "Resolution | Sequence[Resolution]",
+    resolver: "ResolverRef | Sequence[ResolverRef]",
     n: int = 5,
     adapter: "Adapter | None" = None,
     tag: str | None = None,
@@ -27,9 +27,9 @@ def review(
 ) -> None:
     """Review resolved clusters interactively, recording judgements.
 
-    Takes either a live `Resolver` — collected first if it isn't already — or the
-    *name* of a resolution already in a store. The second form needs no plan and no
-    warehouse: record values come from the extract cached when each source was
+    Takes either a live `Resolver`, collected first if it isn't already, or the
+    *name* of a resolver already published in a store. The second form needs no plan
+    and no warehouse. Record values come from the extract cached when each source was
     collected, which is the data the matching actually saw.
 
     ```python
@@ -39,7 +39,7 @@ def review(
     ```
 
     Args:
-        resolution: The resolver whose clusters to review, or the name one was
+        resolver: The resolver whose clusters to review, or the name one was
             published under. Pass several and you review their merged components, so
             one session's judgements score every one of them.
         n: How many clusters to hold in the queue at once.
@@ -54,7 +54,7 @@ def review(
     from matchlab.eval.tui.app import EntityResolutionApp  # noqa: PLC0415 - lazy
 
     EntityResolutionApp(
-        resolution=resolution,
+        resolver=resolver,
         num_samples=n,
         adapter=adapter,
         session_tag=tag,

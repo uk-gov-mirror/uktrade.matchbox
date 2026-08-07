@@ -7,37 +7,35 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class Judgement(BaseModel):
-    """User determination on how to group source clusters from a model cluster."""
+    """A user's decision on how one reviewed cluster's leaves split into entities."""
 
     tag: str | None = None
     shown: list[int] = Field(
-        description="IDs of the source clusters shown to user at once"
+        description="Leaf IDs of the whole cluster shown to the user"
     )
     endorsed: list[list[int]] = Field(
-        description="""Groups of source cluster IDs that user thinks belong together"""
+        description="Leaf IDs the user grouped together, one list per endorsed entity"
     )
 
     @model_validator(mode="after")
     def check_no_duplicates(self) -> Self:
-        """Ensure no cluster IDs are repeated in the endorsement."""
+        """Reject leaf IDs repeated within `shown`, or within `endorsed`."""
         if len(self.shown) != len(set(self.shown)):
-            raise ValueError("One or more cluster IDs were repeated in the shown data")
+            raise ValueError("One or more leaf IDs were repeated in the shown data")
         concat_ids = list(chain(*self.endorsed))
         if len(concat_ids) != len(set(concat_ids)):
             raise ValueError(
-                "One or more cluster IDs were repeated in the endorsement data"
+                "One or more leaf IDs were repeated in the endorsement data"
             )
 
         return self
 
     @model_validator(mode="after")
     def check_consistency(self) -> Self:
-        """Ensure union of endorsed clusters matches shown cluster."""
+        """Check that `endorsed`'s leaves are exactly the ones in `shown`."""
         all_shown = set(self.shown)
         all_endorsed = set(chain(*self.endorsed))
         if all_shown != all_endorsed:
-            raise ValueError(
-                "Inconsistent source cluster IDs between shown and endorsed clusters"
-            )
+            raise ValueError("Inconsistent leaf IDs between shown and endorsed")
 
         return self

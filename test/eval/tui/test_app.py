@@ -59,9 +59,7 @@ def resolver(warehouse: Engine) -> Resolver:
 
 def _app(resolver: Resolver, **kwargs: object) -> EntityResolutionApp:
     # Debouncing is a UI nicety that only makes tests wait.
-    return EntityResolutionApp(
-        resolution=resolver, scroll_debounce_delay=None, **kwargs
-    )
+    return EntityResolutionApp(resolver=resolver, scroll_debounce_delay=None, **kwargs)
 
 
 async def test_the_app_loads_clusters_from_a_collected_resolver(
@@ -108,7 +106,7 @@ async def test_a_judgement_reaches_the_adapter(
     assert judgements.height > 0
     assert expansion.height > 0
 
-    # And it scores: judged pairs are compared against the resolution.
+    # And it scores: judged pairs are compared against the resolver's output.
     precision, recall = EvalData(adapter, tag="review-test").precision_recall(resolver)
     assert 0.0 <= precision <= 1.0
     assert 0.0 <= recall <= 1.0
@@ -178,7 +176,7 @@ async def test_a_store_can_be_reviewed_without_the_plan(
     assert store.labels() == ["entities"]
 
     app = EntityResolutionApp(
-        resolution="entities", adapter=store, scroll_debounce_delay=None
+        resolver="entities", adapter=store, scroll_debounce_delay=None
     )
     async with app.run_test():
         assert app.current_item is not None
@@ -188,10 +186,10 @@ async def test_a_store_can_be_reviewed_without_the_plan(
     store.close()
 
 
-def test_a_resolver_and_its_label_reach_the_same_resolution(
+def test_a_resolver_and_its_label_reach_the_same_resolver(
     resolver: Resolver, adapter: DuckDBAdapter
 ) -> None:
-    """One parameter, two ways of saying which resolution — and they agree.
+    """One parameter, two ways of saying which resolver — and they agree.
 
     The object and the label differ only in how the fingerprint is found, so nothing
     downstream needs to know which was given.
@@ -201,8 +199,8 @@ def test_a_resolver_and_its_label_reach_the_same_resolution(
     resolver.collect(adapter).publish("entities")
 
     # Sampling is random per call, so compare the whole population rather than a draw.
-    by_object = get_samples(n=999, resolution=resolver, adapter=adapter)
-    by_label = get_samples(n=999, resolution="entities", adapter=adapter)
+    by_object = get_samples(n=999, resolver=resolver, adapter=adapter)
+    by_label = get_samples(n=999, resolver="entities", adapter=adapter)
     assert by_object and set(by_object) == set(by_label)
 
 
@@ -214,4 +212,4 @@ async def test_an_unknown_label_lists_what_is_there(
 
     resolver.collect()
     with pytest.raises(SourceTableError, match="under the label 'nope'"):
-        get_samples(n=1, resolution="nope", adapter=adapter)
+        get_samples(n=1, resolver="nope", adapter=adapter)

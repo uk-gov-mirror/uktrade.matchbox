@@ -12,10 +12,10 @@ An adapter is storage, not an engine — it does not resolve anything itself.
 
 ## Artifact
 
-The stored output of one [step](#step): a source's extract and leaf assignment, a
-view's materialised table, a model's edge list, or a resolver's complete resolution. A
-[store](#store) keeps every artifact it is given until something explicitly
-[trims](#trim) it.
+The stored output of one [step](#step): a source's [extract](#extract) and leaf
+assignment, a view's materialised table, a model's edge list, or a
+[resolver](#resolver)'s complete, merge-forward output. A [store](#store) keeps every
+artifact it is given until something explicitly [trims](#trim) it.
 
 ## Collect
 
@@ -35,18 +35,33 @@ reads the cached one back rather than recomputing it.
 The real-world thing several records refer to. A [resolver](#resolver) groups records
 under one [root](#root) ID when it decides they describe the same entity.
 
+## Extract
+
+The rows a [source](#source)'s query returns, cached exactly as read so they can be
+read back without another trip to the warehouse. A source's [fingerprint](#fingerprint)
+folds in a hash of its extract, so a changed warehouse produces a new fingerprint
+rather than silently reusing stale data.
+
 ## Fingerprint
 
 The 32-byte SHA-256 digest that keys a step's stored [artifact](#artifact). Two steps
 with identical configuration and identical input fingerprints hash to the same
 fingerprint, which is what makes a store [content-addressed](#content-addressed).
 
+## Judgement
+
+A person's decision that one reviewed cluster's records do, or do not, describe the
+same [entity](#entity), recorded by matchlab's evaluation tools and scored against a
+[resolver](#resolver)'s clusters. A judgement is anchored to the content a reviewer was
+shown, not to any record's key, which is why a [leaf](#leaf) ID, a hash of content,
+rather than a key, is what a judgement endorses or rejects.
+
 ## Label
 
-A pointer from a name someone chose to a resolution's [fingerprint](#fingerprint),
-created by `publish()`. A label belongs to the store, not the plan — it can be re-aimed
-at a different resolution, whereas a source's `name` is part of that source's own
-output and never moves.
+A pointer from a name someone chose to a [resolver](#resolver)'s
+[fingerprint](#fingerprint), created by `publish()`. A label belongs to the store, not
+the plan — it can be re-aimed at a different resolver, whereas a source's `name` is
+part of that source's own output and never moves.
 
 ## Leaf
 
@@ -57,11 +72,11 @@ directly, without going through a resolver, exposes the leaf as the `id` column.
 
 ## Merge-forward
 
-The guarantee that a resolver's stored resolution carries forward every record
-reachable from its inputs, not just the ones its own models formed edges over. A record
-no model touches keeps its upstream grouping, or becomes a singleton, rather than
-vanishing. matchlab's resolvers materialise this complete table once, at collect time,
-rather than resolving on demand.
+The guarantee that a [resolver](#resolver)'s stored output carries forward every
+record reachable from its inputs, not just the ones its own models formed edges over. A
+record no model touches keeps its upstream grouping, or becomes a singleton, rather
+than vanishing. matchlab's resolvers materialise this complete table once, at collect
+time, rather than resolving on demand.
 
 ## Model
 
@@ -83,11 +98,21 @@ logs (`[step 5]`). Steps have no names, so position is how a log line, a drawn t
 or drawing starts from, so a sub-plan numbers its steps differently from the full plan
 it came from.
 
+## Qualify
+
+Prefix a column name with its [source](#source)'s name (`first_name` becomes
+`crn_first_name`), so the same field from two sources can sit side by side without
+colliding. A qualified column's prefix must parse as a valid identifier, which is why a
+source's `name` is restricted to safe characters.
+
 ## Resolver
 
 A step that collapses a model's scored edges into clusters, one per [entity](#entity).
-`.resolve()` defaults to connected components. A resolver's stored resolution is always
+`.resolve()` defaults to connected components. A resolver's stored output is always
 complete and [merge-forward](#merge-forward).
+
+Call this a **Resolver**, or its **merge-forwarded Resolver output** if you mean the
+stored table specifically. Don't call it "a resolution" — that noun has been retired.
 
 ## Root
 

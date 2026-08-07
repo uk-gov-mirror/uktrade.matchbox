@@ -1,4 +1,9 @@
-"""Main application for entity resolution evaluation."""
+"""Textual app that drives `review()`.
+
+`EvaluationQueue` holds the sampled clusters still to review, always processing from
+the front. `EntityResolutionApp` composes the UI, handles key bindings, and turns a
+fully painted cluster into a `Judgement` on submit.
+"""
 
 import logging
 from collections import deque
@@ -23,16 +28,13 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from matchlab.adapters import Adapter
-    from matchlab.eval.samples import Resolution
+    from matchlab.eval.samples import ResolverRef
 
 logger = logging.getLogger(__name__)
 
 
 class CLIEvaluationSession(BaseModel):
-    """CLI evaluation session state.
-
-    Used by queue to store items with their assignments.
-    """
+    """One queued cluster and the group assignments made for it so far."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -54,20 +56,20 @@ class EvaluationQueue:
 
     @property
     def total_count(self) -> int:
-        """Total number of sessions in queue."""
+        """Total number of sessions in the queue."""
         return len(self.sessions)
 
     def skip_current(self) -> None:
-        """Move current to back of queue."""
+        """Move the current session to the back of the queue."""
         if len(self.sessions) > 1:
             self.sessions.rotate(-1)
 
     def remove_current(self) -> CLIEvaluationSession | None:
-        """Remove and return current session."""
+        """Remove and return the current session."""
         return self.sessions.popleft() if self.sessions else None
 
     def add_sessions(self, sessions: list[CLIEvaluationSession]) -> int:
-        """Add new sessions to queue, preventing duplicates.
+        """Add new sessions to the queue, skipping ones already queued.
 
         Returns:
             Number of unique sessions added.
@@ -110,7 +112,7 @@ class EntityResolutionApp(App):
     current_assignments: reactive[dict[int, str]] = reactive({}, init=False)
 
     sample_limit: int
-    resolution: "Resolution | Sequence[Resolution]"
+    resolver: "ResolverRef | Sequence[ResolverRef]"
     adapter: "Adapter | None"
     session_tag: str | None
     seed: int | None
@@ -121,7 +123,7 @@ class EntityResolutionApp(App):
 
     def __init__(
         self,
-        resolution: "Resolution | Sequence[Resolution]",
+        resolver: "ResolverRef | Sequence[ResolverRef]",
         num_samples: int = 5,
         adapter: "Adapter | None" = None,
         session_tag: str | None = None,
@@ -132,20 +134,20 @@ class EntityResolutionApp(App):
         """Initialise the entity resolution app.
 
         Args:
-            resolution: The resolver whose clusters are reviewed, or the name one was
-                published under — the second form reviews a store without the plan
+            resolver: The resolver whose clusters are reviewed, or the name one was
+                published under. The second form reviews a store without the plan
                 that built it. Several of either reviews their merged components.
-            num_samples: Number of clusters to sample for evaluation
+            num_samples: Number of clusters to sample for evaluation.
             adapter: Where judgements are stored. Defaults to the module default.
-            session_tag: String to use for tagging judgements
+            session_tag: String to use for tagging judgements.
             seed: Fixes which clusters the session draws, so it can be reproduced.
-            show_help: Whether to show help on start
+            show_help: Whether to show help on start.
             scroll_debounce_delay: Delay before updating column headers after scroll.
                 Set to None to disable debouncing (useful for tests).
         """
         super().__init__()
 
-        self.resolution = resolution
+        self.resolver = resolver
         self.sample_limit = num_samples
         self.adapter = adapter
         self.session_tag = session_tag
@@ -226,7 +228,7 @@ class EntityResolutionApp(App):
         self._update_status_labels()
 
     def watch_current_item(self, item: EvaluationItem | None) -> None:
-        """React to item changes - propagate to table and reset assignment bar."""
+        """Rebuild the assignment bar for the item, and propagate it to the table."""
         table = self.query_one(ComparisonDisplayTable)
         table.current_item = item
 
@@ -247,7 +249,7 @@ class EntityResolutionApp(App):
         self.query_one("#current-group-label", Label).update("-")
 
     def watch_current_assignments(self, assignments: dict[int, str]) -> None:
-        """React to assignment changes - propagate to table."""
+        """Propagate assignment changes to the table."""
         table = self.query_one(ComparisonDisplayTable)
         table.current_assignments = assignments
 
@@ -274,7 +276,7 @@ class EntityResolutionApp(App):
     async def _handle_no_samples(self) -> None:
         """Handle empty queue state."""
         self._update_status("◯ No data", "yellow")
-        logger.warning("No samples available for this resolution.")
+        logger.warning("No samples available for this resolver.")
         await self.action_show_no_samples()
 
     def _update_status(
@@ -286,9 +288,9 @@ class EntityResolutionApp(App):
         """Update status message with optional auto-clear.
 
         Args:
-            message: Status message to display
-            colour: Colour for the message
-            clear_after: Seconds after which to auto-clear
+            message: Status message to display.
+            colour: Colour for the message.
+            clear_after: Seconds after which to auto-clear.
         """
         if self.timer:
             self.timer.stop()
@@ -302,7 +304,7 @@ class EntityResolutionApp(App):
 
     # Public methods
     async def load_samples(self) -> None:
-        """Load evaluation samples from the server."""
+        """Fetch more samples from the store until the queue reaches its limit."""
         needed = max(0, self.sample_limit - self.queue.total_count)
 
         if needed <= 0:
@@ -318,12 +320,12 @@ class EntityResolutionApp(App):
         # The queue is refilled as it drains, so a fixed seed would fetch the same
         # clusters every time and the leaf-based dedupe would starve it. Moving the
         # seed on per refill keeps a whole session reproducible while each fetch still
-        # reaches new clusters; any overlap between fetches the dedupe drops.
+        # reaches new clusters. The dedupe drops any overlap between fetches.
         new_samples_dict = None
         try:
             new_samples_dict = get_samples(
                 n=needed,
-                resolution=self.resolution,
+                resolver=self.resolver,
                 adapter=self.adapter,
                 seed=None if self.seed is None else self.seed + self._refills,
             )

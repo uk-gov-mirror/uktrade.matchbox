@@ -11,10 +11,10 @@ matchlab treats that as a first-class job rather than something you bolt on afte
 ```python
 from matchlab.eval import get_samples
 
-samples = get_samples(n=20, resolution=companies)
+samples = get_samples(n=20, resolver=companies)
 ```
 
-`resolution` takes either a resolver you are holding or the label one was
+`resolver` takes either a resolver you are holding or the label one was
 [published](./build-a-plan.md) under — the same either/or that `review()` takes. The
 label form needs no plan at all, which is what the rest of this page builds on.
 

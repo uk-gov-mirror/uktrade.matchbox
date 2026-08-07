@@ -18,13 +18,12 @@ from matchlab.eval.tui.widgets.styling import get_group_style
 class ComparisonDisplayTable(DataTable):
     """DataTable for comparing records with keyboard-driven assignment.
 
-    We use the DataTable's internal cursor (even though hidden) as the "Anchor"
-    for the 1-9 column labels.
+    The DataTable's own cursor column is the anchor for the visible "1"-"9" labels,
+    even though the cursor itself is hidden:
 
-    - Cursor Column "N" is labelled "1".
-    - Cursor Column "N+1" is labelled "2", etc.
-    - Paging Right/Left moves the cursor by +/- 9 columns and forces a scroll
-        alignment to the left edge, ensuring the labels remain visible.
+    - The cursor column is labelled "1", the next column "2", and so on.
+    - Paging right or left moves the cursor by 9 columns, and forces a scroll so the
+      anchor column sits at the left edge, keeping the labels visible.
     """
 
     current_item: reactive[EvaluationItem | None] = reactive(None)
@@ -46,17 +45,18 @@ class ComparisonDisplayTable(DataTable):
         """Initialise the comparison display table."""
         super().__init__(**kwargs)
         self.zebra_stripes = True
-        self.cursor_type = "column"  # Important: Cursor tracks columns
-        self.show_cursor = False  # But we hide it visually
+        # The cursor tracks columns, for the anchor logic below, but stays hidden.
+        self.cursor_type = "column"
+        self.show_cursor = False
         self.fixed_columns = 1
 
         self._scroll_debounce_delay: float | None = scroll_debounce_delay
 
     def watch_current_item(self, item: EvaluationItem | None) -> None:
-        """Rebuild table when item changes (Textual reactive pattern)."""
+        """Rebuild the table when the item changes (Textual reactive pattern)."""
         self.table_ready = False
 
-        # Reset cursor to start (Col 1, skipping fixed 'Field' col)
+        # Reset the cursor to the start (column 1, skipping the fixed 'Field' column)
         self.move_cursor(row=0, column=1, animate=False)
         self.scroll_x = 0
 
@@ -66,16 +66,13 @@ class ComparisonDisplayTable(DataTable):
 
         unique_groups = item.get_unique_record_groups()
 
-        # Build table with all unique records
         self.clear(columns=True)
         self.add_column("Field", key="field")
 
-        # Add column for each unique group
         for i, _ in enumerate(unique_groups):
             # Headers will be populated by _update_headers shortly
             self.add_column("", key=f"col_{i}")
 
-        # Add row for each field
         for field in item.fields:
             row_values = [Text(field.display_name)]
             for group in unique_groups:
@@ -100,7 +97,7 @@ class ComparisonDisplayTable(DataTable):
         self._update_headers()
 
     def watch_cursor_coordinate(self, old_value: float, new_value: float) -> None:
-        """Update headers whenever the cursor moves (Manual scroll or Paging)."""
+        """Update headers whenever the cursor moves (manual scroll or paging)."""
         self._update_headers()
 
     def watch_current_assignments(
@@ -133,14 +130,11 @@ class ComparisonDisplayTable(DataTable):
 
             key_num = int(event.key)
 
-            # Calculate group index relative to the cursor (Anchor)
-            # Key '1' is the cursor column.
-            # We treat the Fixed Column (index 0) as transparent.
-            # Group Index = (CursorCol - 1) + (Key - 1)
+            # Group index is relative to the anchor (cursor column). Key '1' is the
+            # anchor itself, and the fixed field column (index 0) does not count.
             anchor_col = max(1, self.cursor_column)
             group_idx = (anchor_col - 1) + (key_num - 1)
 
-            # Validate index exists
             unique_groups = self.current_item.get_unique_record_groups()
             if 0 <= group_idx < len(unique_groups):
                 self.post_message(self.AssignmentMade(group_idx, self.current_group))
@@ -157,19 +151,18 @@ class ComparisonDisplayTable(DataTable):
 
         current_col = self.cursor_column
 
-        # Determine the maximum starting column index (Anchor).
-        # We want the last batch to be full (9 columns) if possible.
-        # Max Anchor = Total - 9. (Ensuring we don't go below the fixed columns).
-        # Example: 20 cols. Max anchor = 11 (Cols 11-19 are displayed).
+        # The last page should be full (9 columns) where possible, so the anchor never
+        # goes past total_cols - 9. Example: 20 columns gives max anchor 11, showing
+        # columns 11-19.
         max_anchor = max(self.fixed_columns, total_cols - 9)
 
-        # Target: move 9 columns right, but clamp to the max anchor
         target_col = min(current_col + 9, max_anchor)
 
-        # If manual scrolling put us past the max anchor, snapping back to
-        # max_anchor (filling the screen) is desirable behavior.
+        # Snapping back to max_anchor also recovers from manual scrolling that put the
+        # anchor past it.
         if target_col != current_col:
-            # Move cursor but DO NOT scroll (we will handle it to force alignment)
+            # Move the cursor without scrolling, then scroll explicitly so the anchor
+            # column lands at the left edge rather than wherever Textual defaults to.
             self.move_cursor(column=target_col, animate=False, scroll=False)
             self._scroll_column_to_left(target_col)
 
@@ -177,7 +170,7 @@ class ComparisonDisplayTable(DataTable):
         """Move the anchor (cursor) left by 9 columns and force scroll."""
         current_col = self.cursor_column
 
-        # Target: move 9 columns left, clamp to first data column
+        # Move left by 9 columns, clamped to the first data column.
         target_col = max(self.fixed_columns, current_col - 9)
 
         if target_col != current_col:
@@ -186,14 +179,12 @@ class ComparisonDisplayTable(DataTable):
 
     def _scroll_column_to_left(self, column_index: int) -> None:
         """Scroll so the target column is at the left edge of the viewport."""
-        # Get the absolute X position of the target column
         region = self._get_column_region(column_index)
         target_x = region.x
 
-        # Get the width of the fixed columns (which obscure the left side)
+        # Fixed columns obscure the left of the viewport, so subtract their width to
+        # land the target column just past them, not at absolute x=0.
         fixed_offset = self._get_fixed_offset()
-
-        # We want the column to start exactly after the fixed columns
         scroll_target = target_x - fixed_offset.left
 
         self.scroll_to(
@@ -209,15 +200,16 @@ class ComparisonDisplayTable(DataTable):
 
         unique_groups = self.current_item.get_unique_record_groups()
 
-        # Anchor is the cursor column. Ensure we don't index the fixed 'Field' column.
+        # The anchor is the cursor column, clamped so it never indexes the fixed
+        # 'Field' column.
         anchor_col = max(1, self.cursor_column)
 
-        # Calculate the data index offset (Cursor Col 1 -> Data Idx 0)
+        # Calculate the data index offset (cursor column 1 maps to data index 0)
         data_offset = anchor_col - 1
 
         for i, group in enumerate(unique_groups):
             # Visual position 1-9 relative to the anchor
-            # i is data_idx. visual_pos = (i - data_offset) + 1
+            # i is the data index. Visual position is (i - data_offset) + 1
             visual_pos_idx = i - data_offset + 1
 
             visual_pos = None
@@ -230,12 +222,12 @@ class ComparisonDisplayTable(DataTable):
             # Update DataTable column label (+1 for fixed field column)
             self.ordered_columns[i + 1].label = new_header
 
-        # CRITICAL: Invalidate DataTable caches so the new labels render
+        # DataTable caches rendered labels, so the new ones need this to show.
         self._clear_caches()
         self.refresh()
 
     def _paint_column(self, group_idx: int, assignment: str | None) -> None:
-        """Paint or unpaint a column with color and symbol."""
+        """Paint or unpaint a column with colour and symbol."""
         if not self.current_item:
             return
 
