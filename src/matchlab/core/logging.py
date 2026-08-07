@@ -8,17 +8,17 @@ Two objects, one each for the two ways output leaves the library:
 * `console` — the Rich console. `matchlab.progress` draws the collection tree on it,
   and tests swap it for a quiet one.
 
-Both are module attributes rather than values passed around, which is why
-`matchlab.progress` reads them through the module (`mlog.console`): that is what lets a
-test patch one and have the library pick it up.
+Both are module attributes rather than values passed around, so `matchlab.progress`
+reads them through the module (`mlog.console`) instead of importing them directly.
+That indirection is what lets a test patch one and have the library pick it up.
 
 **A prefix is usually ambient, not passed.** The thing worth quoting is a step's
 position in the plan being collected, and the code that knows a message worth logging
 is rarely the code that knows the position — a `Linker` counting matches is three
-layers below the walk that numbered its step. So `collect` publishes the position in
-`prefix`, a `ContextVar`, and every record emitted while that step runs picks it up.
-Call sites stay ignorant, which is what keeps positions a property of the walk rather
-than of the step (see `matchlab.steps.Step.__init__`).
+layers below the walk that numbered its step. `collect` therefore publishes the
+position in `prefix`, a `ContextVar`, and every record emitted while that step runs
+picks it up. Call sites stay ignorant, which is what keeps positions a property of the
+walk rather than of the step (see `matchlab.steps.Step.__init__`).
 
 The `prefix=` keyword remains for callers with something to say outside a collection,
 where there is no position to quote. It is a fallback, not an override: an ambient
@@ -27,7 +27,7 @@ position wins, so records read consistently within the run that printed the tree
 
 import logging
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import IO, Any, Final
@@ -43,7 +43,7 @@ logged while that step runs is tied to the plan the collection drew. Being a
 `ContextVar` is what makes it restore correctly when a collection runs inside another:
 the inner one holds the outer one's token and gives it back on the way out.
 
-Readable, if a handler or filter of yours wants to know which step it is looking at.
+A handler or filter that wants to know which step is running can read it directly.
 Setting it is `Progress`'s business — a record of your own takes `prefix=` instead.
 """
 
@@ -51,7 +51,7 @@ Setting it is `Progress`'s business — a record of your own takes `prefix=` ins
 class PrefixedLoggerAdapter(logging.LoggerAdapter):
     """A logger adapter that tags records with the plan position they came from.
 
-    The prefix is normally ambient, read from `prefix`; a `prefix=` keyword on the call
+    The prefix is normally ambient, read from `prefix`. A `prefix=` keyword on the call
     supplies one for records emitted outside a collection.
     """
 
@@ -60,15 +60,7 @@ class PrefixedLoggerAdapter(logging.LoggerAdapter):
         msg: Any,  # noqa: ANN401
         kwargs: dict[str, Any],
     ) -> tuple[Any, dict[str, Any]]:
-        """Process the log message, adding a prefix if there is one.
-
-        Args:
-            msg: The log message
-            kwargs: Additional arguments to the logging method
-
-        Returns:
-            Tuple of (modified_message, modified_kwargs)
-        """
+        """Add the ambient or explicit prefix to `msg`, if either is set."""
         # Popped either way: `prefix` is ours, and `Logger.log` would reject it.
         explicit = kwargs.pop("prefix", None)
         # Ambient first: inside a collection the position is the prefix that matches
@@ -107,30 +99,32 @@ Where `matchlab.progress` draws a collection's plan, and where any CLI utility w
 
 
 @contextmanager
-def through_console() -> Iterator[None]:
+def through_console() -> Generator[None]:
     """Route handlers already writing to this terminal through the console instead.
 
     Rich redirects `sys.stdout` and `sys.stderr` while a live display is running, so a
     bare `print` lands above the frame rather than through it. Logging misses out:
     `logging.StreamHandler` reads `sys.stderr` **once**, when it is constructed, and
     `logging.basicConfig()` constructs one at import time — long before there is a
-    frame to avoid. It then writes straight past Rich for the rest of the process.
+    frame to avoid. That handler then writes straight past Rich for the rest of the
+    process.
 
-    That is the ordinary case, not an exotic one, so `matchlab.progress` closes the gap
-    rather than asking every caller to: for as long as it owns the terminal, a handler
-    bound to that terminal is pointed at the same proxy Rich installs, and put back
-    afterwards. Handlers writing anywhere else — a file, a socket, another stream — are
-    left alone, having nothing to collide with.
+    That is the ordinary case, not an exotic one. Rather than asking every caller to
+    work around it, `matchlab.progress` closes the gap itself: for as long as it owns
+    the terminal, it points any handler bound to that terminal at the same proxy Rich
+    installs, and puts it back afterwards. Handlers writing anywhere else — a file, a
+    socket, another stream — are left alone, having nothing to collide with.
 
-    Restores on the way out however the block ends. Reentrant only in the sense that a
-    handler already proxied is skipped, so a nested display can't double-wrap one.
+    It restores the original streams on the way out, however the block ends. It's
+    reentrant only in the sense that a handler already proxied is skipped, so a nested
+    display can't double-wrap one.
 
-    Does nothing in a notebook. The problem it solves is a cursor collision, and a
+    It does nothing in a notebook. The problem it solves is a cursor collision, and a
     notebook has no cursor: Rich draws a live display into an `ipywidgets.Output` that
     redraws itself in isolation, so nothing can smear it. Routing records through the
-    console there would only make each one its own `display()` call — a separate HTML
-    block, boxed and spaced apart — where the stream they already write to renders
-    them as ordinary contiguous text.
+    console there would replace each one with its own `display()` call — a separate
+    HTML block, boxed and spaced apart. Left alone, the stream they already write to
+    renders them as ordinary contiguous text instead.
     """
     if console.is_jupyter:
         yield

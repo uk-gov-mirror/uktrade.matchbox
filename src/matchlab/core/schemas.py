@@ -58,7 +58,9 @@ SCHEMA_CLUSTER_EXPANSION: Final[pa.Schema] = pa.schema(
         ("leaves", pa.list_(pa.uint64())),
     ]
 )
-"""A cluster ID mapped to all its source cluster IDs, alongside the judgements."""
+"""A cluster ID mapped to all its source cluster IDs. 
+
+Used alongside `SCHEMA_JUDGEMENTS` in evaluation scoring."""
 
 
 def check_schema_subset(expected: Schema, actual: Schema) -> None:

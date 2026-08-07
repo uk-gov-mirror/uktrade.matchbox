@@ -19,14 +19,11 @@ class HashMethod(StrEnum):
 
 
 def _process_column_for_hashing(column_name: str, schema_type: pl.DataType) -> plx.Expr:
-    """Process a column for hashing based on its type.
+    r"""Normalise `column_name` to a string column safe to hash.
 
-    Args:
-        column_name: The column name
-        schema_type: The polars schema type of the column
-
-    Returns:
-        A polars expression for processing the column
+    Nulls become the sentinel `"\x00"`, so a null hashes differently from an empty
+    value. Binary columns hex-encode, structs JSON-encode and lists join on `,`,
+    before falling back to a plain string cast.
     """
     if isinstance(schema_type, pl.Binary):
         return (
@@ -48,15 +45,11 @@ def _process_column_for_hashing(column_name: str, schema_type: pl.DataType) -> p
 def hash_rows(
     df: pl.DataFrame, columns: list[str], method: HashMethod = HashMethod.XXH3_128
 ) -> pl.Series:
-    """Hash all rows in a dataframe.
+    """Hash each row of `df` over `columns`.
 
-    Args:
-        df: The DataFrame to hash rows from
-        columns: The column names to include in the hash
-        method: The hash method to use
-
-    Returns:
-        List of row hashes as bytes
+    Each row's hash covers both column names and values, joined with the record and
+    unit separator symbols (`␞`, `␟`), so a column's name is part of what gets hashed
+    alongside its value.
     """
     expr_list = [
         _process_column_for_hashing(column, df.schema[column]) for column in columns
@@ -99,43 +92,35 @@ def hash_arrow_table(
     method: HashMethod = HashMethod.XXH3_128,
     as_sorted_list: list[str] | None = None,
 ) -> bytes:
-    """Computes a content hash of an Arrow table invariant to row and field order.
+    """Content-address `table` with a hash invariant to row and column order.
 
-    This is used to content-address an Arrow table for caching.
+    Pass `as_sorted_list` (2 or more column names, e.g. `["left_id", "right_id"]`) to
+    hash those columns as a sorted set instead of individually, so `(1, 2)` and
+    `(2, 1)` hash the same. This replaces the named columns with one `sorted_list`
+    column.
 
-    Args:
-        table: The pyarrow Table to hash
-        method: The method to use for hashing rows (XXH3_128 or SHA256)
-        as_sorted_list: Optional list of column names to hash as a sorted list.
-            For example, ["left_id", "right_id"] will create a "sorted_list"
-            column and drop the original columns to ensure (1,2) and (2,1)
-            hash to the same value. Works with 2 or more columns.
+    Combining `as_sorted_list` with a nullable column can null the whole row's hash
+    input, because Polars' `concat_list` returns null when any input is null.
 
-            Note: if list columns are combined with a column that's nullable,
-            list + null value returns null. See Polars' concat_list documentation
-            for more details.
-
-    Returns:
-        Bytes representing the content hash of the table
+    Raises:
+        ValueError: If `as_sorted_list` names fewer than two columns, or a column
+            `table` doesn't have.
     """
     df = pl.from_arrow(table)
 
     if df.height == 0:
         return b"empty_table_hash"
 
-    # Apply normalisation if specified
     if as_sorted_list:
         if len(as_sorted_list) < 2:
             raise ValueError(
                 "Lists passed to as_sorted_list must contain at least 2 column names"
             )
 
-        # Check that all columns exist
         missing_cols = [col for col in as_sorted_list if col not in df.columns]
         if missing_cols:
             raise ValueError(f"Columns not found in dataframe: {missing_cols}")
 
-        # Create normalised group and drop original columns
         df = df.with_columns(
             pl.concat_list(as_sorted_list).list.sort().alias("sorted_list")
         ).drop(as_sorted_list)
@@ -143,7 +128,8 @@ def hash_arrow_table(
     columns: list[str] = sorted(df.columns)
     df = df.select(columns)
 
-    # Explode list fields
+    # Explode list columns so each element sorts and hashes on its own. That's what
+    # makes the hash invariant to the order of elements within a list field.
     for column in columns:
         if isinstance(df.schema[column], pl.List):
             df = df.explode(column, empty_as_null=True)

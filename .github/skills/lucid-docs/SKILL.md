@@ -79,7 +79,7 @@ Do not minimise the diff on the documentation you've been asked to review. Assum
 
 Put each explanation at the narrowest scope that contains everyone who needs it. State shared reasoning once, then refer to it by name instead of repeating it.
 
-Use module docstrings for cross-cutting design decisions, boundaries, and a short map of what the module contains. Explain why the module has its shape. Do not restate its implementation.
+Use module docstrings for cross-cutting design decisions, boundaries, and a short map of what the module contains. Explain why the module has its current shape, without reference to past or future code states outside of migration guides. Do not restate its implementation.
 
 Use class and function docstrings for the unit's contract and local why. Record the invariant it relies on, the footgun it avoids, or the important alternative it rejects. Let names, signatures, and type hints carry what they already express.
 
@@ -110,7 +110,7 @@ Confirm that:
 - comments add reasoning the code cannot show
 - design reasons and warnings remain
 - every claim is supported by the repository
-- the prose describes the code that exists
+- the prose describes the code that exists now, not past or future states
 
 ### Phase 2
 
@@ -133,6 +133,14 @@ Ensure an acceptable reading level for the reader. You may make allowances for t
 Colons and dashes are permissable only if they truly simplify.
 
 This script is a spot-check, not the target. It cannot detect banned words or fluent-but-wordy prose. 
+
+### Phase 3
+
+Reread each file in its entirety, assuming it does not yet read as plain English.
+
+For each paragraph, find the sentence a plain English reader would stumble on, state why to yourself, then change it. Only move on once you cannot find one.
+
+Do not attempt to minimise churn.
 
 ## Output
 

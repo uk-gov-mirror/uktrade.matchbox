@@ -1,31 +1,25 @@
-"""Client-side resolution — the local replacement for the server's query engine.
+"""Each resolver materialises its complete, merge-forward resolution once.
 
-The server (`server/postgresql/utils/query.py:_build_unified_query`) resolved source
-keys to root cluster IDs *on demand*, projecting up the resolver hierarchy with a
-priority-`COALESCE` at query time. Locally we do the opposite: each resolver, when it
-runs, materialises its **complete, merge-forward** resolution once, and everything
-downstream (`entities`, `lookup_key`, models querying through it) just reads it.
+Every resolver, when it runs, computes that resolution and stores it. Everything
+downstream (`entities`, `lookup_key`, models querying through it) just reads the
+stored table.
 
 This module holds the pure functions that produce that resolution:
 
-* `leaf_id` / `root_id` — client-side, content-addressed cluster IDs. A leaf is a hash
-  of a record's content, which is the correct anchor for evaluation, not merely a
+* `leaf_id` / `root_id` — content-addressed cluster IDs. A leaf is a hash of a
+  record's content. That is the correct anchor for evaluation, not merely a
   reproducibility trick — see `leaf_id` for the full reasoning.
-* `materialise_resolution` — turn the connected-component clusters a resolver computed
-  (over query-space IDs, covering only IDs its models formed edges over) plus the
-  upstream resolution (every reachable ID → its `(source, key, leaf)` rows) into the
-  complete `(root, leaf, key, source)` table.
+* `materialise_resolution` — turns a resolver's clusters and upstream resolution
+  into the complete result table. See its own docstring for the shape of each.
 
-The merge-forward requirement — that leaves grouped upstream but untouched by this
-resolver inherit their upstream cluster rather than collapsing to singletons — is the
-Phase 0 finding. It is implemented here by
-giving every *untouched* reachable ID its own component ("fall-through"), so the
-upstream grouping survives.
+**Merge-forward** means a leaf grouped upstream but untouched by this resolver
+inherits its upstream cluster rather than collapsing to a singleton.
+`materialise_resolution` implements this by giving every *untouched* reachable ID its
+own component ("fall-through"), so the upstream grouping survives.
 
-Well-formedness assumption: within a single resolver, each reachable leaf maps to one
-upstream ID (i.e. its inputs share a consistent lineage, which DAG construction
-enforces). The server handled the pathological multi-mapping case via leaf-level
-COALESCE; the client does not need to, and does not.
+This module assumes a resolver's inputs share a consistent lineage, so each
+reachable leaf maps to exactly one upstream ID. DAG construction enforces that, so
+nothing here needs to reconcile a leaf that maps to more than one.
 """
 
 from collections.abc import Iterable
@@ -35,8 +29,8 @@ import polars_hash  # noqa: F401 - registers the `nchash` expression namespace
 
 from matchlab.core.schemas import SCHEMA_RESOLUTION
 
-# Upstream resolution schema consumed by `materialise_resolution`: every reachable
-# query-space ID mapped to a source row and its leaf.
+# Every reachable query-space ID, mapped to a source row and its leaf. This is the
+# shape `materialise_resolution` expects for its `upstream` argument.
 UPSTREAM_COLUMNS = ("id", "source", "key", "leaf")
 
 
@@ -44,40 +38,44 @@ def leaf_id(row_hash: pl.Expr) -> pl.Expr:
     """Map a column of row content hashes to stable 64-bit leaf cluster IDs.
 
     A record's identity is a hash of its **content**, not of its key. This is the
-    load-bearing decision, and it is deliberate — not a leftover from the server, which
-    hashed to save storage. The reason is evaluation:
+    load-bearing decision, and it is deliberate, not an accident of implementation.
+    The reason is evaluation.
 
     A judgement is a person or a model saying "looking at *this*, these records are the
     same entity." The only input to that decision is the content shown — a name, a
-    postcode. The key plays no part; the judge never sees it. So a judgement must be
-    anchored to the content it was actually made against:
+    postcode. The key plays no part. The judge never sees it. A judgement must
+    therefore be anchored to the content it was actually made against:
 
-    * Anchor to the **key** and a judgement outlives a content change. "acme / london =
-      acme / london", decided against evidence that has since become "acme /
-      manchester", now silently stands — a decision attributed to evidence the judge
-      never saw. It looks inexplicable later, or quietly validates a match nobody made.
-    * Anchor to the **content** (this) and the leaf ID changes when the content does,
-      so the old judgement stops applying — correctly. Nobody has judged the new
-      content; there should be no judgement about it. Judgements decay exactly when
-      their evidence does.
+    * If you anchor to the **key**, a judgement outlives a content change. Say a
+      judgement was made when the evidence read "acme / london = acme / london". If
+      that evidence later becomes "acme / manchester", the judgement still stands —
+      attributed to evidence the judge never saw. It looks inexplicable later, or
+      quietly validates a match nobody made.
+    * If you anchor to the **content** instead (this module's choice), the leaf ID
+      changes whenever the content does, so the old judgement stops applying. That is
+      correct. Nobody has judged the new content, so there should be no judgement
+      about it. Judgements decay exactly when their evidence does.
 
-    The same logic explains why identical rows share a leaf: to any judge they are
+    The same logic explains why identical rows share a leaf. To any judge they are
     indistinguishable, so there is no decision to make. Differing keys don't separate
     them, because a key is not evidence.
 
-    **The invariant this rests on: what is hashed must equal what is shown.** Hash a
-    column the sampler doesn't display and a judgement decays for a reason the judge
-    can't see; display one that isn't hashed and a judgement survives a change the judge
-    can see. They line up today — `leaf_id` covers every non-key column (see
-    `Source._read_warehouse`) and `get_samples` shows every non-key column — and "the
-    extract is the whole declaration" is what keeps them lined up: select a column and
-    it is both hashed and shown.
+    **What gets hashed must match what gets shown.** If a column feeds the hash but
+    the sampler doesn't display it, a judgement decays for a reason the judge never
+    saw. If a column appears in the sampler but doesn't feed the hash, a judgement
+    survives a change the judge did see, which is wrong.
+
+    The two stay in sync today because both read the same definition. `leaf_id`
+    hashes every non-key column (see `Source._read_warehouse`), and `get_samples`
+    displays every non-key column. Selecting a column in the extract is what makes it
+    both hashed and shown — there is no second list to keep in step by hand (see
+    `Source`'s "the extract is the whole declaration").
 
     Content-addressing also makes runs reproducible and IDs stable across re-collect,
     but that is a consequence, not the reason.
 
-    Vectorised deliberately: this runs once per source row, and a Python function called
-    through `map_elements` dominated collection.
+    This is vectorised deliberately. Calling a Python function once per row, as
+    `map_elements` would, dominates collection time.
     """
     return row_hash.bin.slice(0, 8).bin.reinterpret(dtype=pl.UInt64, endianness="big")
 
@@ -85,11 +83,11 @@ def leaf_id(row_hash: pl.Expr) -> pl.Expr:
 def root_id(leaves: pl.Expr) -> pl.Expr:
     """Deterministic 64-bit root cluster ID for a column of leaf lists.
 
-    Invariant to leaf order — callers sort — and to the (arbitrary) component label,
-    so two runs that produce the same clustering produce the same root IDs.
+    This is invariant to leaf order (callers sort) and to the arbitrary component
+    label, so two runs that produce the same clustering produce the same root IDs.
 
-    Vectorised for the same reason as `leaf_id`: one call per cluster is one Python
-    call per cluster, and there are as many clusters as there are entities.
+    This is vectorised for the same reason as `leaf_id`. Calling this once per
+    cluster, in Python, would mean as many calls as there are entities.
     """
     # `polars_hash` registers the `nchash` namespace on polars expressions at import.
     joined = leaves.cast(pl.List(pl.Utf8)).list.join(",")
@@ -115,15 +113,17 @@ def materialise_resolution(
 
     Args:
         clusters: `SCHEMA_CLUSTERS` `(parent_id, child_id)` from the resolver's
-            methodology. `child_id`s are query-space IDs the models formed edges over;
+            methodology. `child_id`s are query-space IDs the models formed edges over.
             IDs not present here are untouched by this resolver.
-        upstream: `(id, source, key, leaf)` — the union of the resolver's input queries,
-            covering *every* leaf reachable by the resolver, whether or not an edge
-            formed over it. `id` is the query-space ID the model referenced.
+        upstream: The union of the resolver's input queries as `(id, source, key,
+            leaf)` rows, covering *every* leaf reachable by the resolver, whether or
+            not an edge formed over it. `id` is the query-space ID the model
+            referenced.
 
     Returns:
-        `SCHEMA_RESOLUTION` `(root, leaf, key, source)`: one row per reachable source
-        record, with `root` the cluster it resolves to. Complete and merge-forward.
+        One row per reachable source record, shaped as `SCHEMA_RESOLUTION`
+        `(root, leaf, key, source)`, with `root` the cluster it resolves to. Complete
+        and merge-forward.
     """
     missing = set(UPSTREAM_COLUMNS) - set(upstream.columns)
     if missing:

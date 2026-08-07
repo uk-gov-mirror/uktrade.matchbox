@@ -1,15 +1,4 @@
-"""Exceptions raised by matchlab.
-
-Naming follows the convention Polars uses: a single prefixed base class, so
-`except MatchlabError` is meaningful when imported bare, and unprefixed specifics
-beneath it. Specific names avoid shadowing builtins (`SchemaMismatch`, not
-`SchemaError`).
-
-The pre-`matchlab` module carried 40 exception classes, most of them HTTP status
-carriers for the server API — plus a registry that reflected over them to build a
-wire-format enum. All of that went with the server; what remains is only what the
-library itself raises.
-"""
+"""Exceptions raised by matchlab."""
 
 from pyarrow import Schema
 

@@ -15,7 +15,7 @@ class DisjointSet(Generic[T]):
     """
 
     def __init__(self) -> None:
-        """Initialize the disjoint set."""
+        """Initialise the disjoint set."""
         self.parent: dict[T, T] = {}
         self.rank: dict[T, int] = {}
 
