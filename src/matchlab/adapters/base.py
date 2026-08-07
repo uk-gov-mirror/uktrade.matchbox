@@ -2,9 +2,8 @@
 
 An adapter is **storage, not an engine**. It persists the artifacts each collected DAG
 step produces, keyed by that step's content fingerprint, and reads them back. It does
-*not* resolve anything on demand — the server's `_build_unified_query` is gone.
-Resolvers materialise their complete, merge-forward resolution at collect time and hand
-the adapter a finished table.
+*not* resolve anything on demand. Resolvers materialise their complete, merge-forward
+resolution at collect time and hand the adapter a finished table.
 
 Artifacts, by step kind (schemas in `matchlab.core.schemas`, which holds exactly the
 shapes that cross this boundary):
@@ -13,14 +12,14 @@ shapes that cross this boundary):
 * View     → the cleaned view (arbitrary schema).
 * Model    → edge list, `SCHEMA_MODEL_EDGES` `(left_id, right_id, score)`.
 * Resolver → complete flat resolution, `SCHEMA_RESOLUTION` `(root, leaf, key, src)`.
-             This is `merge(upstream complete resolution, own clusters)` — the Phase 0
-             finding — NOT just the resolver's own clusters.
+             This is the merge-forward guarantee. It computes `merge(upstream complete
+             resolution, own clusters)`, not just the resolver's own clusters.
 
 Plus evaluation storage (judgements + cluster expansion), publication (`publish` points
 a label at a resolution) and `close`.
 
 **Nothing here deletes an artifact on the store's own initiative.** A store keeps what
-it is given until the owner disposes of it, which is what `trim` is: it deletes only
+it is given until the owner disposes of it. `trim` is that disposal. It deletes only
 what the caller has said it may, and never a published resolution. See the guide's
 "Reclaiming storage".
 """
@@ -45,11 +44,11 @@ class StoreStats(BaseModel):
     edit to one. Adapters subclass this to report metrics that are relevant to them.
 
     Attributes:
-        location: Where the store is, as a reader would name it — a path, a URI,
-            `":memory:"`. Always present, because a store you cannot point at is one
-            you cannot go and delete.
-        bytes: The store's size. For anything file-backed that is a **high-water
-            mark**: a store that briefly held 4 GB reports 4 GB after the rows are
+        location: Where the store is, as a reader would name it, such as a path, a
+            URI, or `":memory:"`. Always present, because a store you cannot point at
+            is one you cannot go and delete.
+        bytes: The store's size. For anything file-backed, this is a **high-water
+            mark**. A store that briefly held 4 GB reports 4 GB after the rows are
             gone, because deleting inside a database file does not return space to the
             OS. That is the right number for a disk filling up, and the wrong one for
             "how much data do I have".
@@ -68,9 +67,9 @@ class StoreStats(BaseModel):
     def size(self) -> str:
         """This store's size, as a phrase.
 
-        A hook, because a bare figure can mislead: bytes held in memory and bytes
-        written to a disk are not the same claim, and only the backend knows which it
-        just reported.
+        A hook, because a bare figure can mislead. Bytes held in memory and bytes
+        written to disk are not the same claim, and only the backend knows which one
+        it just reported.
         """
         return format_bytes(self.bytes)
 
@@ -98,11 +97,11 @@ class TrimResult(BaseModel):
 
     Attributes:
         removed: How many artifacts were deleted.
-        kept: How many survived — the ones named, the ones their lineage needed, and
-            everything published.
+        kept: How many survived. This includes the ones named, the ones their lineage
+            needed, and everything published.
         reclaimed: Bytes genuinely returned. **Measured** as the store's size before
             minus after, not totted up from what was deleted. The two are not the same
-            number: deleting inside a database file usually frees nothing at all until
+            number. Deleting inside a database file usually frees nothing at all until
             the file is rewritten, and a reclaim that reported the bytes it *deleted*
             would claim to have freed space while the disk sat unchanged.
     """
@@ -131,7 +130,7 @@ def format_bytes(count: int, *, signed: bool = False) -> str:
     size = float(abs(count))
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if size < 1024 or unit == "TB":
-            # Whole bytes never want a decimal point; larger units always do, so a
+            # Whole bytes never want a decimal point. Larger units always do, so a
             # store that grew stays visibly distinct from one that didn't.
             precision = 0 if unit == "B" else 1
             return f"{sign}{size:.{precision}f} {unit}"
@@ -202,11 +201,11 @@ class Adapter(ABC):
         needs in order to carry every reachable leaf forward, including records no model
         matched.
 
-        A query rather than an artifact. Nothing here is computed: both
-        readings are projections of tables this store already holds — `source_leaves`
-        and `resolution`. There is correspondingly nothing to cache, and caching it
-        under a view's fingerprint would be wrong anyway, since what is returned depends
-        only on the source and resolver read and not on how a view cleans them.
+        A query rather than an artifact. Nothing here is computed. Both readings are
+        projections of tables this store already holds, `source_leaves` and
+        `resolution`. There is nothing to cache, and caching it under a view's
+        fingerprint would be wrong anyway. The result depends only on the source and
+        resolver read, not on how a view cleans the data.
 
         Args:
             source_fp: Fingerprint of the stored source whose records are wanted.
@@ -260,8 +259,8 @@ class Adapter(ABC):
             fp: The resolver step's fingerprint.
             resolution: `SCHEMA_RESOLUTION` columns `(root, leaf, key, source)`,
                 already merged forward over all upstream leaves. The adapter does not
-                verify the merge — that is the client's contract — but it does validate
-                the schema.
+                verify the merge. That is the client's contract. The adapter does
+                validate the schema.
             sources: Source name to fingerprint, for every source this resolution
                 covers. A resolution names its sources but one store can hold several
                 generations of a name, so this records which were actually used.
@@ -271,9 +270,9 @@ class Adapter(ABC):
     # -- labels -----------------------------------------------------------------------
     #
     # A **label** is a pointer, kept here, from a string you chose to a resolution you
-    # want to find again. It is deliberately not called a name: a *name* belongs to a
-    # source and is part of its output, while a label belongs to the store and is part
-    # of finding things in it. Storing an artifact and labelling one are separate acts —
+    # want to find again. It is deliberately not called a name. A *name* belongs to a
+    # source and is part of its output. A label belongs to the store and is part of
+    # finding things in it. Storing an artifact and labelling one are separate acts.
     # `Resolver.publish` does the second, after the first.
     #
     # This is what lets evaluation run against a store alone, with no plan.
@@ -282,8 +281,8 @@ class Adapter(ABC):
     def publish(self, label: str, fp: Fingerprint) -> None:
         """Point `label` at `fp`, replacing whatever it pointed at before.
 
-        The adapter moves the pointer without arguing; whether overwriting is allowed
-        is decided by the caller, which knows what the user asked for.
+        The adapter moves the pointer without arguing. The caller decides whether
+        overwriting is allowed, since it knows what the user asked for.
         """
         ...
 
@@ -311,8 +310,8 @@ class Adapter(ABC):
         than abstract because it is nothing but `source_key_field` and
         `read_source_extract` composed.
 
-        The extract cached when the source was collected *is* the data the matching saw,
-        which is what you want in front of you when judging a resolution — and it means
+        The extract cached when the source was collected *is* the data the matching saw.
+        That is what you want in front of you when judging a resolution, and it means
         both reading an entity and reviewing one work with no warehouse connection.
 
         Args:
@@ -355,8 +354,8 @@ class Adapter(ABC):
     ) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Return `(judgements, expansion)` tables for `matchlab.core.eval`.
 
-        `judgements` follows `SCHEMA_JUDGEMENTS`; `expansion` follows
-        `SCHEMA_CLUSTER_EXPANSION`. Filtered to `tag` when given.
+        `judgements` follows `SCHEMA_JUDGEMENTS`. `expansion` follows
+        `SCHEMA_CLUSTER_EXPANSION`. Both filter to `tag` when it is given.
         """
         ...
 
@@ -383,8 +382,8 @@ class Adapter(ABC):
         is taking is not one to hand a growing cache to.
 
         Called on every collect, so it must be cheap. It may also settle pending writes
-        in order to report a size that has stopped moving — `DuckDBAdapter` checkpoints
-        — so this is not guaranteed to be a pure read.
+        to report a size that has stopped moving, since `DuckDBAdapter` checkpoints.
+        This is not guaranteed to be a pure read.
         """
         ...
 
@@ -394,18 +393,18 @@ class Adapter(ABC):
     def trim(self, keep: Iterable[Fingerprint | str] = ()) -> TrimResult:
         """Delete every artifact except the ones named, and reclaim what that frees.
 
-        **You say what to keep; nothing is inferred.** This is deliberately not the
+        **You say what to keep. Nothing is inferred.** This is deliberately not the
         `gc()` that used to live here. That one worked out what was still alive from
-        which Python objects happened to be reachable, so a fresh interpreter — where
-        nothing is reachable — considered the whole store garbage and duly emptied one
+        which Python objects happened to be reachable. A fresh interpreter has nothing
+        reachable, so it considered the whole store garbage and duly emptied one
         that had a published resolution in it. An artifact's worth has nothing to do
-        with whether some process is holding the variable that produced it. So the root
-        set arrives as an argument, from a caller who has just named it.
+        with whether some process is holding the variable that produced it. The root
+        set therefore arrives as an argument, from a caller who has just named it.
 
-        Both kinds of name are ones a store already understands. A plan is not: which
-        artifacts belong to one is the plan's business, and `Step.fingerprints()` is
-        where it answers. Storage should not have to learn to walk a graph in order to
-        know what it may delete.
+        Both kinds of name are ones a store already understands. A plan is different.
+        Which artifacts belong to one is the plan's business, and `Step.fingerprints()`
+        answers that question. Storage should not have to learn to walk a graph in
+        order to know what it may delete.
 
         **Published labels are kept whether or not they are named**, along with the
         sources their resolutions need in order to stay readable. Publishing is the
@@ -415,22 +414,23 @@ class Adapter(ABC):
         Implementations must:
 
         * never touch stored judgements, which are human work and cannot be recomputed
-          from anything;
+          from anything
         * report `reclaimed` as space genuinely returned, measured rather than assumed.
           Deleting is not always the same as reclaiming, and a store that says it freed
           something it did not is worse than one that frees nothing.
 
         Args:
-            keep: What to preserve — a `Fingerprint`, or a `str` naming a published
-                label, which keeps that resolution and the sources it reads through.
+            keep: What to preserve. Either a `Fingerprint`, or a `str` naming a
+                published label, which keeps that resolution and the sources it reads
+                through.
 
         Returns:
             What was removed and what that recovered.
 
         Raises:
-            ValueError: If this would empty the store — an empty `keep` with nothing
-                published. Deleting everything is deleting the file, and should not be
-                what an accidentally-empty list does.
+            ValueError: If nothing would survive the trim, because `keep` was empty
+                and nothing is published. Deleting everything is the same as deleting
+                the file, and should not be what an accidentally-empty list does.
         """
         ...
 

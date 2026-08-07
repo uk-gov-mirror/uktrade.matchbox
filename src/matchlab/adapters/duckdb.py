@@ -258,8 +258,8 @@ class DuckDBAdapter(Adapter):
         1.4 ms after writing 10M rows, 0.08 ms when there is nothing pending.
 
         `free_blocks` still comes from DuckDB. Nothing outside the file can see how
-        much of it is reusable. So does an in-memory store's size, since it allocates
-        no blocks and has no file to measure.
+        much of it is reusable, and an in-memory store's size is no different: it
+        allocates no blocks and has no file to measure.
         """
         if self.path == ":memory:":
             # `sum` over an empty table is NULL, so an untouched store needs the `or 0`
