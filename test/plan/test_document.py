@@ -101,14 +101,14 @@ def _transfer(document: PlanDocument) -> PlanDocument:
     return PlanDocument.model_validate_json(document.model_dump_json())
 
 
-#: A valid source spec, for tests about a node's shape rather than its settings.
+# A valid source spec, for tests about a node's shape rather than its settings.
 _SOURCE_SPEC = {
     "name": "crn",
     "extract_transform": "select pk from crn",
     "key_field": "pk",
 }
 
-#: A valid location reference, likewise.
+# A valid location reference, likewise.
 _LOCATION_REF = {"location_class": "RelationalDBLocation", "name": "warehouse"}
 
 

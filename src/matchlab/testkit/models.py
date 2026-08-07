@@ -129,14 +129,14 @@ class GeneratedModel(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
-    #: The plan node. Run it with `model.resolve()`.
+    # The plan node. Run it with `model.resolve()`.
     model: Model
-    #: The generated source it reads as its left input. Its rows and starting partition
-    #: are reachable from here rather than copied onto this object.
+    # The generated source it reads as its left input. Its rows and starting partition
+    # are reachable from here rather than copied onto this object.
     left_source: GeneratedSource
-    #: Its right input, for a linker. `None` for a deduper.
+    # Its right input, for a linker. `None` for a deduper.
     right_source: GeneratedSource | None = None
-    #: The edges a perfect matcher should emit, in the sources' own entity ID space.
+    # The edges a perfect matcher should emit, in the sources' own entity ID space.
     scores: pl.DataFrame = Field(frozen=True)
 
     _predicted_clusters: tuple[Cluster, ...]

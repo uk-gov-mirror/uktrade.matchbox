@@ -29,15 +29,15 @@ from platformdirs import user_cache_path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import create_engine
 
-#: Cosmetic suffixes the cleaning rules are meant to absorb — all of them clean away
-#: to nothing, so a name carrying any of them compares equal to a name carrying none.
+# Cosmetic suffixes the cleaning rules are meant to absorb — all of them clean away
+# to nothing, so a name carrying any of them compares equal to a name carrying none.
 SUFFIXES = ("LTD", "LIMITED", "PLC", "", "Ltd.", "ltd")
 
-#: Runs of whitespace, which cleaning collapses. Sloppy spacing is the most common
-#: thing that makes two renderings of one name differ without meaning anything.
+# Runs of whitespace, which cleaning collapses. Sloppy spacing is the most common
+# thing that makes two renderings of one name differ without meaning anything.
 SPACES = (" ", "  ", "   ")
 
-#: Towns, for postcodes that look like postcodes. Only the two-letter prefix is used.
+# Towns, for postcodes that look like postcodes. Only the two-letter prefix is used.
 TOWNS = ("LONDON", "MANCHESTER", "LEEDS", "BRISTOL", "EDINBURGH", "GLASGOW")
 
 # How a rendering is decomposed: the variation number is read as a mixed-radix
@@ -49,23 +49,23 @@ _NAME_SPACE = _SUFFIX * len(SUFFIXES)
 _POSTCODE_SPACE = _NAME_SPACE * len(SPACES)
 _POSTCODE_CASE = _POSTCODE_SPACE * len(SPACES)
 
-#: How many distinct renderings of one entity exist. Every row of an entity gets its
-#: own, so `n_sources * records_per_entity` may not exceed this.
+# How many distinct renderings of one entity exist. Every row of an entity gets its
+# own, so `n_sources * records_per_entity` may not exceed this.
 VARIATIONS = _POSTCODE_CASE * 2
 
-#: Bump this whenever the generated *values* change for unchanged parameters.
-#: Warehouses are cached on disk by their parameters, and parameters alone cannot tell
-#: a cached file that the code which wrote it has since changed — the run would
-#: silently measure last month's data. Folding a version into the key retires the old
-#: file instead.
+# Bump this whenever the generated *values* change for unchanged parameters.
+# Warehouses are cached on disk by their parameters, and parameters alone cannot tell
+# a cached file that the code which wrote it has since changed — the run would
+# silently measure last month's data. Folding a version into the key retires the old
+# file instead.
 GENERATION = 2
 
-#: Source names, in the order topologies consume them. The first is the hub.
+# Source names, in the order topologies consume them. The first is the hub.
 SOURCE_NAMES = ("crn", "dh", "cdms", "hmrc", "vat", "eori", "sic", "fca")
 
-#: Knuth's multiplicative constant. Deterministic pseudo-randomness that vectorises:
-#: reproducible across runs and platforms, and free compared with seeding a real RNG
-#: per row.
+# Knuth's multiplicative constant. Deterministic pseudo-randomness that vectorises:
+# reproducible across runs and platforms, and free compared with seeding a real RNG
+# per row.
 KNUTH = 2654435761
 
 

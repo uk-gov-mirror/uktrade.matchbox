@@ -25,9 +25,9 @@ from matchlab.core.schemas import (
 )
 from matchlab.eval.judgements import Judgement
 
-#: Bumped whenever the stored shape changes, or stored IDs stop meaning what they did.
-#: A store written by an older matchlab is recreated rather than half-read. That's the
-#: honest failure mode for a cache.
+# Bumped whenever the stored shape changes, or stored IDs stop meaning what they did.
+# A store written by an older matchlab is recreated rather than half-read. That's the
+# honest failure mode for a cache.
 _SCHEMA_VERSION = 5
 
 _SCHEMA_DDL = """

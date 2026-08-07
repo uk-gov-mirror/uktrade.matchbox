@@ -30,8 +30,8 @@ from benchmarks.cases import Case, Sweep
 from benchmarks.data import Warehouse, ensure
 from benchmarks.measurements import Measurement, Result
 
-#: How long one case may take before it is assumed wedged rather than slow. Generous:
-#: the largest case in `full` is minutes of real work.
+# How long one case may take before it is assumed wedged rather than slow. Generous:
+# the largest case in `full` is minutes of real work.
 DEFAULT_TIMEOUT = 3600
 
 

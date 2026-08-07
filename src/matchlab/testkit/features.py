@@ -135,10 +135,10 @@ class SourceParameters(BaseModel):
 
     features: tuple[FeatureConfig, ...] = Field(default_factory=tuple)
     name: str
-    #: Defaults to None rather than an engine, so that every caller ends up with its own
-    #: warehouse. A `Field(default=create_engine(...))` is evaluated once at class
-    #: definition, which silently shared one in-memory SQLite database across the whole
-    #: process — so two sources built without an explicit engine could not be joined.
+    # Defaults to None rather than an engine, so that every caller ends up with its own
+    # warehouse. A `Field(default=create_engine(...))` is evaluated once at class
+    # definition, which silently shared one in-memory SQLite database across the whole
+    # process — so two sources built without an explicit engine could not be joined.
     engine: Engine | AdbcConnection | None = Field(default=None)
     n_true_entities: int | None = Field(default=None)
     repetition: int = Field(default=0)

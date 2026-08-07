@@ -72,7 +72,7 @@ _STYLES: dict[StepStatus, str] = {
 }
 
 
-#: Statuses where an elapsed time is worth showing, the ones that spent any.
+# Statuses where an elapsed time is worth showing, the ones that spent any.
 _TIMED = (StepStatus.RUNNING, StepStatus.DONE, StepStatus.FAILED)
 
 
@@ -188,8 +188,8 @@ def render(
     position = number(root)
     lines: list[str] = []
     expanded: set[int] = set()
-    #: Where each step is drawn. A repeat reference is a pointer to the expansion, not
-    #: another copy of it, so the first row is the one worth looking at.
+    # Where each step is drawn. A repeat reference is a pointer to the expansion, not
+    # another copy of it, so the first row is the one worth looking at.
     rows: dict[int, int] = {}
 
     def draw_step(step: "Step", prefix: str, connector: str) -> None:

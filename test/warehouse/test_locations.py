@@ -25,7 +25,7 @@ from matchlab.locations import (
 from matchlab.testkit.features import FeatureConfig
 from matchlab.testkit.sources import source_factory
 
-#: What the `warehouse` fixture hands back — the client types a location accepts.
+# What the `warehouse` fixture hands back — the client types a location accepts.
 WarehouseClient: TypeAlias = Engine | AdbcConnection
 
 

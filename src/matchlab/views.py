@@ -41,9 +41,9 @@ if TYPE_CHECKING:
     from matchlab.resolvers import Resolver
     from matchlab.sources import Source
 
-#: What one source's identifiers are read with: `(source_fp, source_name, resolver_fp)`,
-#: the arguments of `Adapter.read_identifiers`. Deduplicating these is deduplicating the
-#: queries, which is why they travel as a value rather than as a call.
+# What one source's identifiers are read with: `(source_fp, source_name, resolver_fp)`,
+# the arguments of `Adapter.read_identifiers`. Deduplicating these is deduplicating the
+# queries, which is why they travel as a value rather than as a call.
 IdentifierRead = tuple["Fingerprint | None", str, "Fingerprint | None"]
 
 

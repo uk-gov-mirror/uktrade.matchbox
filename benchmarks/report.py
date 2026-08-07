@@ -20,7 +20,7 @@ from matchlab.adapters.base import format_bytes
 # a two-line-per-row stack makes the comparison unreadable
 MIN_WIDTH = 118
 
-#: One row of a summary table. Cells are plain strings unless they carry a colour.
+# One row of a summary table. Cells are plain strings unless they carry a colour.
 Row = tuple[str | Text, ...]
 
 

@@ -34,7 +34,7 @@ from matchlab.adapters import DuckDBAdapter
 
 SMALL = Warehouse(n_entities=300, records_per_entity=2, n_sources=4)
 
-#: A plausible environment, for the tests that need a `Run` but not a real one.
+# A plausible environment, for the tests that need a `Run` but not a real one.
 ENVIRONMENT = Environment(
     started_at="2026-01-01T00-00-00",
     profile="quick",

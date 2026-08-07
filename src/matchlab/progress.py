@@ -72,8 +72,8 @@ if TYPE_CHECKING:
     # `matchlab.steps` imports this module
     from matchlab.steps import Step
 
-#: The slice of a plan a frame shows, and a note of what it leaves out. `None` when
-#: the whole tree fits and nothing is left out.
+# The slice of a plan a frame shows, and a note of what it leaves out. `None` when
+# the whole tree fits and nothing is left out.
 _Window = tuple[list[str], Text | None]
 
 # Whether a collection is already reporting. Rich allows one live display per console,
@@ -83,16 +83,16 @@ _Window = tuple[list[str], Text | None]
 # against its own walk and not against whatever is on screen.
 _REPORTING = False
 
-#: How each outcome reads in a log line, and at what level. `Cached` is structural
-#: rather than work done, so it sits at `DEBUG` and the summary carries its count for
-#: an `INFO` reader.
+# How each outcome reads in a log line, and at what level. `Cached` is structural
+# rather than work done, so it sits at `DEBUG` and the summary carries its count for
+# an `INFO` reader.
 _RECORDS: dict[StepStatus, tuple[int, str]] = {
     StepStatus.DONE: (logging.INFO, "Ran in {elapsed:.3f}s"),
     StepStatus.CACHED: (logging.DEBUG, "Cached"),
     StepStatus.FAILED: (logging.ERROR, "Failed after {elapsed:.3f}s"),
 }
 
-#: How each status reads in the legend, which has no room to spell it out.
+# How each status reads in the legend, which has no room to spell it out.
 _LABELS: dict[StepStatus, str] = {
     StepStatus.PENDING: "waiting",
     StepStatus.RUNNING: "running",
@@ -138,14 +138,14 @@ class Progress:
         """
         self.root = root
         self._adapter = adapter
-        #: The store's size before anything ran, so the summary can report what this
-        #: collection cost rather than only what the store now weighs. Taken in
-        #: `__enter__`, since a report that is built and never entered has no run to
-        #: attribute growth to.
+        # The store's size before anything ran, so the summary can report what this
+        # collection cost rather than only what the store now weighs. Taken in
+        # `__enter__`, since a report that is built and never entered has no run to
+        # attribute growth to.
         self._store_before: StoreStats | None = None
         self.steps = tuple(steps)
-        #: Position by step identity, the same numbering `lineage.number` gives, taken
-        #: from the walk `collect` already did rather than by walking again.
+        # Position by step identity, the same numbering `lineage.number` gives, taken
+        # from the walk `collect` already did rather than by walking again.
         self.positions = {
             id(step): position for position, step in enumerate(self.steps)
         }
@@ -156,21 +156,21 @@ class Progress:
         self._running: Step | None = None
         self._running_since: float | None = None
         self._started: float | None = None
-        #: Holds the ambient prefix while a step runs, so `begin` can restore whatever
-        #: was in force on `end`. That matters when this report is nested, since the
-        #: outer collection's own step prefix was set first.
+        # Holds the ambient prefix while a step runs, so `begin` can restore whatever
+        # was in force on `end`. That matters when this report is nested, since the
+        # outer collection's own step prefix was set first.
         self._prefix_token: Token[str | None] | None = None
-        #: The row a windowed frame centres on. Kept after a step ends rather than
-        #: cleared, so the view holds still between steps instead of springing back.
+        # The row a windowed frame centres on. Kept after a step ends rather than
+        # cleared, so the view holds still between steps instead of springing back.
         self._focus: int | None = None
-        #: Whether the collection is over, and the frame can stop being a frame.
+        # Whether the collection is over, and the frame can stop being a frame.
         self._finished = False
-        #: Everything this report has to undo, the frame and the log handlers it
-        #: borrowed to keep off it. `None` before `__enter__` and after `__exit__`.
+        # Everything this report has to undo, the frame and the log handlers it
+        # borrowed to keep off it. `None` before `__enter__` and after `__exit__`.
         self._stack: ExitStack | None = None
-        #: Which row each step is drawn on. A plan's shape doesn't change while it
-        #: collects, only the markers along it, so this is fixed for the run.
-        #: Computed only when there is a frame to window.
+        # Which row each step is drawn on. A plan's shape doesn't change while it
+        # collects, only the markers along it, so this is fixed for the run.
+        # Computed only when there is a frame to window.
         self._rows: dict[int, int] = render(root)[1] if live else {}
         # Set last, because Rich draws a first frame while constructing the display.
         self._live = (

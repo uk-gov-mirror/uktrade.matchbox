@@ -33,17 +33,17 @@ from matchlab import Model, RelationalDBLocation, Resolver, Source, View
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
 
-#: Strip case, whitespace, punctuation and company suffixes, so the cosmetic variation
-#: the generator plants is absorbed and matching has something to agree on.
+# Strip case, whitespace, punctuation and company suffixes, so the cosmetic variation
+# the generator plants is absorbed and matching has something to agree on.
 NAME = (
     "regexp_replace(upper({0}), '\\s+|\\.|\\bLIMITED\\b|\\bLTD\\b|\\bPLC\\b', '', 'g')"
 )
 
-#: Strip case and whitespace only. Postcodes are stable per entity by construction.
+# Strip case and whitespace only. Postcodes are stable per entity by construction.
 POSTCODE = "regexp_replace(upper({0}), '\\s+', '', 'g')"
 
-#: What both matchers agree on. Named once, so no topology can quietly match
-#: differently from another and make the comparison between them meaningless.
+# What both matchers agree on. Named once, so no topology can quietly match
+# differently from another and make the comparison between them meaningless.
 UNIQUE_FIELDS = ["name", "postcode"]
 COMPARISON = "l.name = r.name and l.postcode = r.postcode"
 
@@ -168,7 +168,7 @@ def build(topology: Topology, sources: Sequence[Source]) -> Resolver:
             return _chain(sources)
 
 
-#: Which links a star-shaped plan builds, given its views.
+# Which links a star-shaped plan builds, given its views.
 Pairs = Callable[[Sequence[View]], list[tuple[View, View]]]
 
 

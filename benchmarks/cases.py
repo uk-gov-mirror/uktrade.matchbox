@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from benchmarks.data import Warehouse
 from benchmarks.topologies import Topology
 
-#: The middle of every sweep. Each sweep replaces exactly one of these.
+# The middle of every sweep. Each sweep replaces exactly one of these.
 BASELINE = Warehouse(n_entities=50_000, records_per_entity=3, n_sources=4)
 BASELINE_TOPOLOGY = Topology.MESH
 

@@ -28,8 +28,8 @@ from matchlab.models.linkers.base import Linker, LinkerSettings
 from matchlab.testkit.entities import TrueEntity
 from matchlab.testkit.sources import GeneratedSource
 
-#: Registered answer keys, by content hash. Only ever added to; a testkit process is
-#: short-lived and the keys are small.
+# Registered answer keys, by content hash. Only ever added to; a testkit process is
+# short-lived and the keys are small.
 _ANSWERS: dict[str, "AnswerKey"] = {}
 
 
