@@ -14,12 +14,13 @@ from matchlab.eval import get_samples
 samples = get_samples(n=20, resolver=companies)
 ```
 
-`resolver` takes either a resolver you are holding or the label one was
-[published](./build-a-plan.md) under — the same either/or that `review()` takes. The
+`resolver` takes either a resolver you are holding, or the label one was
+[published](./build-a-plan.md) under. `review()` takes the same either/or. The
 label form needs no plan at all, which is what the rest of this page builds on.
 
-Each sample is an `EvaluationItem`: the records in one cluster, with their fields laid
-out so a human can see what was grouped and decide whether it should have been.
+Each sample is an `EvaluationItem`. It holds the records in one cluster, with their
+fields laid out so a human can see what was grouped and decide whether it should have
+been.
 
 ```python
 item = samples[cluster_id]
@@ -30,8 +31,8 @@ item.get_unique_record_groups()  # identical rows collapsed
 ## Review clusters interactively
 
 Sampling and judging by hand is fiddly. `review()` opens a terminal app that walks the
-queue for you — one cluster on screen at a time, records laid out so you can see what
-was grouped:
+queue for you. It shows one cluster on screen at a time, with records laid out so you
+can see what was grouped:
 
 ```python
 from matchlab.eval import review
@@ -49,11 +50,12 @@ To review the *same* clusters someone else was shown, agree on a seed:
 review(companies, seed=7)
 ```
 
-Same store, same `n`, same seed, same clusters — so two people can judge the same work
-independently and their judgements are directly comparable.
+Same store, same `n`, same seed, same clusters. Two people can judge the same work
+independently, and their judgements are directly comparable.
 
 There's a command too, for when you'd rather not open a REPL. It takes a
-`module:attribute` naming a resolver in your own code — the same shape `uvicorn` uses:
+`module:attribute` naming a resolver in your own code. That's the same shape `uvicorn`
+uses:
 
 ```shell
 matchlab review pipeline:companies --tag review-2026-07
@@ -71,13 +73,14 @@ You don't need the plan, or the warehouse, to review what it produced:
 matchlab review companies --store ./run.duckdb
 ```
 
-With `--store`, the target is the label a resolver output was **published** under —
-`companies.collect().publish("companies")` — rather than Python to import. This works
-because collecting a source caches its extract, and a stored resolver output records
-which source artifacts it covers — so the values on screen come out of the store.
+With `--store`, the target is the label a resolver output was **published** under, for
+example `companies.collect().publish("companies")`. This differs from naming Python
+code to import. It works because collecting a source caches its extract, and a stored
+resolver output records which source artifacts it covers. That's why the values on
+screen come out of the store.
 
-That's also the more correct thing to review: it's the data the matching actually saw,
-not what the warehouse says today. And it means you can hand someone a `.duckdb` file
+This is also the more correct thing to review. It's the data the matching actually saw,
+not what the warehouse says today. It also means you can hand someone a `.duckdb` file,
 and they can judge it on a laptop with no database access.
 
 ```python
@@ -89,9 +92,9 @@ review("companies", adapter=DuckDBAdapter("run.duckdb"), tag="second-opinion")
 
 ## Record a judgement
 
-A judgement says: *of the records you were shown, these belong together.* `review()`
-builds these for you; this is the same thing by hand, for scripting or a UI of your
-own.
+A judgement says *of the records you were shown, these belong together.* `review()`
+builds these for you. This is the same thing by hand, useful for scripting or a UI of
+your own.
 
 ```python
 from matchlab.eval import create_judgement
@@ -106,7 +109,7 @@ adapter.store_judgement(judgement, user_name="leo")
 ```
 
 Records shown together but assigned to different groups are recorded as *negative*
-evidence, not just absence of positive evidence — which is what makes precision
+evidence, not just absence of positive evidence. This is what makes precision
 measurable rather than guessed.
 
 ## Score a resolver output
@@ -118,10 +121,10 @@ evaluation = EvalData(adapter, tag="review-2026-07")
 precision, recall = evaluation.precision_recall(companies)
 ```
 
-Pass a resolver or the label one was published under — the same either/or as everywhere
-else on this page. Only pairs that appear in both the judgements and the resolver output
-are compared, so two methodologies scored against the same judgements are compared
-fairly.
+Pass a resolver or the label one was published under. This is the same either/or as
+everywhere else on this page. Only pairs that appear in both the judgements and the
+resolver output are compared, so two methodologies scored against the same judgements
+are compared fairly.
 
 ## Measuring against known truth
 
@@ -138,17 +141,17 @@ resolver_output = linked.link("crn", "cdms").model.resolve().collect().entities(
 identical, report = linked.diff_resolver_output(resolver_output, "crn", "cdms")
 ```
 
-`linked` is the whole handle: it planted the entities, so `.dedupe()`, `.link()` and
-`.diff_resolver_output()` all know the answer without being told it. To stack a link on
-top of a dedupe — the case where the apex has to carry an upstream grouping forward as
-well as its own — read the left side *through* the upstream resolver:
+`linked` is the whole handle. It planted the entities, so `.dedupe()`, `.link()` and
+`.diff_resolver_output()` all know the answer without being told it. Stacking a link on
+top of a dedupe is the case where the apex has to carry an upstream grouping forward as
+well as its own. To do that, read the left side *through* the upstream resolver:
 
 ```python
 dedupe = linked.dedupe("crn").model.resolve()
 apex = linked.link("crn", "cdms", through=dedupe).model.resolve()
 ```
 
-`identical` is the verdict; `report` is empty on a match, and otherwise says *how* it
+`identical` is the verdict. `report` is empty on a match, and otherwise says *how* it
 differs, counting clusters that were:
 
 | | |
@@ -159,14 +162,13 @@ differs, counting clusters that were:
 | `wrong` | overlaps expected entities without containing or being contained by one |
 | `invalid` | contains records no expected entity claims |
 
-That breakdown is the point: "0.94 recall" tells you less than "eight clusters were
+That breakdown is the point. "0.94 recall" tells you less than "eight clusters were
 subsets", which tells you the matcher is too strict rather than too loose.
 
-This works because a cluster is compared by the `(source, key)` records it contains and
-never by its ID — the resolver output's `root` is content-derived at collect time and
+This works because a cluster is compared by the `(source, key)` records it contains,
+never by its ID. The resolver output's `root` is content-derived at collect time, and
 has no counterpart in the generated data. To measure a *methodology* rather than a whole
-plan,
-use `linked.diff_model_edges(edges, left=source)` instead, which compares an edge
+plan, use `linked.diff_model_edges(edges, left=source)` instead. This compares an edge
 table without needing a warehouse.
 
 This is how matchlab tests itself, and it's the fastest way to sanity-check a
@@ -176,8 +178,8 @@ See [`matchlab.testkit`](../api/testkit.md) for the generators.
 
 ## Comparing methodologies
 
-The plan structure makes this cheap: build several resolvers over the same sources and
-collect them. Because steps are content-addressed, the shared source is read once and
+The plan structure makes this cheap. Build several resolvers over the same sources and
+collect them. Because steps are content-addressed, the shared source is read once, and
 every candidate reuses it.
 
 ```python
@@ -195,15 +197,16 @@ evaluation.precision_recall([naive, splink])
 # [(0.91, 0.84), (0.95, 0.79)]
 ```
 
-Handing `review()` several resolvers samples from their *merged* components: two
+Handing `review()` several resolvers samples from their *merged* components. Two
 records appear together if either methodology put them there. That's what makes the
-comparison honest — every cluster where the two could disagree is on screen, one
+comparison honest. Every cluster where the two could disagree is on screen, one
 judgement settles it for both, and neither gets to pick the clusters it's scored on.
 
 Scoring them together matters for the same reason. `precision_recall` keeps only the
 pairs present in every resolver output *and* in the judgements, so each candidate is
 measured over the same records. Score them one at a time and each gets its own
-comparison set; those numbers don't line up.
+comparison set. Those numbers don't line up.
 
-Publishing each one — `naive.publish("naive")` — is what lets you come back to it later
-with `matchlab review naive`. A candidate you only wanted to score once needs no label.
+Publishing each one, for example `naive.publish("naive")`, is what lets you come back
+to it later with `matchlab review naive`. A candidate you only wanted to score once
+needs no label.

@@ -5,7 +5,7 @@ This document describes how to get started developing matchlab.
 * [Python 3.11+](https://www.python.org)
 * [uv](https://docs.astral.sh/uv/)
 * [just](https://just.systems/man/en/)
-* [Docker](https://www.docker.com) — for the TruffleHog secret scan, which pre-commit
+* [Docker](https://www.docker.com), for the TruffleHog secret scan that pre-commit
   runs on every commit.
 
 ## Setup
@@ -21,14 +21,14 @@ Install all dependencies:
 uv sync
 ```
 
-There is no `.env` to configure. matchlab reads no environment variables: warehouse
-connections are passed to `Location`, and storage is passed to `collect()` or set with
+There is no `.env` to configure. matchlab reads no environment variables. Warehouse
+connections are passed to `Location`. Storage is passed to `collect()`, or set with
 `set_default_adapter()`.
 
 Secret scanning is done with [TruffleHog](https://github.com/trufflesecurity/trufflehog).
 
-For security, use of [pre-commit](https://pre-commit.com) is expected. Ensure your hooks
-are installed:
+For security, we expect you to install [pre-commit](https://pre-commit.com). Ensure your
+hooks are installed:
 
 ```shell
 pre-commit install
@@ -50,8 +50,8 @@ just -l
 
 ## Run tests
 
-The whole suite runs on Python alone — DuckDB in memory for storage, SQLite in a temp
-file for warehouses:
+The whole suite runs on Python alone. Storage uses DuckDB in memory, and warehouses use
+SQLite in a temp file. Run it with:
 
 ```shell
 just test
@@ -72,8 +72,8 @@ where it runs, and ships nothing to manage one.
 just docs
 ```
 
-Serves the site with live reload. The build is run in strict mode in CI, so broken
-cross-references fail the build — worth checking before you push:
+Serves the site with live reload. CI builds the site in strict mode, so broken
+cross-references fail the build. Check this before you push:
 
 ```shell
 uv run mkdocs build --strict
@@ -114,20 +114,19 @@ New plan steps subclass [`Step`](api/steps.md). A step must:
 
 ### Adapters
 
-New storage backends subclass [`Adapter`](api/adapters.md). Beyond the read and write
-methods, `stats()` has to answer for the store's size and contents — every collect
-reports it, and a store nobody can measure is one that fills a disk quietly.
+New storage backends subclass [`Adapter`](api/adapters.md). Beyond reading and writing,
+`stats()` must report the store's size and contents. Every collect calls it, and a
+store nobody can measure is one that quietly fills a disk.
 
-`trim()` is the other half, and the one to be careful with, since it deletes. Three
-rules it has to hold to:
+`trim()` is the other half. Be careful with it, since it deletes. It must hold to three
+rules:
 
-* **Keep what the caller named, and never work out the rest for yourself.** 
+* **Keep what the caller named, and never work out the rest for yourself.**
 * **Keep every published label, listed or not**, along with whatever its resolver output
-  needs to stay readable — and never touch stored judgements, which are the one thing in
-  a store that cannot be recomputed.
+  needs to stay readable. Never touch stored judgements. They are the one thing in a
+  store that cannot be recomputed.
 * **Report what you actually reclaimed**, measured. Deleting and reclaiming are not the
   same number in every backend.
-
 
 ### Git
 
@@ -141,12 +140,11 @@ branches are peer reviewed.
 
 ### AI
 
-In order to help reviewers prioritise their time appropriately, we expect any use of AI
-to be declared in your PR comment.
+To help reviewers prioritise their time, declare any use of AI in your PR comment.
 
 ### Actions
 
-In order to avoid supply chain attacks, we
+To avoid supply chain attacks, we
 [pin all actions in workflows](https://codeql.github.com/codeql-query-help/actions/actions-unpinned-tag/).
 
 When upgrading actions, we expect PR comments to confirm that the new commit is safe.
@@ -156,7 +154,7 @@ You need to cover:
 * That there are no critical security concerns raised in the issues
 
 We suggest using tools like [`wayneashleyberry/gh-act`](https://github.com/wayneashleyberry/gh-act)
-to help manage this, allowing you to perform the upgrade in a single line:
+to help. It performs the upgrade in a single line:
 
 ```shell
 gh act update --pin
