@@ -22,7 +22,7 @@ from matchlab.models.dedupers import NaiveDeduper
 
 @pytest.fixture
 def resolver(source: Callable[..., Source]) -> Resolver:
-    """crn deduplicated on `company`, for the review app to sample from."""
+    """Crn deduplicated on `company`, for the review app to sample from."""
     crn = source("crn")
     return crn.dedupe(
         model_class=NaiveDeduper,

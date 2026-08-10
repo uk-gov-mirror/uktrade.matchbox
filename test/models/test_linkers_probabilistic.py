@@ -183,7 +183,6 @@ def test_probabilistic_scores_vary(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
     """Test that linkers can generate varying scores."""
-
     # Create sources with variations
     features = (
         FeatureConfig(

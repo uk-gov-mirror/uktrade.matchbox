@@ -1,3 +1,5 @@
+"""Tests for generating entity scores and recovering clusters from them."""
+
 import polars as pl
 import pytest
 

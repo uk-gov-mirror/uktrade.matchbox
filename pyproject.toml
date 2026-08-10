@@ -106,12 +106,6 @@ convention = "google"
 allow-star-arg-any = true
 
 [tool.ruff.lint.per-file-ignores]
-# Every test (and fixture) must carry a docstring — the tag-style name categorises,
-# the docstring explains (see test/README.md). So D103 stays on; the module-, class-,
-# and package-level docstring rules and the prose-style rules are off, as they suit
-# library docstrings more than test ones.
-"test/**" = ["D100", "D101", "D102", "D104", "D105", "D106", "D107", "D2", "D3", "D4"]
-"docs/**" = ["D"]
 # Adapter methods inherit their docstrings from the Adapter ABC, which
 # griffe-inherited-docstrings renders into the docs.
 "src/matchlab/adapters/*" = ["D102"]

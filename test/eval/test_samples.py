@@ -54,13 +54,13 @@ def _dedupe_on(src: Source, field: str) -> Resolver:
 
 @pytest.fixture
 def by_company(source: Callable[..., Source]) -> Resolver:
-    """crn deduplicated on `company`: {a1,a2}, {a3}."""
+    """Crn deduplicated on `company`: {a1,a2}, {a3}."""
     return _dedupe_on(source("crn"), "company").collect()
 
 
 @pytest.fixture
 def by_town(source: Callable[..., Source]) -> Resolver:
-    """crn deduplicated on `town`: {a1,a3}, {a2}."""
+    """Crn deduplicated on `town`: {a1,a3}, {a2}."""
     return _dedupe_on(source("crn"), "town").collect()
 
 

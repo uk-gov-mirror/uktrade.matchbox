@@ -1,3 +1,5 @@
+"""Tests for entity references, clusters, and generated entities."""
+
 import operator
 from typing import Any
 

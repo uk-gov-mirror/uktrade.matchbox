@@ -1,3 +1,5 @@
+"""Tests for generating linked sources that share entities."""
+
 import pytest
 from sqlalchemy import Engine
 
@@ -31,7 +33,6 @@ def test_linked_sources_factory_default() -> None:
 
 def test_linked_sources_custom_config(sqlite_in_memory_warehouse: Engine) -> None:
     """Test linked_sources_factory with custom source configurations."""
-
     features = {
         "name": FeatureConfig(
             name="name",

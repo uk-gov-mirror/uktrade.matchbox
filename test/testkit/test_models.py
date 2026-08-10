@@ -1,3 +1,5 @@
+"""Tests for generated models and their scored edges."""
+
 from typing import Any, Literal
 
 import polars as pl

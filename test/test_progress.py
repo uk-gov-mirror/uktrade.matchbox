@@ -59,15 +59,18 @@ class StoringStep(Step):
     kind: ClassVar[StepKind] = StepKind.VIEW
 
     def __init__(self, label: str = "fake", upstream: tuple[Step, ...] = ()) -> None:
+        """Create a fake step with the given label and upstream steps."""
         self.label = label
         super().__init__(upstream=upstream)
         self.executions = 0
 
     def __str__(self) -> str:
+        """Return the label, so drawings identify nodes by it."""
         return self.label
 
     @property
     def spec(self) -> BaseModel:
+        """Return a minimal spec carrying only the label."""
         return _FakeSpec(name=self.label)
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:

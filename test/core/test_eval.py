@@ -1,3 +1,5 @@
+"""Tests for judgement validation and precision/recall metrics."""
+
 import polars as pl
 import pytest
 

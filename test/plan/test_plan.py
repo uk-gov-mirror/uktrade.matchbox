@@ -851,8 +851,11 @@ def test_view_through_resolver_distinct(
 
 
 def test_steps_use_positions(source: Callable[..., Source]) -> None:
-    """Nothing in a plan is named. Cleaning one source two ways, or comparing two
-    methodologies over it, needs no names and cannot collide."""
+    """Nothing in a plan is named.
+
+    Cleaning one source two ways, or comparing two methodologies over it, needs no
+    names and cannot collide.
+    """
     crn = source("crn")
     strict = crn.view(cleaning={"name": f"upper({crn.f('company')})"})
     loose = crn.view(cleaning={"name": f"lower({crn.f('company')})"})
@@ -973,8 +976,10 @@ def test_edges_keyed_by_position(
     seen: dict[int, int] = {}
 
     class Spy:
-        """`ResolverMethod` is a pydantic model and rejects undeclared attributes,
-        so wrap the methodology rather than patching it."""
+        """Wrap the methodology rather than patching it.
+
+        `ResolverMethod` is a pydantic model and rejects undeclared attributes.
+        """
 
         def __init__(self, wrapped: object) -> None:
             self.wrapped = wrapped

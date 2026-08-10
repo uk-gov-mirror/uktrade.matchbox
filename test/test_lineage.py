@@ -32,14 +32,17 @@ class FakeStep(Step):
     kind: ClassVar[StepKind] = StepKind.VIEW
 
     def __init__(self, label: str = "fake", upstream: tuple[Step, ...] = ()) -> None:
+        """Create a fake step with the given label and upstream steps."""
         self.label = label
         super().__init__(upstream=upstream)
 
     def __str__(self) -> str:
+        """Return the label, so drawings identify nodes by it."""
         return self.label
 
     @property
     def spec(self) -> BaseModel:
+        """Return a minimal spec carrying only the label."""
         return _FakeSpec(name=self.label)
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
@@ -47,7 +50,7 @@ class FakeStep(Step):
 
 
 def test_walk_inputs_before_consumers() -> None:
-    """walk yields every input before the step that consumes it."""
+    """Walk yields every input before the step that consumes it."""
     a = FakeStep("a")
     b = FakeStep("b", upstream=(a,))
     c = FakeStep("c", upstream=(b,))
@@ -72,7 +75,7 @@ def test_walk_shared_once() -> None:
 
 
 def test_walk_from_leaf() -> None:
-    """walk from a leaf is just the leaf."""
+    """Walk from a leaf is just the leaf."""
     leaf = FakeStep("leaf")
     FakeStep("downstream", upstream=(leaf,))  # never reachable from the leaf
     assert [step.label for step in lineage.walk(leaf)] == ["leaf"]
@@ -100,7 +103,7 @@ def test_draw_shared_refers_back() -> None:
 
 
 def test_draw_nests_inputs() -> None:
-    """draw nests each step's inputs beneath it."""
+    """Draw nests each step's inputs beneath it."""
     source = FakeStep("source")
     apex = FakeStep("apex", upstream=(source,))
 

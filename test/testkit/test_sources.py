@@ -1,3 +1,5 @@
+"""Tests for generating synthetic sources and their rows."""
+
 import functools
 
 import pytest

@@ -180,7 +180,6 @@ def test_relational_db_extract_transform(
     sqla_sqlite_warehouse: Engine,
 ) -> None:
     """Test SQL validation in validate_extract_transform."""
-
     if dialects == "none":
         invalid_clients = [sqla_postgres_dialect, sqla_sqlite_warehouse]
         valid_clients = []
