@@ -256,6 +256,20 @@ def test_source_key_only_rejected(source: Callable[..., Source]) -> None:
         source.collect()
 
 
+def test_source_no_rows_raises(source: Callable[..., Source]) -> None:
+    """A query that returns nothing is a mistake, not an empty source."""
+    empty = source("crn", "select pk, company from crn where pk = 'nobody'")
+    with pytest.raises(ValueError, match="returned no rows"):
+        empty.collect()
+
+
+def test_source_null_keys_raises(source: Callable[..., Source]) -> None:
+    """A null key can't anchor a record, so it's rejected at read time."""
+    null_keyed = source("crn", "select null as pk, company from crn")
+    with pytest.raises(ValueError, match="has null keys"):
+        null_keyed.collect()
+
+
 def test_source_keys_are_strings(warehouse: Engine) -> None:
     """Whatever the warehouse types the key as, matchlab hands back a string."""
     with warehouse.begin() as conn:

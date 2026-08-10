@@ -24,15 +24,17 @@ def comparison(sql_condition: str, dialect: str = "postgres") -> str:
     parsed_sql = parse_one(sql_condition)
 
     for node in parsed_sql.walk():
+        # `walk()` yields each expression directly (older sqlglot yielded a
+        # `(node, parent, key)` tuple, which is why this once read `node[0]`).
         if not isinstance(
-            node[0],
+            node,
             exp.Connector | exp.Predicate | exp.Condition | exp.Identifier,
         ):
             raise ParseError(
-                f"Must be valid WHERE clause statements. Found {type(node[0])}"
+                f"Must be valid WHERE clause statements. Found {type(node)}"
             )
 
-        if isinstance(node[0], exp.Or):
+        if isinstance(node, exp.Or):
             logger.warning(
                 "Or conditions are computationally expensive. Expect slow performance."
             )
