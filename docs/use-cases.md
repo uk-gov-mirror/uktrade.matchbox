@@ -6,7 +6,7 @@
   a pile of notebook cells
 * Measure whether a change actually improved the match, against judgements or known
   truth
-* Re-run cheaply — collecting again only redoes the work whose inputs changed
+* Re-run cheaply. Collecting again only redoes the work whose inputs changed
 
 [:octicons-download-16: Install](./guide/install.md){ .md-button }
 
@@ -14,8 +14,8 @@
 
 * Reconcile entities across disparate sources without moving the data anywhere
 * Compare methodologies on equal terms rather than by argument
-* Take the plan an analyst built and run it operationally — it's the same object
-* Lay the foundation for the nouns of a semantic layer
+* Take the plan an analyst built and run it operationally. It's the same object
+* Provide the entities a semantic layer is built from
 
 [:octicons-book-16: Build a plan](./guide/build-a-plan.md){ .md-button }
 

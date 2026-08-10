@@ -17,6 +17,10 @@ Write in plain English for technical readers:
 
 Fluent, sophisticated prose is NOT plain English for technical readers. Rewrite sentence structure ruthlessly. Use short sentences and direct verbs. Reduce ideas per sentence, but keep precise technical terms.
 
+Pay particular attention to the glossary.
+
+Ensure you run all three final checks.
+
 ## Reader
 
 The reader is a mid-level Python developer, with a B2 CEFR reading level (Flesch-Kincaid Grade 8-9).

@@ -9,8 +9,8 @@ hide:
 pipelines.**
 
 Record matching is a chore. You match with Splink and pandas, measure with
-`er-evaluation`, and hand-roll the operational pipeline — and every library in the
-chain fights the others. There is no common data format, no common way to compare
+`er-evaluation`, and hand-roll the operational pipeline. Every library in the chain
+fights the others. There is no common data format, no common way to compare
 methodologies, and no common way to run the result.
 
 matchlab is one library for all of it, and it runs on your machine.
@@ -57,19 +57,20 @@ lookup = companies.collect().get_lookup()
 ## What it does
 
 **A language for pipelines.** Bring cleaning, deduplication and linking steps together
-into a plan that is serialisable and cheap to iterate on. Splink can't express this;
+into a plan that is serialisable and cheap to iterate on. Splink can't express this.
 matchlab is built around it.
 
 **Lazy, like Polars.** Nothing runs until you `collect()`. Each step knows the whole
-plan behind it, results are content-addressed, and re-collecting only redoes the work
+plan behind it, and results are content-addressed. Re-collecting only redoes the work
 whose inputs actually changed.
 
-**Evaluation as a first-class concern.** Entity resolution has no single right answer —
-many methodologies, many configurations. matchlab ships the tools to compare them:
-cluster sampling, judgements, and precision/recall against ground truth.
+**Evaluation as a first-class concern.** Entity resolution has no single right answer.
+The same data supports many methodologies, each with many configurations. matchlab
+ships the tools to compare them: cluster sampling, judgements, and precision/recall
+against ground truth.
 
 **A path from analysis to production.** The plan you iterate on in a notebook is the
-plan you run operationally, and the output has a stable interface for the analysts and
+plan you run operationally. Its output has a stable interface for the analysts and
 services that consume it.
 
 ## What it doesn't do
