@@ -9,13 +9,13 @@ There is no compatibility shim. `matchbox-db` receives no further releases.
 ## Why
 
 The server existed mainly because you needed it to run a DAG. In practice the
-collaboration features it enabled went unused — judgements weren't written back, teams
+collaboration features it enabled went unused. Judgements weren't written back, teams
 didn't share collections, and nobody built on each other's DAGs. What it did cost was
 real: a large codebase, a worse interface, slower pipelines, and no way for analysts
 outside government to adopt it at all.
 
-Removing it deleted more than half the code and made the pipeline faster, because
-the resolver output is now computed once when you collect rather than re-derived on
+Removing it deleted more than half the code. It also made the pipeline faster, because
+the resolver output is now computed once when you collect, rather than re-derived on
 every query.
 
 ## Install
@@ -61,7 +61,7 @@ its own inputs, so the step you're holding is the pipeline.
 
 ## Publishing replaced naming
 
-Steps have no names. In Matchbox every step took one; now a name is not part of a plan
+Steps have no names. In Matchbox every step took one. Now a name is not part of a plan
 at all, because it changes nothing about what gets computed. **Publishing a resolver's
 output under a label is an operation you perform on the result:**
 
@@ -70,7 +70,7 @@ entities = crn_dedupe.resolve(dh_dedupe).collect().publish("entities")
 ```
 
 That label is what `matchlab review <label>` and `get_samples(resolver=...)` find. A
-plan you never publish still runs perfectly well — it is just unlabelled, addressed by
+plan you never publish still runs perfectly well. It is just unlabelled, addressed by
 fingerprint like everything else.
 
 Republishing the same label for the same resolver output is a no-op, so re-running an
@@ -80,18 +80,19 @@ unchanged pipeline is safe. Aiming an existing label somewhere new is deliberate
 entities.publish("entities", overwrite=True)
 ```
 
-**Sources keep their name**, and it is a different thing entirely: it prefixes every
-column that source contributes (`crn_company`) and tags its rows in a resolver output,
-so it is part of the output rather than a way of finding it. That two things called
-`name` did such different jobs is exactly why the other one became an operation, and
-why what it produces is called a *label* — the word is now unambiguous. A name belongs
-to a source; a label belongs to a store.
+**Sources keep their name.** It is a different thing entirely: it prefixes every
+column that source contributes (`crn_company`) and tags its rows in a resolver output.
+It is part of the output, not a way of finding it.
+
+Two things shared the name `name`, but did very different jobs. That is why one job
+became an operation instead. Its result is called a *label*, so the word is now
+unambiguous. A name belongs to a source. A label belongs to a store.
 
 ### Everything else goes by position
 
-A step is referred to by where it falls in the plan — the order `collect` runs it in.
-So trying two settings of a methodology over one view needs no names and cannot collide
-— where before, each needed a name you'd never use again:
+A step is identified by its position in the plan, the order `collect` runs it in.
+Trying two settings of a methodology over one view needs no names, and cannot collide.
+Before, each setting needed a name you'd never use again:
 
 ```python
 view = crn.view(cleaning={...})
@@ -110,7 +111,7 @@ Logs quote the position:
 [step 4] Ran in 0.005s
 ```
 
-and `draw()` numbers the same walk:
+`draw()` numbers the same walk the same way:
 
 ```
 ● [4] resolver(Components)
@@ -121,9 +122,9 @@ and `draw()` numbers the same walk:
         └── ● [1] view ↑
 ```
 
-The shared view appears as `[1]` under both models, because it *is* one node read twice
-rather than two identical ones — drawn in full where you first meet it, and marked `↑`
-after. It runs once, and both models read its stored table.
+The shared view appears as `[1]` under both models, because it *is* one node read
+twice, not two identical ones. It is drawn in full where you first meet it, and marked
+`↑` after that. It runs once, and both models read its stored table.
 
 ### Per-model thresholds take the model, not its name
 
@@ -135,9 +136,10 @@ resolver_settings = {"thresholds": {"d_crn": 0.9}}
 resolver_settings = {"thresholds": {d_crn: 0.9}}
 ```
 
-You already hold the model, so there's nothing to retype and nothing to keep in sync —
-a typo is a `NameError` where it used to be a runtime failure at collect time. It is
-stored by input position, which is also why models need no names for this to work.
+You already hold the model, so there's nothing to retype and nothing to keep in sync.
+A typo now raises `NameError` straight away, where it used to be a runtime failure at
+collect time. Thresholds are stored by input position, which is also why models need
+no names for this to work.
 
 ## Sources declare less
 
@@ -166,18 +168,19 @@ A source is now its query plus a key. There is no `index_fields` and no `SourceF
     )
     ```
 
-**This changes behaviour, not just signatures.** Identity used to be the indexed fields;
-it's now every column the extract returns except the key. If your `index_fields` listed
+**This changes behaviour, not just signatures.** Identity used to be the indexed fields.
+It's now every column the extract returns except the key. If your `index_fields` listed
 everything you selected, nothing changes. If it listed *fewer* columns than you selected,
-records that used to collapse into one will now stay separate — remove those columns from
+records that used to collapse into one now stay separate. Remove those columns from
 the `select` to get the old grouping back.
 
 The upside is that the two can no longer disagree. A column outside the old index could
-change in the warehouse without moving the source's fingerprint, so the source cache-hit,
-never re-stored, and downstream views kept reading the stale value.
+change in the warehouse without moving the source's fingerprint. The source then
+registered a cache hit instead of re-storing, and downstream views kept reading the
+stale value.
 
-Field types went the same way. They fed one thing — the dtype each column was read as —
-and hashing casts every value to text anyway, so the pin only mattered when a driver
+Field types went the same way. They served one purpose, the dtype each column was read
+as. Hashing casts every value to text anyway, so the pin only mattered when a driver
 changed a column's *kind*. Say it in the SQL instead:
 
 ```python
@@ -205,8 +208,8 @@ Nouns became verbs, and each one is a step in the plan:
 model matches over, and cleaning is an optional clause of that.
 
 `cleaning` is now **keyword-only**, so `source.view(cleaning={...})` reads the same as
-`resolver.view(source, cleaning={...})` — where the positional slot is taken by the
-sources being read.
+`resolver.view(source, cleaning={...})`. The positional slot is taken by the sources
+being read.
 
 ### `QueryCombineType` is gone
 
@@ -214,27 +217,27 @@ sources being read.
 even when reading through a resolver. The other two are worth explaining, because one
 of them didn't do what its name suggests.
 
-**`set_agg`** collapsed each entity to one row, but wrapped *every* column in a list —
-including the column you deduped on, whose values agree by construction. Comparison-based
-matchers can't consume a list, which is why it went unused.
+**`set_agg`** collapsed each entity to one row, but wrapped *every* column in a list.
+That included the column you deduped on, whose values agree by construction anyway.
+Comparison-based matchers can't consume a list, which is why it went unused.
 
 **`explode`** looks like it should have produced the cross-product of each entity's
-values across sources — the thing you'd want when a view reads several sources and each
-row carries one source's columns and nulls for the rest. It didn't. It grouped every
-column into a list and then exploded them *in parallel*, and Polars explodes multiple
-columns element-wise rather than as a cross product:
+values across sources. That's what you'd want when a view reads several sources and
+each row carries one source's columns and nulls for the rest. It didn't. It grouped
+every column into a list and then exploded them *in parallel*, and Polars explodes
+multiple columns element-wise rather than as a cross product:
 
 ```python
 {"a": [["x", "y"]], "b": [["p", "q"]]}  # explode("a", "b") gives (x, p), (y, q)
 ```
 
 Since every list held one entry per row, that round-tripped straight back to the input.
-`explode` was therefore `concat` plus a `unique()` and a reordering — a broken feature
-rather than a redundant one.
+`explode` was therefore `concat` plus a `unique()` and a reordering. It was a broken
+feature, not a redundant one.
 
 **Use `group=True`** with aggregate cleaning expressions instead. It does what `explode`
-was reaching for and lets you choose per column, and because DuckDB's `any_value` skips
-nulls it collapses a multi-source view onto one populated row:
+was reaching for, and lets you choose per column. Because DuckDB's `any_value` skips
+nulls, it collapses a multi-source view onto one populated row:
 
 ```python
 resolver.view(
@@ -249,8 +252,9 @@ resolver.view(
 ```
 
 One thing is genuinely unavailable: a true cross product, N left rows × M right rows.
-`group` gives one row per entity. That is the right unit for a linker — a cross product
-multiplies a single entity's evidence — but nothing offers it if you disagree.
+`group` gives one row per entity. That is the right unit for a linker, since a cross
+product multiplies a single entity's evidence rather than combining it. Nothing offers
+a true cross product, if you need one anyway.
 
 ## Removed without replacement
 
@@ -277,8 +281,8 @@ environment variables. Delete them.
 
 **`SourceField`, `Location.infer_types`, and step `description`s.** The first two went
 with `index_fields` above. `description` annotated steps for other people to read on the
-server; with nothing to serialise it to and nothing to display it in, it was a field you
-could set and never observe.
+server. With nothing to serialise it to, and nothing to display it in, it became a field
+you could set but never observe.
 
 **`Location.set_client`.** A location took its client separately because it used to be
 half of a server-side row, rebuilt from a config and given a client afterwards. Pass it
@@ -293,7 +297,7 @@ location.set_client(engine)
 location = RelationalDBLocation(name="warehouse", client=engine)
 ```
 
-A location is now clientful and immutable from the moment it exists, so
+A location now always has a client, and is immutable from the moment it exists, so
 `SourceClientError` and every "is the client set?" check went with it.
 
 ## Exceptions
@@ -316,7 +320,7 @@ Everything else was an HTTP status carrier and went with the server.
 
 ## Behaviour that changed
 
-**Nothing runs until `collect()`.** Building a plan is free; only collection does work.
+**Nothing runs until `collect()`.** Building a plan is free. Only collection does work.
 
 **Results are cached by content.** Re-collecting an unchanged plan does nothing, and
 adding a step to a collected plan runs only that step. Rebuilding the same plan in a new
@@ -345,8 +349,8 @@ configuration, and the evaluation metrics all behave as before.
 ### Reads moved onto the resolver
 
 `ResolverMatches` is gone. Every one of its methods was a projection of the resolver
-output the resolver already materialises, so they sit on `Resolver` directly — no
-intermediate object, and no second spelling of `root` and `leaf`.
+output the resolver already materialises. They now sit directly on `Resolver`, with no
+intermediate object and no second spelling of `root` and `leaf`.
 
 | Matchbox | matchlab |
 |---|---|
@@ -362,8 +366,8 @@ Two behavioural changes worth knowing about:
 
 * **`view_entity` reads the store, not the warehouse.** `view_cluster` re-read the
   source through its `extract_transform`, so it could show different values from the
-  ones the reviewer had on screen. It now reads the extract cached at collect time —
-  the data the matching actually saw — and needs no connection.
+  ones the reviewer had on screen. It now reads the extract cached at collect time.
+  That's the data the matching actually saw, so it needs no connection.
 * **Comparing methodologies is an evaluation job.** `merge()` unioned two resolvers'
   components client-side so you could dump them to parquet and review the merged
   clusters. `get_samples`, `review` and `EvalData.precision_recall` now take several
