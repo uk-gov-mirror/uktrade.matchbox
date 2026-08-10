@@ -9,23 +9,30 @@ Dedupe on `company` and you get {a1,a2}, {a3}. Dedupe on `town` and you get {a1,
 against the same clusters.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import Resolver, Source, set_default_adapter
+from matchlab import Resolver, Source
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import SourceTableError
 from matchlab.eval import EvalData, get_samples
 from matchlab.eval.judgements import Judgement
-from matchlab.locations import RelationalDBLocation
 from matchlab.models.dedupers import NaiveDeduper
+
+# The `adapter` fixture comes from `test/conftest.py`.
 
 
 @pytest.fixture
 def warehouse(tmp_path: Path) -> Engine:
+    """One source, and an `a3` that agrees with `a1` on town but not company.
+
+    Overrides the shared scenario: `a3=(beta,london)` here, so deduping on `company`
+    ({a1,a2},{a3}) and on `town` ({a1,a3},{a2}) disagree about every record — which is
+    exactly the case worth scoring two resolvers against one set of judgements.
+    """
     engine = create_engine(f"sqlite:///{tmp_path / 'wh.sqlite'}")
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE crn (pk TEXT, company TEXT, town TEXT)"))
@@ -38,41 +45,21 @@ def warehouse(tmp_path: Path) -> Engine:
     return engine
 
 
-@pytest.fixture(autouse=True)
-def adapter() -> Iterator[DuckDBAdapter]:
-    store = DuckDBAdapter(":memory:")
-    set_default_adapter(store)
-    yield store
-    set_default_adapter(None)
-    store.close()
-
-
-def _source(
-    warehouse: Engine, extract: str = "select pk, company, town from crn"
-) -> Source:
-    return Source(
-        location=RelationalDBLocation(name="warehouse", client=warehouse),
-        name="crn",
-        extract_transform=extract,
-        key_field="pk",
-    )
-
-
-def _dedupe_on(source: Source, field: str) -> Resolver:
-    return source.dedupe(
+def _dedupe_on(src: Source, field: str) -> Resolver:
+    return src.dedupe(
         model_class=NaiveDeduper,
-        model_settings={"unique_fields": [source.f(field)]},
+        model_settings={"unique_fields": [src.f(field)]},
     ).resolve()
 
 
 @pytest.fixture
-def by_company(warehouse: Engine) -> Resolver:
-    return _dedupe_on(_source(warehouse), "company").collect()
+def by_company(source: Callable[..., Source]) -> Resolver:
+    return _dedupe_on(source("crn"), "company").collect()
 
 
 @pytest.fixture
-def by_town(warehouse: Engine) -> Resolver:
-    return _dedupe_on(_source(warehouse), "town").collect()
+def by_town(source: Callable[..., Source]) -> Resolver:
+    return _dedupe_on(source("crn"), "town").collect()
 
 
 def _leaves(resolver: Resolver) -> dict[str, int]:
@@ -125,16 +112,16 @@ def test_merged_roots_are_content_addressed(
 
 
 def test_resolvers_over_different_source_artifacts_are_rejected(
-    warehouse: Engine,
+    source: Callable[..., Source],
 ) -> None:
     """Same source *name*, different data — so the clusters are not comparable.
 
     A name repeats across generations of a source; agreeing on it is not agreeing on
     the records.
     """
-    wide = _dedupe_on(_source(warehouse), "company").collect()
+    wide = _dedupe_on(source("crn"), "company").collect()
     narrow = _dedupe_on(
-        _source(warehouse, "select pk, company from crn"), "company"
+        source("crn", "select pk, company from crn"), "company"
     ).collect()
 
     with pytest.raises(SourceTableError, match="disagree about source 'crn'"):

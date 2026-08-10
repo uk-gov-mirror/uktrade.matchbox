@@ -1,6 +1,6 @@
 """End-to-end tests for the plan API, over a real SQLite warehouse.
 
-Covers the whole Phase A surface: building a plan with no DAG, laziness, collect with
+Covers the whole plan surface: building a plan with no DAG, laziness, collect with
 plan-fingerprint caching, `View` storage, lineage navigation, GC, and the terminal
 reads (`get_lookup`, `lookup_key`).
 
@@ -15,57 +15,22 @@ a3/b2 — reachable but matched by nothing — must stay singletons (merge-forwa
 """
 
 import json
-from collections.abc import Iterator
-from pathlib import Path
+from collections.abc import Callable
 
 import polars as pl
 import pytest
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, text
 
-from matchlab import Model, Resolver, Source, View, lineage, set_default_adapter
+from matchlab import Model, Resolver, Source, View, lineage
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import StepNotFound
 from matchlab.locations import RelationalDBLocation
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
 
-
-@pytest.fixture
-def warehouse(tmp_path: Path) -> Engine:
-    engine = create_engine(f"sqlite:///{tmp_path / 'wh.sqlite'}")
-    with engine.begin() as conn:
-        conn.execute(text("CREATE TABLE crn (pk TEXT, company TEXT, town TEXT)"))
-        conn.execute(
-            text(
-                "INSERT INTO crn VALUES "
-                "('a1','acme','london'),('a2','acme','leeds'),('a3','beta','hull')"
-            )
-        )
-        conn.execute(text("CREATE TABLE dh (pk TEXT, company TEXT, town TEXT)"))
-        conn.execute(
-            text("INSERT INTO dh VALUES ('b1','acme','bristol'),('b2','gamma','york')")
-        )
-    return engine
-
-
-@pytest.fixture(autouse=True)
-def adapter() -> Iterator[DuckDBAdapter]:
-    """Isolate every test behind its own in-memory store."""
-    store = DuckDBAdapter(":memory:")
-    set_default_adapter(store)
-    yield store
-    set_default_adapter(None)
-    store.close()
-
-
-def _source(warehouse: Engine, name: str) -> Source:
-    location = RelationalDBLocation(name="warehouse", client=warehouse)
-    return Source(
-        location=location,
-        name=name,
-        extract_transform=f"select pk, company, town from {name}",
-        key_field="pk",
-    )
+# `warehouse`, `adapter` and the `source` factory come from `test/conftest.py`. The
+# module-level `_apex`/`_fan_out_plan` builders take that factory, so this file holds no
+# source-construction of its own beyond the few tests that need a bespoke shape.
 
 
 def _dedupe_crn(crn: Source) -> Resolver:
@@ -75,10 +40,10 @@ def _dedupe_crn(crn: Source) -> Resolver:
     ).resolve()
 
 
-def _apex(warehouse: Engine) -> tuple[Resolver, Source, Source]:
+def _apex(source: Callable[..., Source]) -> tuple[Resolver, Source, Source]:
     """Build the full dedupe → link plan without ever constructing a DAG."""
-    crn = _source(warehouse, "crn")
-    dh = _source(warehouse, "dh")
+    crn = source("crn")
+    dh = source("dh")
     r_crn = _dedupe_crn(crn)
     apex = (
         r_crn.view(crn)
@@ -105,8 +70,8 @@ def _ids_by_key(matches: pl.DataFrame, column: str) -> dict[str, int]:
 # -- building and collecting ----------------------------------------------------------
 
 
-def test_a_plan_needs_no_dag(warehouse: Engine) -> None:
-    crn = _source(warehouse, "crn")
+def test_a_plan_needs_no_dag(source: Callable[..., Source]) -> None:
+    crn = source("crn")
     assert crn.upstream == ()
     assert not crn.is_collected
 
@@ -116,8 +81,8 @@ def test_a_plan_needs_no_dag(warehouse: Engine) -> None:
     assert crn in deduped.lineage()
 
 
-def test_nothing_runs_until_collect(warehouse: Engine) -> None:
-    crn = _source(warehouse, "crn")
+def test_nothing_runs_until_collect(source: Callable[..., Source]) -> None:
+    crn = source("crn")
     deduped = _dedupe_crn(crn)
 
     assert all(not step.is_collected for step in deduped.lineage())
@@ -125,8 +90,8 @@ def test_nothing_runs_until_collect(warehouse: Engine) -> None:
     assert all(step.is_collected for step in deduped.lineage())
 
 
-def test_collect_resolves_across_sources(warehouse: Engine) -> None:
-    apex, _crn, _dh = _apex(warehouse)
+def test_collect_resolves_across_sources(source: Callable[..., Source]) -> None:
+    apex, _crn, _dh = _apex(source)
 
     lookup = apex.collect().get_lookup()
     crn_ids = _ids_by_key(lookup, "crn_pk")
@@ -142,8 +107,8 @@ def test_collect_resolves_across_sources(warehouse: Engine) -> None:
     assert crn_ids["a3"] != dh_ids["b2"]
 
 
-def test_lookup_key_crosses_sources(warehouse: Engine) -> None:
-    apex, _crn, _dh = _apex(warehouse)
+def test_lookup_key_crosses_sources(source: Callable[..., Source]) -> None:
+    apex, _crn, _dh = _apex(source)
     apex.collect()
 
     result = apex.lookup_key(from_source="crn", to_sources=["dh"], key="a1")
@@ -151,8 +116,8 @@ def test_lookup_key_crosses_sources(warehouse: Engine) -> None:
     assert set(result["dh"]) == {"b1"}
 
 
-def test_lookup_key_rejects_an_unknown_key(warehouse: Engine) -> None:
-    apex, _crn, _dh = _apex(warehouse)
+def test_lookup_key_rejects_an_unknown_key(source: Callable[..., Source]) -> None:
+    apex, _crn, _dh = _apex(source)
     apex.collect()
     with pytest.raises(StepNotFound):
         apex.lookup_key(from_source="crn", to_sources=["dh"], key="nope")
@@ -168,8 +133,8 @@ def _sabotage(step) -> None:  # noqa: ANN001 - any Step
     step._execute = boom
 
 
-def test_recollect_runs_nothing(warehouse: Engine) -> None:
-    apex, _crn, _dh = _apex(warehouse)
+def test_recollect_runs_nothing(source: Callable[..., Source]) -> None:
+    apex, _crn, _dh = _apex(source)
     apex.collect()
 
     for step in apex.lineage():
@@ -177,8 +142,10 @@ def test_recollect_runs_nothing(warehouse: Engine) -> None:
     apex.collect()  # must not raise
 
 
-def test_building_downstream_only_runs_the_new_steps(warehouse: Engine) -> None:
-    crn = _source(warehouse, "crn")
+def test_building_downstream_only_runs_the_new_steps(
+    source: Callable[..., Source],
+) -> None:
+    crn = source("crn")
     deduped = _dedupe_crn(crn)
     deduped.collect()
 
@@ -186,7 +153,7 @@ def test_building_downstream_only_runs_the_new_steps(warehouse: Engine) -> None:
         _sabotage(step)
 
     # A brand-new downstream branch over already-collected inputs.
-    dh = _source(warehouse, "dh")
+    dh = source("dh")
     apex = (
         deduped.view(crn)
         .link(
@@ -203,18 +170,8 @@ def test_building_downstream_only_runs_the_new_steps(warehouse: Engine) -> None:
     assert apex.get_lookup().height > 0
 
 
-def _crn_source(warehouse: Engine, extract_transform: str) -> Source:
-    location = RelationalDBLocation(name="warehouse", client=warehouse)
-    return Source(
-        location=location,
-        name="crn",
-        extract_transform=extract_transform,
-        key_field="pk",
-    )
-
-
 def test_a_change_to_any_selected_column_invalidates_the_source(
-    warehouse: Engine,
+    warehouse: Engine, source: Callable[..., Source]
 ) -> None:
     """Identity is the whole extract, so any selected column moves the fingerprint.
 
@@ -224,31 +181,31 @@ def test_a_change_to_any_selected_column_invalidates_the_source(
     """
     et = "select pk, company, town from crn"
 
-    view = _crn_source(warehouse, et).view(cleaning={"town": "crn_town"})
+    view = source("crn", et).view(cleaning={"town": "crn_town"})
     view.collect()
     assert sorted(view.data()["town"].to_list()) == ["hull", "leeds", "london"]
 
     with warehouse.begin() as conn:
         conn.execute(text("UPDATE crn SET town = 'oxford' WHERE pk = 'a1'"))
 
-    refreshed = _crn_source(warehouse, et).view(cleaning={"town": "crn_town"})
+    refreshed = source("crn", et).view(cleaning={"town": "crn_town"})
     refreshed.collect()
     assert sorted(refreshed.data()["town"].to_list()) == ["hull", "leeds", "oxford"]
 
 
-def test_identity_is_every_selected_column(warehouse: Engine) -> None:
+def test_identity_is_every_selected_column(source: Callable[..., Source]) -> None:
     """Selecting a column makes it part of the record, so it splits leaves.
 
     Leave it out of the extract and the rows collapse to one leaf. This is the knob
     that replaced `index_fields`: the SELECT is the whole declaration.
     """
     # a1/a2 agree on company and differ on town.
-    with_town = _crn_source(warehouse, "select pk, company, town from crn")
+    with_town = source("crn", "select pk, company, town from crn")
     with_town.collect()
     leaves = dict(with_town.leaves().iter_rows())
     assert leaves["a1"] != leaves["a2"]
 
-    without_town = _crn_source(warehouse, "select pk, company from crn")
+    without_town = source("crn", "select pk, company from crn")
     without_town.collect()
     leaves = dict(without_town.leaves().iter_rows())
     assert leaves["a1"] == leaves["a2"]
@@ -287,8 +244,8 @@ def test_a_reserved_word_is_a_fine_source_name(warehouse: Engine) -> None:
     assert sorted(view.data()["name"].to_list()) == ["acme", "acme", "beta"]
 
 
-def test_a_key_only_extract_is_rejected(warehouse: Engine) -> None:
-    source = _crn_source(warehouse, "select pk from crn")
+def test_a_key_only_extract_is_rejected(source: Callable[..., Source]) -> None:
+    source = source("crn", "select pk from crn")
     with pytest.raises(ValueError, match="only its key field"):
         source.collect()
 
@@ -310,9 +267,11 @@ def test_keys_are_read_as_strings(warehouse: Engine) -> None:
     assert sorted(source.leaves()["key"].to_list()) == ["1", "2"]
 
 
-def test_a_source_memoises_its_read(warehouse: Engine) -> None:
+def test_a_source_memoises_its_read(
+    warehouse: Engine, source: Callable[..., Source]
+) -> None:
     """Re-collecting an existing Source must not re-read the warehouse."""
-    crn = _source(warehouse, "crn")
+    crn = source("crn")
     crn.collect()
 
     def boom() -> None:
@@ -354,15 +313,15 @@ def model_runs(monkeypatch: pytest.MonkeyPatch) -> list[Model]:
 
 
 def _shared_view_plan(
-    warehouse: Engine, comparison: str | None = None
+    source: Callable[..., Source], comparison: str | None = None
 ) -> tuple[Resolver, View]:
     """One cleaned view feeding both a dedupe and a link, joined by a resolver.
 
     `comparison` retunes the linker without touching the view, so a second plan can
     invalidate the models while every view's fingerprint still hits.
     """
-    crn = _source(warehouse, "crn")
-    dh = _source(warehouse, "dh")
+    crn = source("crn")
+    dh = source("dh")
     view = crn.view(cleaning={"name": "crn_company"})
     deduped = view.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
@@ -376,9 +335,9 @@ def _shared_view_plan(
 
 
 def test_a_view_is_stored_when_its_consumer_is_collected(
-    warehouse: Engine, adapter: DuckDBAdapter
+    source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
-    crn = _source(warehouse, "crn")
+    crn = source("crn")
     view = crn.view(cleaning={"name": "crn_company"})
     deduped = view.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
@@ -390,10 +349,10 @@ def test_a_view_is_stored_when_its_consumer_is_collected(
 
 
 def test_a_shared_view_is_computed_once(
-    warehouse: Engine, adapter: DuckDBAdapter, computes: dict[int, int]
+    source: Callable[..., Source], adapter: DuckDBAdapter, computes: dict[int, int]
 ) -> None:
     """The point of storing: fan-out costs one computation, not one per consumer."""
-    apex, view = _shared_view_plan(warehouse)
+    apex, view = _shared_view_plan(source)
 
     apex.collect()
 
@@ -402,7 +361,7 @@ def test_a_shared_view_is_computed_once(
 
 
 def test_a_rebuilt_plan_reads_a_view_stored_by_an_earlier_one(
-    warehouse: Engine,
+    source: Callable[..., Source],
     adapter: DuckDBAdapter,
     computes: dict[int, int],
     model_runs: list[Model],
@@ -414,14 +373,14 @@ def test_a_rebuilt_plan_reads_a_view_stored_by_an_earlier_one(
     hit cache and the frame comes off disk. Recomputing here was the old behaviour:
     a rebuilt view had no way to know its table was already stored.
     """
-    dh = _source(warehouse, "dh")
-    apex, _view = _shared_view_plan(warehouse)
+    dh = source("dh")
+    apex, _view = _shared_view_plan(source)
     apex.collect()
     computes.clear()
     model_runs.clear()
 
     retuned, view = _shared_view_plan(
-        warehouse, comparison=f"r.{dh.f('company')} = l.name"
+        source, comparison=f"r.{dh.f('company')} = l.name"
     )
     retuned.collect()
 
@@ -433,9 +392,9 @@ def test_a_rebuilt_plan_reads_a_view_stored_by_an_earlier_one(
 
 
 def test_collecting_a_view_directly_materialises_it(
-    warehouse: Engine, adapter: DuckDBAdapter
+    source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
-    crn = _source(warehouse, "crn")
+    crn = source("crn")
     view = crn.view(cleaning={"name": "crn_company"})
 
     frame = view.collect().data()
@@ -466,15 +425,15 @@ def identifier_reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, bytes |
     return calls
 
 
-def _fan_out_plan(warehouse: Engine) -> tuple[Resolver, list[Model]]:
+def _fan_out_plan(source: Callable[..., Source]) -> tuple[Resolver, list[Model]]:
     """Three models over one shared view, so the resolver sees repeated readings.
 
     `Resolver._execute` walks `(model, view)` pairs — four of them here. Only two
     distinct readings exist between them, which is what it must collapse to. Linking
     every pair of n sources makes that ratio quadratic.
     """
-    crn = _source(warehouse, "crn")
-    dh = _source(warehouse, "dh")
+    crn = source("crn")
+    dh = source("dh")
     view = crn.view(cleaning={"name": "crn_company"})
     models = [
         view.dedupe(
@@ -492,12 +451,13 @@ def _fan_out_plan(warehouse: Engine) -> tuple[Resolver, list[Model]]:
     return models[0].resolve(*models[1:]), models
 
 
-def test_a_resolver_reads_identifiers_once_per_source_not_once_per_model(
-    warehouse: Engine,
+def test_reads_identifiers_once_per_source(
+    source: Callable[..., Source],
     adapter: DuckDBAdapter,
     identifier_reads: list[tuple[str, bytes | None]],
 ) -> None:
-    apex, models = _fan_out_plan(warehouse)
+    """Once per source, not once per model: the quadratic the resolver collapses."""
+    apex, models = _fan_out_plan(source)
     assert sum(len(model.inputs) for model in apex.inputs) == 4  # the pairs it walks
 
     # Collect the models first so their own reads are done and cleared; what the apex
@@ -510,14 +470,16 @@ def test_a_resolver_reads_identifiers_once_per_source_not_once_per_model(
     assert sorted(identifier_reads) == [("crn", None), ("dh", None)]
 
 
-def test_deduplicating_the_readings_keeps_every_record(warehouse: Engine) -> None:
+def test_deduplicating_the_readings_keeps_every_record(
+    source: Callable[..., Source],
+) -> None:
     """The merge-forward guarantee, which the dedup must not weaken.
 
     Every reachable leaf has to reach the resolver output — including records no model
     matched. A reading dropped here loses clusters silently rather than failing, so
     assert on the records rather than on the call count.
     """
-    apex, _models = _fan_out_plan(warehouse)
+    apex, _models = _fan_out_plan(source)
 
     resolver_output = apex.collect().entities()
 
@@ -539,25 +501,25 @@ def test_deduplicating_the_readings_keeps_every_record(warehouse: Engine) -> Non
 # -- lineage navigation ---------------------------------------------------------------
 
 
-def test_lineage_reaches_upstream_only(warehouse: Engine) -> None:
+def test_lineage_reaches_upstream_only(source: Callable[..., Source]) -> None:
     """A step knows its inputs and nothing else, so lineage never looks down."""
-    apex, crn, _dh = _apex(warehouse)
+    apex, crn, _dh = _apex(source)
 
     assert crn in apex.lineage()
     assert apex not in crn.lineage()
     assert crn.lineage() == [crn]
 
 
-def test_draw_shows_only_the_sub_plan(warehouse: Engine) -> None:
-    apex, crn, _dh = _apex(warehouse)
+def test_draw_shows_only_the_sub_plan(source: Callable[..., Source]) -> None:
+    apex, crn, _dh = _apex(source)
 
     assert "crn" in apex.draw()
     assert "dh" in apex.draw()
     assert "resolver" not in crn.draw()  # a source's sub-plan is just itself
 
 
-def test_resolver_exposes_its_sources(warehouse: Engine) -> None:
-    apex, _crn, _dh = _apex(warehouse)
+def test_resolver_exposes_its_sources(source: Callable[..., Source]) -> None:
+    apex, _crn, _dh = _apex(source)
     assert {source.name for source in apex.sources} == {"crn", "dh"}
 
 
@@ -565,7 +527,7 @@ def test_resolver_exposes_its_sources(warehouse: Engine) -> None:
 
 
 def test_dropping_a_plan_leaves_its_artifacts_stored(
-    warehouse: Engine, adapter: DuckDBAdapter
+    source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
     """A store keeps what it was given; dropping the Python objects reclaims nothing.
 
@@ -575,7 +537,7 @@ def test_dropping_a_plan_leaves_its_artifacts_stored(
     """
     import gc as pygc  # noqa: PLC0415 - the interpreter's, to force reachability
 
-    crn = _source(warehouse, "crn")
+    crn = source("crn")
     deduped = _dedupe_crn(crn)
     deduped.collect()
     fp = deduped._fp
@@ -587,8 +549,10 @@ def test_dropping_a_plan_leaves_its_artifacts_stored(
     assert adapter.has(fp)
 
 
-def test_fingerprints_name_every_artifact_a_plan_is_made_of(warehouse: Engine) -> None:
-    crn = _source(warehouse, "crn")
+def test_fingerprints_name_every_artifact_a_plan_is_made_of(
+    source: Callable[..., Source],
+) -> None:
+    crn = source("crn")
     plan = _dedupe_crn(crn)
     plan.collect()
 
@@ -596,14 +560,14 @@ def test_fingerprints_name_every_artifact_a_plan_is_made_of(warehouse: Engine) -
 
 
 def test_fingerprints_collapse_two_nodes_that_address_one_artifact(
-    warehouse: Engine,
+    source: Callable[..., Source],
 ) -> None:
     """Two distinct steps can be the same artifact — same spec over same inputs.
 
     A set is what makes that safe further down: a store told to keep one of them and
     delete the other would delete the bytes both of them are.
     """
-    crn = _source(warehouse, "crn")
+    crn = source("crn")
     cleaning = {"name": "crn_company"}
     twins = [crn.view(cleaning=cleaning), crn.view(cleaning=cleaning)]
     plan = (
@@ -622,20 +586,20 @@ def test_fingerprints_collapse_two_nodes_that_address_one_artifact(
     assert len(plan.fingerprints()) < len(plan.lineage())
 
 
-def test_fingerprints_refuse_an_uncollected_plan(warehouse: Engine) -> None:
+def test_fingerprints_refuse_an_uncollected_plan(source: Callable[..., Source]) -> None:
     """An uncollected plan names no artifacts, so it must not answer with a smaller set.
 
     Silently returning what happens to be collected would tell a caller that less is
     worth keeping than they think — and the caller here is about to delete the rest.
     """
-    plan = _dedupe_crn(_source(warehouse, "crn"))
+    plan = _dedupe_crn(source("crn"))
 
     with pytest.raises(RuntimeError, match="has not been collected"):
         plan.fingerprints()
 
 
 def test_trimming_to_a_plan_leaves_it_fully_cached(
-    warehouse: Engine, adapter: DuckDBAdapter
+    source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
     """The property a trim has to have: it removes only what was superseded.
 
@@ -647,7 +611,7 @@ def test_trimming_to_a_plan_leaves_it_fully_cached(
 
     def build(cleaning: str) -> Resolver:
         return (
-            _source(warehouse, "crn")
+            source("crn")
             .view(cleaning={"name": cleaning})
             .dedupe(
                 model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
@@ -684,10 +648,10 @@ def test_trimming_to_a_plan_leaves_it_fully_cached(
 
 
 def test_reading_through_a_resolver_repeats_an_entity_per_record(
-    warehouse: Engine,
+    source: Callable[..., Source],
 ) -> None:
     """Without `group`, a view is record-grained even when `id` is an entity."""
-    crn = _source(warehouse, "crn")
+    crn = source("crn")
     deduped = _dedupe_crn(crn)
     deduped.collect()
 
@@ -700,9 +664,9 @@ def test_reading_through_a_resolver_repeats_an_entity_per_record(
     assert frame["id"].n_unique() == 2
 
 
-def test_group_gives_one_row_per_entity(warehouse: Engine) -> None:
+def test_group_gives_one_row_per_entity(source: Callable[..., Source]) -> None:
     """`group=True` collapses each id, with the aggregate saying how per column."""
-    crn = _source(warehouse, "crn")
+    crn = source("crn")
     deduped = _dedupe_crn(crn)
     deduped.collect()
 
@@ -723,14 +687,14 @@ def test_group_gives_one_row_per_entity(warehouse: Engine) -> None:
     assert sorted(frame["towns"][0]) == ["leeds", "london"]
 
 
-def test_a_grouped_view_still_merges_forward(warehouse: Engine) -> None:
+def test_a_grouped_view_still_merges_forward(source: Callable[..., Source]) -> None:
     """Grouping changes the view's grain, never the resolver output's.
 
     Leaves travel via `identifiers()`, read from the adapter, so collapsing rows in
     the view cannot lose a record from the resolver output below it.
     """
-    crn = _source(warehouse, "crn")
-    dh = _source(warehouse, "dh")
+    crn = source("crn")
+    dh = source("dh")
     deduped = _dedupe_crn(crn)
 
     apex = (
@@ -753,15 +717,17 @@ def test_a_grouped_view_still_merges_forward(warehouse: Engine) -> None:
     assert crn_ids["a3"] != crn_ids["a1"]
 
 
-def test_group_collapses_a_multi_source_view_onto_one_row(warehouse: Engine) -> None:
+def test_group_collapses_a_multi_source_view_onto_one_row(
+    source: Callable[..., Source],
+) -> None:
     """The case `group` exists for: several sources under one entity.
 
     Reading two sources through a resolver concatenates diagonally — crn rows carry
     null dh columns and vice versa — so a comparison on `l.dh_company` is null on
     every crn row. Grouping puts the entity on a single populated row.
     """
-    crn = _source(warehouse, "crn")
-    dh = _source(warehouse, "dh")
+    crn = source("crn")
+    dh = source("dh")
     linked = (
         crn.view()
         .link(
@@ -798,8 +764,8 @@ def test_group_collapses_a_multi_source_view_onto_one_row(warehouse: Engine) -> 
     assert set(frame["towns"][0]) == {"london", "leeds", "bristol"}
 
 
-def test_group_without_cleaning_is_rejected(warehouse: Engine) -> None:
-    crn = _source(warehouse, "crn")
+def test_group_without_cleaning_is_rejected(source: Callable[..., Source]) -> None:
+    crn = source("crn")
     with pytest.raises(ValueError, match="needs cleaning expressions"):
         crn.view(group=True)
 
@@ -807,9 +773,9 @@ def test_group_without_cleaning_is_rejected(warehouse: Engine) -> None:
 # -- specs ----------------------------------------------------------------------------
 
 
-def test_every_step_has_a_serialisable_spec(warehouse: Engine) -> None:
+def test_every_step_has_a_serialisable_spec(source: Callable[..., Source]) -> None:
     """Each step kind reports its settings through a model, and it round-trips JSON."""
-    apex, _crn, _dh = _apex(warehouse)
+    apex, _crn, _dh = _apex(source)
     apex.collect()
 
     kinds = set()
@@ -823,9 +789,9 @@ def test_every_step_has_a_serialisable_spec(warehouse: Engine) -> None:
     assert kinds == {"source", "view", "model", "resolver"}
 
 
-def test_a_spec_carries_no_upstream_settings(warehouse: Engine) -> None:
+def test_a_spec_carries_no_upstream_settings(source: Callable[..., Source]) -> None:
     """Specs describe a step's own settings; edges live on `upstream`."""
-    apex, crn, _dh = _apex(warehouse)
+    apex, crn, _dh = _apex(source)
 
     resolver_spec = apex.spec.model_dump(mode="json")
     assert "extract_transform" not in json.dumps(resolver_spec)
@@ -834,13 +800,15 @@ def test_a_spec_carries_no_upstream_settings(warehouse: Engine) -> None:
     assert set(resolver_spec) == {"resolver_class", "resolver_settings"}
 
 
-def test_a_view_through_a_resolver_is_a_different_step(warehouse: Engine) -> None:
+def test_a_view_through_a_resolver_is_a_different_step(
+    source: Callable[..., Source],
+) -> None:
     """Reading a source directly and through a resolver are different views.
 
     The edge is what distinguishes them: it is on `upstream`, and folded into the
     fingerprint in order.
     """
-    crn = _source(warehouse, "crn")
+    crn = source("crn")
     settings = {"unique_fields": [crn.f("company")]}
 
     first = crn.view().dedupe(model_class=NaiveDeduper, model_settings=settings)
@@ -858,10 +826,10 @@ def test_a_view_through_a_resolver_is_a_different_step(warehouse: Engine) -> Non
 # -- identity: positions, and published names -----------------------------------------
 
 
-def test_steps_have_no_names_only_positions(warehouse: Engine) -> None:
+def test_steps_have_no_names_only_positions(source: Callable[..., Source]) -> None:
     """Nothing in a plan is named. Cleaning one source two ways, or comparing two
     methodologies over it, needs no names and cannot collide."""
-    crn = _source(warehouse, "crn")
+    crn = source("crn")
     strict = crn.view(cleaning={"name": f"upper({crn.f('company')})"})
     loose = crn.view(cleaning={"name": f"lower({crn.f('company')})"})
     first = strict.dedupe(NaiveDeduper, {"unique_fields": ["name"]})
@@ -876,9 +844,9 @@ def test_steps_have_no_names_only_positions(warehouse: Engine) -> None:
     assert apex.entities().height > 0
 
 
-def test_a_drawing_is_the_key_to_the_log(warehouse: Engine) -> None:
+def test_a_drawing_is_the_key_to_the_log(source: Callable[..., Source]) -> None:
     """A log line saying `step 4` has to be findable in the plan's drawing."""
-    apex, crn, _dh = _apex(warehouse)
+    apex, crn, _dh = _apex(source)
     apex.collect()
 
     drawing = apex.draw()
@@ -893,10 +861,10 @@ def test_a_drawing_is_the_key_to_the_log(warehouse: Engine) -> None:
 
 
 def test_publishing_points_a_label_at_a_resolver_output(
-    warehouse: Engine, adapter: DuckDBAdapter
+    source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
     """Publishing is an act on a result, not a property of the plan."""
-    apex, _crn, _dh = _apex(warehouse)
+    apex, _crn, _dh = _apex(source)
     apex.collect(adapter)
 
     assert adapter.labels() == []  # collecting publishes nothing
@@ -906,11 +874,11 @@ def test_publishing_points_a_label_at_a_resolver_output(
     assert adapter.find("entities") == apex._fp
 
 
-def test_publishing_is_idempotent_but_will_not_silently_move_a_label(
-    warehouse: Engine, adapter: DuckDBAdapter
+def test_publishing_is_idempotent(
+    source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
     """Re-running an unchanged pipeline must not fail; repointing must be deliberate."""
-    apex, crn, _dh = _apex(warehouse)
+    apex, crn, _dh = _apex(source)
     apex.collect(adapter).publish("entities")
     apex.publish("entities")  # same resolver output, same name — a no-op
 
@@ -924,9 +892,11 @@ def test_publishing_is_idempotent_but_will_not_silently_move_a_label(
     assert adapter.find("entities") == other._fp
 
 
-def test_publishing_needs_a_collected_resolver_output(warehouse: Engine) -> None:
+def test_publishing_needs_a_collected_resolver_output(
+    source: Callable[..., Source],
+) -> None:
     """There is nothing to point a name at until the resolver output exists."""
-    apex, _crn, _dh = _apex(warehouse)
+    apex, _crn, _dh = _apex(source)
     with pytest.raises(RuntimeError, match="has not been collected"):
         apex.publish("entities")
 
@@ -935,15 +905,15 @@ def test_publishing_needs_a_collected_resolver_output(warehouse: Engine) -> None
 
 
 def test_a_threshold_names_a_model_and_is_stored_as_a_position(
-    warehouse: Engine,
+    source: Callable[..., Source],
 ) -> None:
     """You hold the model; the plan works out where it sits.
 
     Positions rather than names are what let inputs be referred to without a naming
     scheme, and what keep the resolver's fingerprint out of it.
     """
-    crn = _source(warehouse, "crn")
-    dh = _source(warehouse, "dh")
+    crn = source("crn")
+    dh = source("dh")
     first = crn.dedupe(NaiveDeduper, {"unique_fields": [crn.f("company")]})
     second = dh.dedupe(NaiveDeduper, {"unique_fields": [dh.f("company")]})
 
@@ -954,9 +924,9 @@ def test_a_threshold_names_a_model_and_is_stored_as_a_position(
     assert resolver.resolver_settings.thresholds == {0: 0.5, 1: 0.8}
 
 
-def test_a_threshold_must_name_an_input(warehouse: Engine) -> None:
+def test_a_threshold_must_name_an_input(source: Callable[..., Source]) -> None:
     """Caught while the model object is still in hand, not deep inside collect."""
-    crn = _source(warehouse, "crn")
+    crn = source("crn")
     settings = {"unique_fields": [crn.f("company")]}
     used = crn.dedupe(NaiveDeduper, settings)
     unused = crn.dedupe(NaiveDeduper, settings)
@@ -966,11 +936,11 @@ def test_a_threshold_must_name_an_input(warehouse: Engine) -> None:
 
 
 def test_edges_reach_the_methodology_keyed_by_the_same_positions(
-    warehouse: Engine,
+    source: Callable[..., Source],
 ) -> None:
     """The translated thresholds are only useful if the edges arrive aligned to them."""
-    crn = _source(warehouse, "crn")
-    dh = _source(warehouse, "dh")
+    crn = source("crn")
+    dh = source("dh")
     first = crn.dedupe(NaiveDeduper, {"unique_fields": [crn.f("company")]})
     second = dh.dedupe(NaiveDeduper, {"unique_fields": [dh.f("company")]})
 

@@ -6,13 +6,11 @@ has its own tests, and launching a full-screen app from a unit test proves nothi
 
 import importlib
 import sys
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from matchlab import Resolver, set_default_adapter
-from matchlab.adapters import DuckDBAdapter
+from matchlab import Resolver
 from matchlab.cli import _load_target, main
 
 PIPELINE = """
@@ -47,15 +45,8 @@ def build():
 not_a_resolver = "just a string"
 """
 
-
-@pytest.fixture(autouse=True)
-def adapter() -> Iterator[DuckDBAdapter]:
-    """Never let a test touch the real store in the user's cache directory."""
-    store = DuckDBAdapter(":memory:")
-    set_default_adapter(store)
-    yield store
-    set_default_adapter(None)
-    store.close()
+# The autouse `adapter` fixture (from `test/conftest.py`) keeps every test off the real
+# store in the user's cache directory.
 
 
 @pytest.fixture

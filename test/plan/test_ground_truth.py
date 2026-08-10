@@ -14,27 +14,20 @@ This is the capability the brief calls out as a differentiator (ER evaluation), 
 the reason the testkit was worth porting rather than deleting.
 """
 
-from collections.abc import Iterator
-
 import pytest
 from sqlalchemy import Engine, create_engine
 
-from matchlab.adapters import DuckDBAdapter
-from matchlab.steps import set_default_adapter
 from matchlab.testkit.linked import LinkedSources, linked_sources_factory
 
-
-@pytest.fixture(autouse=True)
-def adapter() -> Iterator[DuckDBAdapter]:
-    store = DuckDBAdapter(":memory:")
-    set_default_adapter(store)
-    yield store
-    set_default_adapter(None)
-    store.close()
+# The `adapter` fixture comes from `test/conftest.py`.
 
 
 @pytest.fixture
 def warehouse() -> Engine:
+    """An empty warehouse: the testkit plants its own tables, so start with none.
+
+    Overrides the shared `crn`/`dh` scenario, which would only get in the way here.
+    """
     return create_engine("sqlite:///:memory:")
 
 

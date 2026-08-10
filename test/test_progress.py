@@ -15,6 +15,7 @@ the point is to pin the reporting independently of what is being reported.
 import io
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar
 
@@ -212,7 +213,7 @@ def test_every_step_is_timed(store: DuckDBAdapter) -> None:
     assert "3 steps" in reporter.summary()
 
 
-def test_the_summary_carries_the_counts_a_debug_reader_would_have_seen(
+def test_the_summary_totals_the_debug_counts(
     store: DuckDBAdapter,
 ) -> None:
     """`Cached` sits at DEBUG, so the INFO summary has to total it."""
@@ -417,7 +418,7 @@ def test_a_nested_collection_gives_the_outer_positions_back(
     assert f"[step {outer}] Collecting 3 steps" in "\n".join(messages)
 
 
-def test_a_caller_supplied_prefix_only_applies_outside_a_collection(
+def test_a_supplied_prefix_applies_outside_a_collection(
     store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A `Source` reads the warehouse from both, and each has its own best answer.
@@ -561,68 +562,63 @@ def test_a_plain_stream_handler_does_not_smear_the_frame(
         assert offset == 0 or plain[offset - 1] in "\n\r"
 
 
-def test_a_handler_is_only_borrowed_for_as_long_as_the_frame_lasts(
-    store: DuckDBAdapter, terminal: io.StringIO
-) -> None:
-    """It belongs to the application, and has to be handed back as it was."""
-    apex, _source, _view = _plan()
-    handler = logging.StreamHandler(terminal)
-    matchlab = logging.getLogger("matchlab")
-    matchlab.addHandler(handler)
-    try:
-        during: list[object] = []
-        original = handler.stream
-
-        class Watcher(StoringStep):
-            def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
-                during.append(handler.stream)
-                super()._execute(adapter, fp)
-
-        Watcher("watched", upstream=(apex,)).collect(adapter=store, interactive=True)
-    finally:
-        matchlab.removeHandler(handler)
-
-    assert during and during[0] is not original  # rerouted while the frame was up
-    assert handler.stream is original  # and given back afterwards
+def _on_the_frames_terminal(monkeypatch: pytest.MonkeyPatch) -> logging.StreamHandler:
+    """A plain handler pointed at the same terminal the live frame draws to."""
+    buffer = io.StringIO()
+    monkeypatch.setattr(
+        mlog, "console", Console(file=buffer, force_terminal=True, width=80, height=24)
+    )
+    return logging.StreamHandler(buffer)
 
 
-def test_a_notebook_handler_is_left_alone(
-    monkeypatch: pytest.MonkeyPatch, store: DuckDBAdapter
-) -> None:
-    """There is no cursor to collide with, and rerouting would cost formatting.
+def _writing_elsewhere(monkeypatch: pytest.MonkeyPatch) -> logging.StreamHandler:
+    """A handler on some other stream, with nothing to collide with."""
+    buffer = io.StringIO()
+    monkeypatch.setattr(
+        mlog, "console", Console(file=buffer, force_terminal=True, width=80, height=24)
+    )
+    return logging.StreamHandler(io.StringIO())
 
-    Rich draws a notebook's live display into a widget that redraws in isolation, so
-    records cannot smear it. Sent through the console they would each become their own
-    `display()` — a separate boxed HTML block — instead of ordinary stream text.
-    """
+
+def _in_a_notebook(monkeypatch: pytest.MonkeyPatch) -> logging.StreamHandler:
+    """A handler in a notebook, whose live display redraws in isolation."""
     buffer = io.StringIO()
     monkeypatch.setattr(mlog, "console", Console(file=buffer, force_jupyter=True))
-    apex, _source, _view = _plan()
-    handler = logging.StreamHandler(buffer)
-    matchlab = logging.getLogger("matchlab")
-    matchlab.addHandler(handler)
-    try:
-        assert report(apex, apex.lineage(), interactive=True)._live is not None
-        with mlog.through_console():
-            assert handler.stream is buffer  # not borrowed
-    finally:
-        matchlab.removeHandler(handler)
+    return logging.StreamHandler(buffer)
 
 
-def test_a_handler_writing_elsewhere_is_left_alone(
-    store: DuckDBAdapter, terminal: io.StringIO
+@pytest.mark.parametrize(
+    ("configure", "borrowed"),
+    [
+        pytest.param(_on_the_frames_terminal, True, id="on-the-frames-terminal"),
+        pytest.param(_writing_elsewhere, False, id="writing-elsewhere"),
+        pytest.param(_in_a_notebook, False, id="in-a-notebook"),
+    ],
+)
+def test_a_handler_is_borrowed_only_when_it_would_collide(
+    monkeypatch: pytest.MonkeyPatch,
+    configure: Callable[[pytest.MonkeyPatch], logging.StreamHandler],
+    borrowed: bool,
 ) -> None:
-    """Nothing to collide with, so nothing to rearrange."""
-    apex, _source, _view = _plan()
-    elsewhere = io.StringIO()
-    handler = logging.StreamHandler(elsewhere)
+    """A live frame reroutes only a handler that would write into it, then restores it.
+
+    A plain stream handler on the same terminal collides with the redraw, so it is
+    borrowed for the frame; one writing elsewhere, or a notebook's isolated display, has
+    nothing to collide with and is left alone. Either way the handler belongs to the
+    application and is handed back exactly as it was.
+    """
+    handler = configure(monkeypatch)
+    original = handler.stream
     matchlab = logging.getLogger("matchlab")
     matchlab.addHandler(handler)
     try:
-        with report(apex, apex.lineage(), interactive=True):
-            assert handler.stream is elsewhere
+        with mlog.through_console():
+            rerouted = handler.stream is not original
     finally:
         matchlab.removeHandler(handler)
+
+    assert rerouted == borrowed
+    assert handler.stream is original  # handed back afterwards
 
 
 def test_a_console_handler_lets_the_log_and_the_tree_share_a_terminal(

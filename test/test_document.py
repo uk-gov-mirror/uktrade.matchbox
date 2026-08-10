@@ -9,15 +9,14 @@ The warehouse here stands in for the target environment: the document travels, t
 engine does not, and `load` is handed a client on the other side.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import PlanDocument, Source, dump, lineage, load, set_default_adapter
+from matchlab import PlanDocument, Source, dump, lineage, load
 from matchlab.adapters import DuckDBAdapter
-from matchlab.locations import RelationalDBLocation
 from matchlab.models import Model
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
@@ -25,48 +24,14 @@ from matchlab.resolvers import Resolver
 from matchlab.steps import Step
 from matchlab.views import View
 
+# `warehouse`, `adapter` and `source` come from `test/conftest.py`.
+
 
 @pytest.fixture
-def warehouse(tmp_path: Path) -> Engine:
-    engine = create_engine(f"sqlite:///{tmp_path / 'wh.sqlite'}")
-    with engine.begin() as conn:
-        conn.execute(text("CREATE TABLE crn (pk TEXT, company TEXT, town TEXT)"))
-        conn.execute(
-            text(
-                "INSERT INTO crn VALUES "
-                "('a1','acme','london'),('a2','acme','leeds'),('a3','beta','hull')"
-            )
-        )
-        conn.execute(text("CREATE TABLE dh (pk TEXT, company TEXT, town TEXT)"))
-        conn.execute(
-            text("INSERT INTO dh VALUES ('b1','acme','bristol'),('b2','gamma','york')")
-        )
-    return engine
-
-
-@pytest.fixture(autouse=True)
-def adapter() -> Iterator[DuckDBAdapter]:
-    store = DuckDBAdapter(":memory:")
-    set_default_adapter(store)
-    yield store
-    set_default_adapter(None)
-    store.close()
-
-
-def _source(warehouse: Engine, name: str) -> Source:
-    location = RelationalDBLocation(name="warehouse", client=warehouse)
-    return Source(
-        location=location,
-        name=name,
-        extract_transform=f"select pk, company, town from {name}",
-        key_field="pk",
-    )
-
-
-def _plan(warehouse: Engine) -> Resolver:
+def plan(source: Callable[..., Source]) -> Resolver:
     """A dedupe feeding a cross-source link, with one view read by two models."""
-    crn = _source(warehouse, "crn")
-    dh = _source(warehouse, "dh")
+    crn = source("crn")
+    dh = source("dh")
 
     deduped = crn.view(cleaning={"company": crn.f("company")}).dedupe(
         model_class=NaiveDeduper,
@@ -115,9 +80,11 @@ _LOCATION_REF = {"location_class": "RelationalDBLocation", "name": "warehouse"}
 # -- the round trip -------------------------------------------------------------------
 
 
-def test_a_rebuilt_plan_fingerprints_identically(warehouse: Engine) -> None:
+def test_a_rebuilt_plan_fingerprints_identically(
+    plan: Resolver, warehouse: Engine
+) -> None:
     """The whole point: same plan, same fingerprints, so artifacts transfer."""
-    original = _plan(warehouse)
+    original = plan
     original.collect()
 
     rebuilt = load(_transfer(dump(original)), clients={"warehouse": warehouse})
@@ -130,12 +97,12 @@ def test_a_rebuilt_plan_fingerprints_identically(warehouse: Engine) -> None:
 
 
 def test_a_rebuilt_plan_hits_cache_rather_than_recomputing(
-    warehouse: Engine, adapter: DuckDBAdapter
+    plan: Resolver, warehouse: Engine, adapter: DuckDBAdapter
 ) -> None:
     """A transferred plan must find the original's artifacts, not redo the work."""
-    _plan(warehouse).collect(adapter)
+    plan.collect(adapter)
 
-    rebuilt = load(_transfer(dump(_plan(warehouse))), clients={"warehouse": warehouse})
+    rebuilt = load(_transfer(dump(plan)), clients={"warehouse": warehouse})
     for step in lineage.walk(rebuilt):
 
         def boom(*_a: object, _step: Step = step, **_k: object) -> None:
@@ -147,7 +114,7 @@ def test_a_rebuilt_plan_hits_cache_rather_than_recomputing(
 
 
 def test_a_different_warehouse_gives_different_fingerprints(
-    warehouse: Engine, tmp_path: Path
+    plan: Resolver, tmp_path: Path
 ) -> None:
     """The flip side of the cache hit: a document carries no data, so data decides.
 
@@ -162,7 +129,7 @@ def test_a_different_warehouse_gives_different_fingerprints(
         conn.execute(text("CREATE TABLE dh (pk TEXT, company TEXT, town TEXT)"))
         conn.execute(text("INSERT INTO dh VALUES ('b1','different','lyon')"))
 
-    original = _plan(warehouse)
+    original = plan
     original.collect()
 
     document = _transfer(dump(original))
@@ -176,8 +143,10 @@ def test_a_different_warehouse_gives_different_fingerprints(
     ]
 
 
-def test_a_rebuilt_plan_produces_the_same_answer(warehouse: Engine) -> None:
-    original = _plan(warehouse)
+def test_a_rebuilt_plan_produces_the_same_answer(
+    plan: Resolver, warehouse: Engine
+) -> None:
+    original = plan
     rebuilt = load(_transfer(dump(original)), clients={"warehouse": warehouse})
 
     expected = original.collect().get_lookup().sort("root")
@@ -185,13 +154,15 @@ def test_a_rebuilt_plan_produces_the_same_answer(warehouse: Engine) -> None:
     assert actual.equals(expected)
 
 
-def test_a_document_carries_no_labels_only_source_names(warehouse: Engine) -> None:
+def test_a_document_carries_no_labels_only_source_names(
+    plan: Resolver, warehouse: Engine
+) -> None:
     """Publishing is done to a result, so a label is not part of the plan.
 
     A source's name is not a label: it prefixes that source's columns and tags its
     rows, so it is part of the output rather than a way of finding it.
     """
-    document = dump(_plan(warehouse))
+    document = dump(plan)
 
     assert not any(hasattr(node, "name") for node in document.steps)
     sources = [node.spec for node in document.steps if node.kind == "source"]
@@ -203,9 +174,11 @@ def test_a_document_carries_no_labels_only_source_names(warehouse: Engine) -> No
     }
 
 
-def test_structural_sharing_survives_the_round_trip(warehouse: Engine) -> None:
+def test_structural_sharing_survives_the_round_trip(
+    plan: Resolver, warehouse: Engine
+) -> None:
     """A view feeding two models is one node referenced twice, not two nodes."""
-    original = _plan(warehouse)
+    original = plan
     document = dump(original)
 
     assert len(document.steps) == len(lineage.walk(original))
@@ -218,9 +191,9 @@ def test_structural_sharing_survives_the_round_trip(warehouse: Engine) -> None:
     assert linkers[0].left is linkers[1].left
 
 
-def test_a_document_carries_no_client_or_credentials(warehouse: Engine) -> None:
+def test_a_document_carries_no_client_or_credentials(plan: Resolver) -> None:
     """Locations describe where data lives; connecting is the target's business."""
-    document = dump(_plan(warehouse))
+    document = dump(plan)
     serialised = document.model_dump_json()
 
     assert "sqlite" not in serialised  # the engine's URL never leaves
@@ -230,14 +203,12 @@ def test_a_document_carries_no_client_or_credentials(warehouse: Engine) -> None:
         load(document, clients={})
 
 
-def test_location_change_same_fingerprint(
-    warehouse: Engine,
-) -> None:
+def test_location_change_same_fingerprint(plan: Resolver, warehouse: Engine) -> None:
     """A location says how to rebuild, so it travels on the node and not in the spec.
 
     Renaming a warehouse changes no byte any source produces.
     """
-    original = _plan(warehouse)
+    original = plan
     original.collect()
 
     document = _transfer(dump(original))
@@ -269,11 +240,9 @@ def test_location_change_same_fingerprint(
     assert {source.location.name for source in sources} == {"somewhere_else"}
 
 
-def test_document_custom_location(
-    warehouse: Engine,
-) -> None:
+def test_document_custom_location(plan: Resolver, warehouse: Engine) -> None:
     """Documents can represent custom locations."""
-    document = dump(_plan(warehouse))
+    document = dump(plan)
     broken = document.model_copy(
         update={
             "steps": tuple(
@@ -323,9 +292,9 @@ def test_location_source_only() -> None:
 # -- what the document says -----------------------------------------------------------
 
 
-def test_edges_are_positions_pointing_backwards(warehouse: Engine) -> None:
+def test_edges_are_positions_pointing_backwards(plan: Resolver) -> None:
     """Topological order is the document's ordering guarantee."""
-    document = dump(_plan(warehouse))
+    document = dump(plan)
 
     assert document.steps[0].kind == "source"
     assert document.steps[-1].kind == "resolver"
@@ -333,9 +302,9 @@ def test_edges_are_positions_pointing_backwards(warehouse: Engine) -> None:
         assert all(target < position for target in node.inputs)
 
 
-def test_a_spec_describes_settings_and_never_edges(warehouse: Engine) -> None:
+def test_a_spec_describes_settings_and_never_edges(plan: Resolver) -> None:
     """The split that makes a spec safe to hash and a document able to rebuild."""
-    document = dump(_plan(warehouse))
+    document = dump(plan)
 
     for node in document.steps:
         spec = node.spec.model_dump(mode="json")
@@ -349,14 +318,14 @@ def test_a_spec_describes_settings_and_never_edges(warehouse: Engine) -> None:
 
 
 def test_a_setting_that_points_at_an_input_travels_as_a_position(
-    warehouse: Engine,
+    plan: Resolver, warehouse: Engine
 ) -> None:
     """Thresholds key by position, which has to survive JSON's string-only keys.
 
     A name would have been the alternative, and would have made the document depend on
     names being stable — the thing positions exist to avoid.
     """
-    document = _transfer(dump(_plan(warehouse)))
+    document = _transfer(dump(plan))
     apex = document.steps[-1]
 
     assert apex.kind == "resolver"
@@ -400,9 +369,11 @@ def test_spec_is_parsed_by_kind_not_guessed() -> None:
     assert document.steps[0].spec.model_class == "NaiveDeduper"
 
 
-def test_load_rejects_a_step_wired_to_the_wrong_kind(warehouse: Engine) -> None:
+def test_load_rejects_a_step_wired_to_the_wrong_kind(
+    plan: Resolver, warehouse: Engine
+) -> None:
     """A malformed document fails at load, not with a confusing error much later."""
-    document = dump(_plan(warehouse))
+    document = dump(plan)
     resolver = next(node for node in document.steps if node.kind == "resolver")
     broken = PlanDocument(
         steps=tuple(
@@ -420,9 +391,9 @@ def test_an_empty_document_is_rejected() -> None:
         load(PlanDocument(steps=()), clients={})
 
 
-def test_a_view_is_rebuilt_with_its_resolver(warehouse: Engine) -> None:
+def test_a_view_is_rebuilt_with_its_resolver(plan: Resolver, warehouse: Engine) -> None:
     """A view's inputs are sources plus at most one resolver, told apart by kind."""
-    rebuilt = load(dump(_plan(warehouse)), clients={"warehouse": warehouse})
+    rebuilt = load(dump(plan), clients={"warehouse": warehouse})
     views = [step for step in lineage.walk(rebuilt) if isinstance(step, View)]
 
     through = [view for view in views if view.resolver is not None]

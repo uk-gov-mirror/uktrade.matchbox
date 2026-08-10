@@ -1,9 +1,8 @@
-"""Tests for client-side resolver output (Phase 2 keystone).
+"""The pure functions behind a resolver's stored output.
 
-These bridge the abstract Phase 0 spike to the
-concrete `(clusters, upstream)` data shapes the client actually produces, and assert
-the merge-forward output — including fall-through of upstream-grouped, locally
-untouched leaves.
+These pin the `(clusters, upstream)` shapes a resolver materialises and assert the
+merge-forward output — including fall-through of upstream-grouped, locally untouched
+leaves.
 """
 
 import polars as pl
@@ -56,7 +55,7 @@ def test_root_id_is_order_invariant() -> None:
     assert root_id_of([1, 2]) != root_id_of([1, 3])
 
 
-# -- the layered fall-through scenario (concrete form of the Phase 0 spike) ------------
+# -- the layered fall-through scenario -------------------------------------------------
 
 
 def test_layered_fallthrough_preserves_upstream_clusters() -> None:

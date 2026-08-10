@@ -1,102 +1,96 @@
-"""Minimal widget tests - verify custom configuration and display logic."""
+"""Review-widget display logic: the header formatting and the assignment bar.
+
+These assert on what the widgets emit to render — header text, a dim-or-coloured
+segment, the markup the bar hands Rich — rather than on the widgets' private structure,
+so a behaviour-preserving refactor of either widget leaves them green.
+"""
 
 from unittest.mock import Mock
+
+from rich.console import Console
+from rich.style import Style
+from rich.text import Text
 
 from matchlab.eval.tui.widgets.assignment import AssignmentBar
 from matchlab.eval.tui.widgets.table import ComparisonDisplayTable
 
 
-class TestComparisonDisplayTable:
-    """Test table widget configuration and display logic."""
-
-    def test_build_header_formatting(self) -> None:
-        """Test that headers correctly format numbers, counts, and symbols."""
-        table = ComparisonDisplayTable()
-
-        # 1. Basic Numbering
-        # Position 1, single record -> "1"
-        header = table._build_header(1, [1], None)
-        assert header.plain == "1"
-
-        # 2. Duplicate Counts
-        # Position 2, 3 duplicate records -> "2 (×3)"
-        header = table._build_header(2, [1, 2, 3], None)
-        assert header.plain == "2 (×3)"
-
-        # 3. Assignments & Symbols
-        # Group 'a' (◇ diamond), Position 1 -> "◇ 1"
-        header = table._build_header(1, [1], "a")
-        assert "◇" in header.plain
-        assert "1" in header.plain
-
-        # Group 'b' (⬤ circle), Position 2, duplicates -> "⬤ 2 (×2)"
-        header = table._build_header(2, [1, 2], "b")
-        assert "⬤" in header.plain
-        assert "2 (×2)" in header.plain
-
-    def test_build_header_dimming(self) -> None:
-        """Test that unassigned headers are dimmed and assigned ones are colored."""
-        table = ComparisonDisplayTable()
-
-        # Unassigned: Should be dim
-        header_unassigned = table._build_header(1, [1], None)
-        # Rich text spans structure: Span(start, end, style)
-        # We expect 'dim' style on the number
-        assert "dim" in str(header_unassigned.spans)
-
-        # Assigned: Should NOT be dim (will have group color)
-        header_assigned = table._build_header(1, [1], "a")
-        # Should not have dim style (it gets stylized with group color)
-        assert "dim" not in str(header_assigned.spans)
+def _rendered_styles(text: Text) -> list[Style]:
+    """Styles Rich actually paints, read off rendered segments not internal spans."""
+    return [segment.style for segment in Console().render(text) if segment.style]
 
 
-class TestAssignmentBar:
-    """Test assignment bar widget status display."""
+# -- ComparisonDisplayTable header ----------------------------------------------------
 
-    def test_initializes_empty(self) -> None:
-        """Test bar starts empty."""
-        bar = AssignmentBar()
-        assert bar.positions == []
 
-    def test_reset(self) -> None:
-        """Test reset creates correct number of empty slots."""
-        bar = AssignmentBar()
-        bar.update = Mock()  # Mock update to prevent rendering errors/side effects
+def test_header_formats_position_count_and_symbol() -> None:
+    """Position, a duplicate count once there's more than one, and the group symbol."""
+    table = ComparisonDisplayTable()
 
-        bar.reset(5)
-        assert len(bar.positions) == 5
-        assert all(p is None for p in bar.positions)
+    assert table._build_header(1, [1], None).plain == "1"
+    assert table._build_header(2, [1, 2, 3], None).plain == "2 (×3)"
 
-    def test_set_position_updates_state(self) -> None:
-        """Test setting a position updates internal state."""
-        bar = AssignmentBar()
-        bar.update = Mock()
-        bar.reset(3)
+    assigned = table._build_header(2, [1, 2], "b")
+    assert "2 (×2)" in assigned.plain
+    # A group symbol leads the header; which glyph is `get_group_style`'s business.
+    assert assigned.plain.startswith(("◇", "⬤"))
 
-        bar.set_position(1, "a", "red")
 
-        assert bar.positions[0] is None
-        assert bar.positions[1] is not None
-        assert bar.positions[1].letter == "a"
-        assert bar.positions[1].colour == "red"
+def test_unassigned_header_is_dim_and_assigned_is_coloured() -> None:
+    """The visible cue a column is judged: dim until it carries a group colour."""
+    table = ComparisonDisplayTable()
 
-    def test_render_bar_logic(self) -> None:
-        """Test the visual rendering logic (letters vs dots)."""
-        bar = AssignmentBar()
-        bar.update = Mock()
+    unassigned = _rendered_styles(table._build_header(1, [1], None))
+    assert any(style.dim for style in unassigned)
 
-        # 1. Initial empty state
-        bar.reset(3)
-        bar.update.assert_called_with("[dim]•[/dim][dim]•[/dim][dim]•[/dim]")
+    assigned = _rendered_styles(table._build_header(1, [1], "a"))
+    assert not any(style.dim for style in assigned)
+    assert any(style.color for style in assigned)
 
-        # 2. Set middle to 'a' -> shows letter 'a'
-        bar.set_position(1, "a", "red")
-        bar.update.assert_called_with("[dim]•[/dim][red]a[/red][dim]•[/dim]")
 
-        # 3. Set last to 'a' -> adjacent same group shows dot '•'
-        bar.set_position(2, "a", "red")
-        bar.update.assert_called_with("[dim]•[/dim][red]a[/red][red]•[/red]")
+# -- AssignmentBar --------------------------------------------------------------------
 
-        # 4. Set first to 'b' -> new group shows letter 'b'
-        bar.set_position(0, "b", "blue")
-        bar.update.assert_called_with("[blue]b[/blue][red]a[/red][red]•[/red]")
+
+def test_bar_starts_empty() -> None:
+    assert AssignmentBar().positions == []
+
+
+def test_reset_creates_that_many_empty_slots() -> None:
+    bar = AssignmentBar()
+    bar.update = Mock()  # Bar.update renders; these tests only read the state it holds.
+
+    bar.reset(5)
+
+    assert bar.positions == [None] * 5
+
+
+def test_set_position_records_the_group_and_colour() -> None:
+    bar = AssignmentBar()
+    bar.update = Mock()
+    bar.reset(3)
+
+    bar.set_position(1, "a", "red")
+
+    assert bar.positions[0] is None
+    assert bar.positions[1].letter == "a"
+    assert bar.positions[1].colour == "red"
+
+
+def test_bar_shows_letters_and_folds_adjacent_repeats_to_dots() -> None:
+    """A group's first slot shows its letter; the next in that group is a dot."""
+    bar = AssignmentBar()
+    bar.update = Mock()
+
+    bar.reset(3)
+    bar.update.assert_called_with("[dim]•[/dim][dim]•[/dim][dim]•[/dim]")
+
+    bar.set_position(1, "a", "red")
+    bar.update.assert_called_with("[dim]•[/dim][red]a[/red][dim]•[/dim]")
+
+    # Adjacent same group: the letter is not repeated, a dot stands in.
+    bar.set_position(2, "a", "red")
+    bar.update.assert_called_with("[dim]•[/dim][red]a[/red][red]•[/red]")
+
+    # A new group next to it shows its own letter.
+    bar.set_position(0, "b", "blue")
+    bar.update.assert_called_with("[blue]b[/blue][red]a[/red][red]•[/red]")

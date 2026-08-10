@@ -91,6 +91,15 @@ data does, which is the basis matchlab anchors evaluation judgements to. Reading
 source or view directly, without going through a resolver, exposes the leaf as the
 `id` column.
 
+## Location
+
+matchlab's handle on the warehouse a [source](#source) reads from: a database, plus the
+client that reaches it. `RelationalDBLocation` is the reference implementation, wrapping
+a SQLAlchemy or ADBC client. The warehouse is the external database itself; the location
+is the handle, and it is where a source's rows come *from* — distinct from the
+[store](#store), where a plan's [artifacts](#artifact) are kept once collected. A
+location resolves nothing and stores nothing; it only answers a query.
+
 ## Matcher
 
 🧪 Testkits
