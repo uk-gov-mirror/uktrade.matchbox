@@ -1,17 +1,18 @@
 """Matchers that already know the answer.
 
 A perfect matcher makes no mistakes, so pointing one at generated data leaves the *plan*
-as the only variable — which is what makes an end-to-end assertion mean something. Build
-them through `LinkedSources.dedupe()` / `.link()`; they are public here only so the
+as the only variable. That is what makes an end-to-end assertion mean something. Build
+them through `LinkedSources.dedupe()` / `.link()`. They are public here only so the
 registry can name them.
 
 The subtlety is how a matcher identifies a record. Pre-generating edges between record
-IDs does not work: matchlab derives cluster IDs by content-hashing rows at collect time,
-so the IDs a model actually receives are unknowable when a fixture is built. So an
-`AnswerKey` is keyed by the row's *values*. At match time the matcher reads those
-columns out of the frame it was handed, looks up each row's true entity, and emits edges
-between whatever IDs are actually present — which makes it independent of how identity
-is assigned, and survives any future change to ID minting.
+IDs does not work, because matchlab derives cluster IDs by content-hashing rows at
+collect time. The IDs a model actually receives are unknowable when a fixture is built,
+which is why an `AnswerKey` is keyed by the row's *values* instead. At match time the
+matcher reads those columns out of the frame it was handed, looks up each row's true
+entity, and emits edges between whatever IDs are actually present. That makes it
+independent of how identity is assigned, and lets it survive any future change to ID
+minting.
 """
 
 from collections.abc import Iterable
@@ -28,7 +29,7 @@ from matchlab.models.linkers.base import Linker, LinkerSettings
 from matchlab.testkit.entities import TrueEntity
 from matchlab.testkit.sources import GeneratedSource
 
-# Registered answer keys, by content hash. Only ever added to; a testkit process is
+# Registered answer keys, by content hash. Only ever added to. A testkit process is
 # short-lived and the keys are small.
 _ANSWERS: dict[str, "AnswerKey"] = {}
 
@@ -38,20 +39,20 @@ class AnswerKey(BaseModel):
 
     Three things happen to one of these, in order:
 
-    * **build** — `AnswerKey.from_sources()` derives it from generated data. Pass a
+    * **build**: `AnswerKey.from_sources()` derives it from generated data. Pass a
       subset of the true entities to make a matcher that knows only part of the answer.
-    * **store** — `.register()` puts it in a process-local registry and returns a
+    * **store**: `.register()` puts it in a process-local registry and returns a
       content-addressed ID. A matcher's settings carry that ID rather than the table
       itself, because settings are JSON-serialised into a step's fingerprint and a
-      lookup table is not. Hashing the content keeps the fingerprint honest: a different
+      lookup table is not. Hashing the content keeps the fingerprint honest. A different
       answer produces a different ID, and so a different model artifact.
-    * **use** — `.dedupe_edges()` / `.link_edges()` are what `PerfectDeduper` and
+    * **use**: `.dedupe_edges()` / `.link_edges()` are what `PerfectDeduper` and
       `PerfectLinker` call at match time, against whatever frame they were handed.
 
     `groups` maps a tuple of column values to a true-entity ID. `columns` names the
-    columns to read, in the same order, as they appear in the frame the model is given
-    (i.e. source-qualified). Linkers carry a second set for the right-hand frame; both
-    sides map into the same entity-ID space, which is what lets them be joined.
+    columns to read, in the same order they appear in the frame the model is given
+    (source-qualified). Linkers carry a second set for the right-hand frame. Both sides
+    map into the same entity-ID space, which is what lets them be joined.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -73,8 +74,8 @@ class AnswerKey(BaseModel):
         """Derive the lookup from generated sources.
 
         Each generated row is mapped to the true entity that owns its key, then keyed by
-        its feature values under the names the model will see them by — source-
-        qualified, because that is how they arrive in the frame a matcher is handed.
+        its feature values under the names the model will see them by, source-qualified,
+        because that is how they arrive in the frame a matcher is handed.
 
         Args:
             left: The generated source the matcher reads as its left input.
@@ -91,7 +92,7 @@ class AnswerKey(BaseModel):
                 for entity in entities
                 for key in entity.get_keys(source.source.name)
             }
-            # From the testkit, not the plan node: the node would have to read the
+            # From the testkit, not the plan node. The node would have to read the
             # warehouse to list its columns, and this runs before any collect.
             # `field_names` also covers a source set by hand, where `features` is None.
             features = source.field_names
@@ -171,7 +172,7 @@ class AnswerKey(BaseModel):
 
         Settings are JSON-serialised into a step's fingerprint and a lookup table is
         not, so the key itself cannot live there. Hashing its content keeps the
-        fingerprint honest: a different answer key produces a different ID, and
+        fingerprint honest. A different answer key produces a different ID, and
         therefore a different model artifact.
         """
         payload = repr(
@@ -195,7 +196,7 @@ class PerfectDeduperSettings(DeduperSettings):
 
 
 class PerfectDeduper(Deduper):
-    """A perfect deduper: emits every within-entity pair it is given."""
+    """A perfect deduper. Emits every within-entity pair it is given."""
 
     settings: PerfectDeduperSettings
 
@@ -214,7 +215,7 @@ class PerfectLinkerSettings(LinkerSettings):
 
 
 class PerfectLinker(Linker):
-    """A perfect linker: emits every cross-side pair sharing a true entity."""
+    """A perfect linker. Emits every cross-side pair sharing a true entity."""
 
     settings: PerfectLinkerSettings
 

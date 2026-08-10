@@ -1,13 +1,13 @@
 """Generate data whose answer you already know, then score matching against it.
 
-The point of this package is to make entity resolution *measurable*: it plants entities
-you know the answer for, so a test can assert precision and recall against truth rather
-than eyeball a fixture.
+This package makes entity resolution *measurable*. It plants entities you already know
+the answer for, so a test can assert precision and recall against truth rather than
+eyeball a fixture.
 
-One job, four beats — **describe** the data (`features`), **generate** it and plant the
-answer (`sources`, `linked`), **match** it (`matchers`), **score** the result
-(`compare`). `LinkedSources` is the handle for all of it: because it planted the
-entities, nothing downstream has to be told the answer.
+The package has one job, done in four steps: **describe** the data (`features`),
+**generate** it and plant the answer (`sources`, `linked`), **match** it (`matchers`),
+then **score** the result (`compare`). `LinkedSources` is the handle for all of it. It
+planted the entities, so nothing downstream has to be told the answer.
 
 ## Which do I use?
 
@@ -27,9 +27,9 @@ entities, nothing downstream has to be told the answer.
 `dedupe()` and `link()` wire a perfect matcher up for you, so the last two rows are
 only for when you want a matcher that is deliberately wrong in a particular way.
 
-A testkit exposes what it knows about the *fixture*; anything you do to the *plan* goes
-through the node it wraps — `source.source.view()`, `model.model.resolve()`. There are
-no forwarding shortcuts, so it is always clear which of the two you are holding.
+A testkit exposes what it knows about the *fixture*. Anything you do to the *plan* goes
+through the node it wraps: `source.source.view()`, `model.model.resolve()`. There are no
+forwarding shortcuts, so it is always clear which of the two you are holding.
 
 ```python
 from matchlab.testkit import linked_sources_factory
@@ -57,7 +57,7 @@ picking the wrong one is the easiest mistake to make here:
 | Example | `test/methodologies/` | `test/plan/test_ground_truth.py` |
 
 The split exists because matchlab derives record identity by content-hashing rows at
-collect time, so IDs are unknowable when a fixture is built; anything asserted against a
+collect time. IDs are unknowable when a fixture is built, so anything asserted against a
 *collected* plan has to be keyed by row values instead. See `matchers` for the full
 reasoning. `dedupe()`/`link()` build both, so either is available from one call.
 

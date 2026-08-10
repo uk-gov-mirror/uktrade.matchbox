@@ -2,10 +2,10 @@
 
 This is the entry point. `linked_sources_factory` generates several sources from one
 pool of planted entities, so the same real-world thing appears in more than one of them
-under different keys — which is what makes linking testable at all.
+under different keys. That is what makes linking testable at all.
 
 The object it returns is the only one that knows the answer, so everything needing the
-answer hangs off it: build a plan with `dedupe()`/`link()` and score one with
+answer hangs off it. Build a plan with `dedupe()`/`link()` and score one with
 `diff_resolver_output()`/`diff_model_edges()`, none of which need to be told the truth.
 """
 
@@ -46,7 +46,12 @@ from matchlab.views import View
 
 
 class LinkedSources(BaseModel):
-    """Container for multiple related source testkits with entity tracking."""
+    """A set of generated sources, plus the true entities planted across all of them.
+
+    This is the object the module docstring describes. Build a plan from it with
+    `dedupe()`/`link()`, then score one with
+    `diff_resolver_output()`/`diff_model_edges()`.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -58,7 +63,14 @@ class LinkedSources(BaseModel):
         min_appearances: dict[str, int] | None = None,
         max_appearances: dict[str, int] | None = None,
     ) -> list[TrueEntity]:
-        """Find entities matching appearance criteria."""
+        """Find entities matching appearance criteria.
+
+        Args:
+            min_appearances: For each named source, the minimum number of keys an
+                entity must have there.
+            max_appearances: For each named source, the maximum number of keys an
+                entity may have there.
+        """
         result = list(self.true_entities)
 
         def _meets_criteria(
@@ -99,9 +111,10 @@ class LinkedSources(BaseModel):
     ) -> tuple[bool, dict]:
         """Diff a model's edges against the planted true entities.
 
-        Takes the sources rather than their innards: the clusters the model started from
-        and the names to compare over are both properties of the sources you handed it,
-        so re-supplying them was only an opportunity to pass the wrong ones.
+        This takes the sources rather than their innards. The clusters the model
+        started from, and the names to compare over, are both properties of the
+        sources you handed it, so re-supplying them separately was only a chance to
+        pass the wrong ones.
 
         Args:
             edges: The model edge table to score.
@@ -130,9 +143,9 @@ class LinkedSources(BaseModel):
     ) -> tuple[bool, dict]:
         """Diff a collected resolver output against the planted true entities.
 
-        The counterpart to `diff_model_edges` for a plan that has run: it scores
-        the `(root, key, source)` table `Resolver.entities()` returns, whose IDs are
-        content-derived at collect time and so have no counterpart here — only the
+        The counterpart to `diff_model_edges` for a plan that has run. It scores the
+        `(root, key, source)` table `Resolver.entities()` returns, whose IDs are
+        content-derived at collect time and so have no counterpart here. Only the
         record membership is comparable, which is exactly what a cluster asserts.
 
         Args:
@@ -155,8 +168,8 @@ class LinkedSources(BaseModel):
         Args:
             client: Write through this client instead of each source's own, repointing
                 the whole linked set at one warehouse. Mirrors
-                `GeneratedSource.write_to_location`, whose signature this used to lack —
-                which is why callers looped over `sources` by hand.
+                `GeneratedSource.write_to_location`, so callers don't need to loop over
+                `sources` by hand.
         """
         for source_testkit in self.sources.values():
             source_testkit.write_to_location(client=client)
@@ -173,7 +186,7 @@ class LinkedSources(BaseModel):
     ) -> "GeneratedModel":
         """Build a perfect deduper over one of these sources.
 
-        The truth is implied — it is what this testkit planted — so there is nothing to
+        The truth is implied. It is what this testkit planted, so there is nothing to
         thread through by hand.
 
         Args:
@@ -250,9 +263,9 @@ def _build_model(
 ) -> GeneratedModel:
     """Wire a scripted model onto generated sources, building both expectations.
 
-    You usually want `LinkedSources.dedupe` or `.link` instead — they know the
-    truth and the views, so they take a source name rather than seven arguments. This is
-    the shared implementation behind them, and is private because building the views
+    You usually want `LinkedSources.dedupe` or `.link` instead. They know the truth and
+    the views, so they take a source name rather than seven arguments. This is the
+    shared implementation behind them, and is private because building the views
     correctly is the part that needs the testkit.
 
     Args:
@@ -275,7 +288,7 @@ def _build_model(
     left_entities = left_testkit.input_clusters
     right_entities = right_testkit.input_clusters if right_testkit is not None else None
 
-    # The synthetic-ID expectation, in the testkit's own entity space: what
+    # The synthetic-ID expectation, in the testkit's own entity space. This is what
     # `diff_model_edges` asserts a methodology against without running a plan.
     scores = generate_entity_scores(
         left_entities=frozenset(left_entities),
@@ -285,8 +298,9 @@ def _build_model(
         seed=seed,
     )
 
-    # The value-keyed truth: the model matches on row values, so a collected plan emits
-    # the same truth over whatever content-derived IDs the frame actually carries.
+    # The value-keyed truth. The model matches on row values, so a collected plan
+    # emits the same truth over whatever content-derived IDs the frame actually
+    # carries.
     truth_id = AnswerKey.from_sources(
         left=left_testkit,
         true_entities=entities,
@@ -407,7 +421,7 @@ def linked_sources_factory(
         )
     else:
         if n_true_entities is not None:
-            # Factory parameter provided - warn if configs have values set
+            # Factory parameter provided, warn if configs have values set
             config_entities = [
                 parameters.n_true_entities for parameters in source_parameters
             ]
@@ -429,7 +443,7 @@ def linked_sources_factory(
                 for parameters in source_parameters
             )
         else:
-            # No factory parameter - check all configs have n_true_entities set
+            # No factory parameter, check all configs have n_true_entities set
             missing_counts = [
                 parameters.name
                 for parameters in source_parameters

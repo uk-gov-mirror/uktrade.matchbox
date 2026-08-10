@@ -1,6 +1,6 @@
 """Row and entity generation.
 
-Internal. Reach for `source_factory` or `linked_sources_factory` instead; these are the
+Internal. Reach for `source_factory` or `linked_sources_factory` instead. These are the
 pieces they are built from, and they take arguments that only make sense once the
 callers have worked them out.
 """
@@ -23,7 +23,7 @@ def generate_entities(
     features: tuple[FeatureConfig, ...],
     n: int,
 ) -> tuple[TrueEntity]:
-    """Generate base entities with their ground truth values from generator."""
+    """Generate base entities with their ground truth values from the generator."""
     entities = []
     for _ in range(n):
         base_values = {}
@@ -48,43 +48,42 @@ def generate_rows(
     features: tuple[FeatureConfig, ...],
     repetition: int,
 ) -> tuple[dict[str, list], dict[int, list[str]], dict[int, list[str]]]:
-    """Generate raw data rows with unique keys and shared IDs.
+    """Generate raw data rows, plus the maps that connect three different IDs.
 
-    This function generates rows of data plus maps between three types of identifiers:
+    Every row carries three IDs, each answering a different question. Confusing them is
+    the mistake this docstring exists to prevent.
 
-        1. `id`: Is matchlab's unique identifier for each row, shared across rows with
-            identical feature values
-        2. `key`: Is the source's unique identifier for the row. It's like a primary key
-            in a database, but not guaranteed to be unique across different entities
-        3. `entity`: Is the identifier of the TrueEntity that generated the row.
-            This identifies the true linked data in the factory system.
+    * `key`: the row's own identifier. Like a source's primary key, unique within the
+      source but not across entities.
+    * `id`: matchlab's identifier for the row's *content*. Rows with identical feature
+      values share one `id`, whichever entity produced them.
+    * `entity`: the ID of the `TrueEntity` that generated the row. This is the planted
+      answer, and the one truth downstream tests check their result against.
 
-    This function will therefore return:
+    `entity` groups rows by who generated them, and `id` groups rows by what content
+    they hold. The two groupings diverge whenever an entity produces more than one
+    variation: rows from the same entity can carry different `id`s, and (via
+    `repetition`) the same `id` can appear on more than one row.
 
-        * raw_data: A dictionary of column arrays for DataFrame creation
-        * entity_keys: A dictionary that maps which keys belong to each true entity
-        * id_keys: A dictionary that maps which keys share the same row content,
-            with the same `id`
+    Returns:
+        - raw_data: column arrays, ready to build a DataFrame from
+        - entity_keys: `TrueEntity` ID -> the keys it produced
+        - id_keys: content `id` -> the keys sharing that content
 
-    The key insight:
-
-        * entity_* groups by "who generated this row"
-        * id_* groups by "what content does this row have"
-
-    Example with two entities generating data:
+    Worked example, two entities, each producing two variations twice over:
 
     | id | key | company_name |
     |----|-----|--------------|
     | 1  | a   | alpha co     |
     | 2  | b   | alpha ltd    |
-    | 1  | c   | alpha co     |  # Same content as row 'a'
-    | 2  | d   | alpha ltd    |  # Same content as row 'b'
+    | 1  | c   | alpha co     |  # same content as row a
+    | 2  | d   | alpha ltd    |  # same content as row b
     | 3  | e   | beta co      |
     | 4  | f   | beta ltd     |
-    | 3  | g   | beta co      |  # Same content as row 'e'
-    | 4  | h   | beta ltd     |  # Same content as row 'f'
+    | 3  | g   | beta co      |  # same content as row e
+    | 4  | h   | beta ltd     |  # same content as row f
 
-    What does this table look like as raw data?
+    As raw data:
 
     ```python
     raw_data = {
@@ -103,23 +102,23 @@ def generate_rows(
     }
     ```
 
-    Which keys came from each true entity?
+    Grouped by entity, the two variations sit together:
 
     ```python
     entity_keys = {
-        1: ["a", "b", "c", "d"],  # All keys entity 1 produced
-        2: ["e", "f", "g", "h"],  # All keys entity 2 produced
+        1: ["a", "b", "c", "d"],  # every key entity 1 produced
+        2: ["e", "f", "g", "h"],  # every key entity 2 produced
     }
     ```
 
-    Which keys have identical content?
+    Grouped by content, they split apart again:
 
     ```python
     id_keys = {
-        1: ["a", "c"],  # Both have "alpha co" content
-        2: ["b", "d"],  # Both have "alpha ltd" content
-        3: ["e", "g"],  # Both have "beta co" content
-        4: ["f", "h"],  # Both have "beta ltd" content
+        1: ["a", "c"],  # both rows read "alpha co"
+        2: ["b", "d"],  # both rows read "alpha ltd"
+        3: ["e", "g"],  # both rows read "beta co"
+        4: ["f", "h"],  # both rows read "beta ltd"
     }
     ```
     """
@@ -151,7 +150,7 @@ def generate_rows(
             raw_data[feature.name].append(value)
 
     for entity in selected_entities:
-        # For each feature, collect all possible values
+        # Collect all possible values, per feature.
         possible_values = []
         for feature in features:
             base = entity.base_values[feature.name]

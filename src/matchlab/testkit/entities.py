@@ -1,15 +1,15 @@
 """The vocabulary: what a planted answer is, and what a claimed answer is.
 
-Two types, and the difference between them is the thing to hold on to:
+Two types exist, and the difference between them matters:
 
-* `TrueEntity` is the *answer* — one planted real-world thing, identified by the values
+* `TrueEntity` is the *answer*: one planted real-world thing, identified by the values
   it was generated from, spanning every source it landed in.
-* `Cluster` is *an answer* — a set of records claimed to be one entity, identified by
+* `Cluster` is *an answer*: a set of records claimed to be one entity, identified by
   that membership alone.
 
-They are compared by projecting the first onto the second with `TrueEntity.cluster()`,
-because only membership is comparable: a resolver output's IDs are minted at collect
-time and have no counterpart in generated data.
+`TrueEntity.cluster()` projects the first onto the second, so the two become
+comparable. Only membership can be compared this way. A resolver output's IDs are
+minted at collect time and have no counterpart in generated data.
 """
 
 from random import getrandbits
@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class EntityReference(frozendict):
     """Reference to an entity's presence in specific sources.
 
-    Maps source step names to sets of primary keys.
+    Maps source names to sets of primary keys.
     """
 
     def __init__(
@@ -53,10 +53,9 @@ class EntityReference(frozendict):
 
 
 class EntityIDMixin:
-    """Mixin providing common ID-based functionality for entity classes.
+    """Shared ID behaviour for entity classes.
 
-    Implements integer conversion and comparison operators for sorting
-    based on the entity's ID.
+    Provides integer conversion and comparison operators, so entities sort by `id`.
     """
 
     id: int
@@ -99,9 +98,9 @@ class EntityIDMixin:
 
 
 class SourceKeyMixin:
-    """Mixin providing common source key functionality for entity classes.
+    """Shared source-key behaviour for entity classes.
 
-    Implements methods for accessing and retrieving source keys.
+    Provides `get_keys()`, for reading back the keys held for one source.
     """
 
     keys: EntityReference
@@ -110,26 +109,26 @@ class SourceKeyMixin:
         """Get keys for a specific source.
 
         Args:
-            name: Name of the source
+            name: Name of the source.
 
         Returns:
-            Set of keys, empty if source not found
+            Set of keys, empty if the source is not found.
         """
         return set(self.keys.get(name, frozenset()))
 
 
 class Cluster(BaseModel, EntityIDMixin, SourceKeyMixin):
-    """A set of records claimed to be one entity — an *answer*.
+    """A set of records claimed to be one entity, an *answer*.
 
-    The unit of comparison: both sides of `diff_entities` are clusters, the expected
-    side projected from `TrueEntity.cluster()` and the actual side read back off a
-    model or a resolver's output. It carries membership and nothing else, because
-    membership is the only thing the two sides can agree on — a resolver output's IDs
+    This is the unit of comparison. Both sides of `diff_entities` are clusters: the
+    expected side projected from `TrueEntity.cluster()`, and the actual side read back
+    off a model or a resolver's output. It carries membership and nothing else, because
+    membership is the only thing the two sides can agree on. A resolver output's IDs
     are minted at collect time and have no counterpart in generated data.
 
-    Hence equality and hashing are over `keys` alone; `id` is carried for bookkeeping
-    and deliberately ignored when comparing. Contrast `TrueEntity`, which is the
-    answer key rather than an answer.
+    Equality and hashing are over `keys` alone. `id` is carried for bookkeeping and is
+    deliberately ignored when comparing. Contrast `TrueEntity`, which is the answer key
+    rather than an answer.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
@@ -210,12 +209,12 @@ class Cluster(BaseModel, EntityIDMixin, SourceKeyMixin):
 
 
 class TrueEntity(BaseModel, EntityIDMixin, SourceKeyMixin):
-    """One planted real-world thing — the *answer key*.
+    """One planted real-world thing, the *answer key*.
 
-    What the generator started from, so it holds `base_values` (the feature values its
-    rows were derived from) and accumulates the keys it landed under in every source it
-    appears in. Equality is over `base_values`: two entities are the same thing if they
-    were generated from the same values.
+    This is what the generator started from. It holds `base_values`, the feature values
+    its rows were derived from, and accumulates the keys it landed under in every source
+    it appears in. Equality is over `base_values`. Two entities are the same thing if
+    they were generated from the same values.
 
     It spans every source, so it is not directly comparable with a result. Project it
     onto the sources under test with `cluster()` to get something that is.
@@ -247,8 +246,8 @@ class TrueEntity(BaseModel, EntityIDMixin, SourceKeyMixin):
         """Add or update a source reference.
 
         Args:
-            name: Source name
-            keys: List of primary keys for this source
+            name: Source name.
+            keys: List of primary keys for this source.
         """
         mapping = dict(self.keys)
         mapping[name] = frozenset(keys)
@@ -257,10 +256,9 @@ class TrueEntity(BaseModel, EntityIDMixin, SourceKeyMixin):
     def cluster(self, *names: str) -> Cluster | None:
         """Project this true entity onto the given sources, making it comparable.
 
-        This method makes diffing really easy. Testing whether Cluster objects
-        are subsets of TrueEntity objects is a weaker, logically more fragile test
-        than directly comparing equality of sets of Cluster objects. It enables
-        a really simple syntactical expression of the test.
+        Comparing equality of `Cluster` sets is a simpler, more reliable test than
+        checking whether `Cluster` objects are subsets of `TrueEntity` objects. This
+        method is what makes that comparison possible:
 
         ```python
         actual: set[Cluster] = ...
@@ -274,11 +272,11 @@ class TrueEntity(BaseModel, EntityIDMixin, SourceKeyMixin):
         ```
 
         Args:
-            *names: Names of sources to include in the Cluster
+            *names: Names of sources to include in the Cluster.
 
         Returns:
-            Cluster containing only the specified sources' keys, or None
-            if none of the specified sources are present in this entity.
+            A `Cluster` with only the named sources' keys, or `None` if this entity has
+            no keys in any of them.
         """
         filtered = {
             name: self.keys.get(name)

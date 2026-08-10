@@ -1,6 +1,8 @@
 """What to generate: feature declarations and the variations applied to them.
 
-Pure declaration — nothing here generates or compares anything.
+Pure declaration. Nothing here generates or compares anything. `FeatureConfig`
+describes one column's values. Its `variations` are what let one true entity produce
+more than one form of the same value, which `_generate.generate_rows` turns into rows.
 """
 
 from abc import ABC, abstractmethod
@@ -63,11 +65,11 @@ def infer_data_type(base: str, parameters: tuple | None) -> pl.DataType:
     """Infer the Polars data type a Faker configuration produces.
 
     Args:
-        base: Faker generator type
-        parameters: Parameters for the generator
+        base: Faker generator type.
+        parameters: Parameters for the generator.
 
     Returns:
-        The Polars data type of the generated values
+        The Polars data type of the generated values.
     """
     generator = Faker()
     value_generator = getattr(generator, base)
@@ -95,7 +97,7 @@ class FeatureConfig(BaseModel):
         description=(
             "Whether the generator enforces uniqueness in the generated data. "
             "For example, using unique=True with the 'boolean' generator will error "
-            "if more the two values are generated."
+            "if more than two values are generated."
         ),
     )
     drop_base: bool = Field(
@@ -138,7 +140,7 @@ class SourceParameters(BaseModel):
     # Defaults to None rather than an engine, so that every caller ends up with its own
     # warehouse. A `Field(default=create_engine(...))` is evaluated once at class
     # definition, which silently shared one in-memory SQLite database across the whole
-    # process — so two sources built without an explicit engine could not be joined.
+    # process, so two sources built without an explicit engine could not be joined.
     engine: Engine | AdbcConnection | None = Field(default=None)
     n_true_entities: int | None = Field(default=None)
     repetition: int = Field(default=0)

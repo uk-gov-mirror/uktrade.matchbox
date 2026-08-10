@@ -6,7 +6,7 @@ a methodology against without running a plan. The model itself matches on row va
 (see `matchers`), so a collected plan reproduces the same answer over the
 content-derived IDs the frame actually carries.
 
-Build one with `LinkedSources.dedupe()` or `.link()` — they know the answer, so nothing
+Build one with `LinkedSources.dedupe()` or `.link()`. They know the answer, so nothing
 has to be threaded through by hand.
 """
 
@@ -28,23 +28,26 @@ def generate_entity_scores(
     score_range: tuple[float, float] = (0.8, 1.0),
     seed: int = 42,
 ) -> pl.DataFrame:
-    """Generate scores that will recover entity relationships.
+    """Generate scores that recover the planted entity relationships.
 
-    Compares Cluster objects against the planted true entities by checking
-    whether their EntityReferences are subsets of the true entities. Initially
-    focused on generating fully connected, correct scores only.
+    Maps each `Cluster` to the `TrueEntity` it is a subset of, then emits a score for
+    every same-entity pair. The result is a fully connected, perfectly correct score
+    graph. This function does not generate partial, wrong, or missing matches.
 
     Args:
-        left_entities: Set of Cluster objects from left input
-        right_entities: Set of Cluster objects from right input. If None, assume
-            we are deduplicating left_entities.
-        true_entities: The planted true entities
-        score_range: Range of scores to assign to matches. All matches will
-            be assigned a random score in this range.
-        seed: Random seed for reproducibility
+        left_entities: Cluster objects from the left input.
+        right_entities: Cluster objects from the right input. `None` to deduplicate
+            `left_entities` instead.
+        true_entities: The planted true entities to score against.
+        score_range: Assign each matching pair a random score in this range.
+        seed: Random seed for reproducibility.
 
     Returns:
-        Polars DataFrame with 'left_id', 'right_id', and 'score' columns
+        A Polars DataFrame with `left_id`, `right_id`, and `score` columns.
+
+    Raises:
+        ValueError: If `score_range` is not increasing within [0, 1], or a `Cluster` is
+            a subset of more than one true entity.
     """
     # Validate inputs
     if not (0 <= score_range[0] <= score_range[1] <= 1):
@@ -101,8 +104,7 @@ def generate_entity_scores(
         # Generate all pairs within this group
         for left_entity in left_group:
             for right_entity in right_group:
-                # For deduplication, only include each pair once
-                # and ensure left_id < right_id
+                # Deduplication counts each pair once, so keep left_id < right_id.
                 if (
                     right_entities == left_entities
                     and left_entity.id >= right_entity.id
@@ -124,7 +126,7 @@ class GeneratedModel(BaseModel):
     """A generated model: the plan node, its inputs, and the answer expected of it.
 
     As with `GeneratedSource`, this exposes what it knows about the fixture and nothing
-    else — to run the plan, go through `.model`, e.g. `model.model.resolve()`.
+    else. To run the plan, go through `.model`, e.g. `model.model.resolve()`.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)

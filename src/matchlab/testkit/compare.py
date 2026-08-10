@@ -1,13 +1,14 @@
 """Scoring: turn results into the vocabulary, then compare them with the answer.
 
-The rule for where comparison lives: **free functions convert and compare; methods exist
-only to supply truth.** So the conversions and `diff_entities` are here, while
-`LinkedSources.diff_resolver_output` and `.diff_model_edges` are methods — that object
-is the only one that knows the planted answer.
+The functions here convert a resolver's or model's output into `Cluster` objects, and
+diff two `Cluster` lists. None of that needs the planted answer, which is why they stay
+as plain functions rather than methods. `LinkedSources.diff_resolver_output()` and
+`.diff_model_edges()` do need the planted answer, so those are methods on the one
+object that holds it.
 
 Every comparison returns `(identical, report)`, where the report classifies each cluster
-as perfect, subset, superset, wrong or invalid. That breakdown is the point: "eight
-clusters were subsets" tells you the matcher is too strict, which a number cannot.
+as perfect, subset, superset, wrong or invalid. That breakdown is the point. "Eight
+clusters were subsets" tells you the matcher is too strict, in a way a number cannot.
 """
 
 from collections import Counter
@@ -21,7 +22,7 @@ from matchlab.testkit.entities import Cluster, EntityReference
 def resolver_output_to_clusters(resolver_output: pl.DataFrame) -> set[Cluster]:
     """Convert a collected resolver output into entities comparable with truth.
 
-    This is the other half of measuring a plan against generated data: the testkit
+    This is the other half of measuring a plan against generated data. The testkit
     plants known entities, the plan resolves records into clusters, and this turns
     those clusters back into the same currency the truth is expressed in. Pair it with
     [`LinkedSources.true_entity_subset()`][matchlab.testkit.linked.LinkedSources.true_entity_subset]
@@ -32,15 +33,15 @@ def resolver_output_to_clusters(resolver_output: pl.DataFrame) -> set[Cluster]:
             actual=list(resolver_output_to_clusters(resolver_output)),
         )
 
-    A `Cluster` compares by its keys and never by its ID
-    (`Cluster.__eq__`), which is what lets this work at all: the resolver output's
-    `root` is a content-derived hash minted at collect time and has no counterpart in
-    the testkit's synthetic ID space. Only the `(source, key)` membership is comparable,
-    and that is exactly what a cluster asserts.
+    A `Cluster` compares by its keys and never by its ID (`Cluster.__eq__`), which is
+    what lets this work at all. The resolver output's `root` is a content-derived hash
+    minted at collect time, and has no counterpart in the testkit's synthetic ID space.
+    Only the `(source, key)` membership is comparable, and that is exactly what a
+    cluster asserts.
 
     Args:
-        resolver_output: A frame conforming to `SCHEMA_RESOLVER_OUTPUT` — the frame
-            returned by `Resolver.entities()`, with `root`, `key` and `source` columns.
+        resolver_output: A frame conforming to `SCHEMA_RESOLVER_OUTPUT`, the frame
+            `Resolver.entities()` returns, with `root`, `key` and `source` columns.
 
     Returns:
         One Cluster per distinct `root`.
@@ -80,7 +81,22 @@ def scores_to_clusters(
     right_clusters: tuple[Cluster, ...] | None = None,
     threshold: float = 0.0,
 ) -> tuple[Cluster, ...]:
-    """Convert scores to Cluster objects based on a threshold."""
+    """Merge clusters connected by a score at or above threshold.
+
+    Left and right clusters that share an edge scoring at least `threshold` merge into
+    one `Cluster`. With no `right_clusters`, this merges within `left_clusters` alone
+    (deduplication).
+
+    Args:
+        scores: A `left_id`/`right_id`/`score` edge table.
+        left_clusters: Clusters the model read as its left input.
+        right_clusters: Clusters read as the right input, for a linker. `None` for a
+            dedupe.
+        threshold: Score at or above which an edge counts as a match.
+
+    Returns:
+        One merged `Cluster` per connected component.
+    """
     left_lookup = {entity.id: entity for entity in left_clusters}
     if right_clusters is not None:
         right_lookup = {entity.id: entity for entity in right_clusters}
@@ -115,22 +131,21 @@ def scores_to_clusters(
 
 
 def diff_entities(expected: list[Cluster], actual: list[Cluster]) -> tuple[bool, dict]:
-    """Compare two lists of Cluster with detailed diff information.
+    """Compare two lists of Cluster against each other, with a diff report.
 
     Args:
-        expected: Expected Cluster list
-        actual: Actual Cluster list
+        expected: The expected Cluster list.
+        actual: The actual Cluster list.
 
     Returns:
-        A tuple containing:
-        - Boolean: True if lists are identical, False otherwise
-        - Dictionary that counts the number of actual entities that fall into the
-            following criteria:
-            - 'perfect': Match an expected entity exactly
-            - 'subset': Are a subset of an expected entity
-            - 'superset': Are a superset of an expected entity
-            - 'wrong': Don't match any expected entity
-            - 'invalid': Contain keys not present in any expected entity
+        `(identical, report)`. `identical` is `True` if the two lists match exactly.
+        `report` counts how each actual cluster relates to the expected ones:
+
+        - `perfect`: matches an expected cluster exactly.
+        - `subset`: is a subset of an expected cluster.
+        - `superset`: is a superset of an expected cluster.
+        - `wrong`: does not overlap any expected cluster.
+        - `invalid`: contains keys absent from every expected cluster.
     """
     expected_set, actual_set = set(expected), set(actual)
     if expected_set == actual_set:

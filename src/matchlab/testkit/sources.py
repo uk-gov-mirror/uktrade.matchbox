@@ -23,10 +23,11 @@ R = TypeVar("R")
 
 
 def make_features_hashable(func: Callable[P, R]) -> Callable[P, R]:
-    """Decorator to allow configuring source_factory with dicts.
+    """Let callers configure `source_factory` with plain dicts.
 
-    This retains the hashability of FeatureConfig while still making it simple
-    to use the factory without special objects.
+    Converts each dict to a `FeatureConfig` before the wrapped function runs, so
+    `source_factory` stays hashable, which `@cache` needs, while its callers don't have
+    to build `FeatureConfig` objects by hand.
     """
 
     @wraps(func)
@@ -55,13 +56,13 @@ def make_features_hashable(func: Callable[P, R]) -> Callable[P, R]:
 class GeneratedSource(BaseModel):
     """Generated rows, and the `Source` plan node that reads them.
 
-    For sources that share entities — which is what makes linking testable — use
-    `linked_sources_factory` in `linked` instead.
+    Sources that share entities are what make linking testable. Use
+    `linked_sources_factory` in `linked` instead when you need that.
 
     This exposes what it knows about the *fixture*: the rows, the features they were
     generated from, and the partition they imply. Anything you do to the *plan* goes
-    through `.source`, which is the node itself — `source.source.view()`,
-    `source.source.name`, `source.source.spec`. There is deliberately no shortcut: a
+    through `.source`, which is the node itself: `source.source.view()`,
+    `source.source.name`, `source.source.spec`. There is deliberately no shortcut. A
     testkit that forwarded those would be indistinguishable from the node it wraps, and
     knowing which one you are holding is the whole point.
     """
@@ -84,7 +85,7 @@ class GeneratedSource(BaseModel):
     input_clusters: tuple[Cluster, ...] = Field(
         description=(
             "The partition a matcher starts from: generated rows grouped by identical "
-            "content. Not the answer — that is LinkedSources.true_entities."
+            "content. Not the answer, that is LinkedSources.true_entities."
         )
     )
 
@@ -92,10 +93,10 @@ class GeneratedSource(BaseModel):
     def field_names(self) -> list[str]:
         """The non-key columns of this testkit's data, in generation order.
 
-        Taken from the testkit rather than from `Source.index_fields`, which would
-        have to read the warehouse — these are needed while building a plan. Falls
-        back to the data's own columns when the source was set manually rather than
-        generated from features.
+        Taken from the testkit rather than from `Source.index_fields`, which would have
+        to read the warehouse. These names are needed before a plan is even built.
+        Falls back to the data's own columns when the source was set manually rather
+        than generated from features.
         """
         if self.features is not None:
             return [feature.name for feature in self.features]

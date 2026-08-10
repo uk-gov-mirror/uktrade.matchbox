@@ -10,12 +10,32 @@ An adapter is storage, not an engine. It does not resolve anything itself.
 `DuckDBAdapter` is the reference implementation, backing a single DuckDB database file
 (or `:memory:`).
 
+## Answer key
+
+🧪 Testkits
+
+A [testkit's](#testkit) map from a generated row's own values to the
+[true entity](#true-entity) that produced it. It exists because matchlab derives a
+row's real ID by content-hashing at collect time, so no ID is knowable when the answer
+key is built. A [matcher](#matcher) built from one reads a row's values back out of
+whatever frame it is handed, and looks up the entity that row belongs to, which is what
+lets it score a plan it has never seen. `AnswerKey` is the class.
+
 ## Artifact
 
 The stored output of one [step](#step), such as a source's [extract](#extract) and
 leaf assignment, a view's materialised table, a model's edge list, or a
 [resolver](#resolver)'s complete, merge-forward output. A [store](#store) keeps every
 artifact it is given until something explicitly [trims](#trim) it.
+
+## Cluster
+
+🧪 Testkits
+
+In a [testkit](#testkit), a set of records claimed to be one entity, an answer rather
+than the answer. It carries only membership, which is what an actual model or resolver
+result can be compared against. Contrast [true entity](#true-entity), which is the
+planted answer a cluster is checked against. `Cluster` is the class.
 
 ## Collect
 
@@ -70,6 +90,16 @@ coming from content rather than key is why a leaf ID changes only when the under
 data does, which is the basis matchlab anchors evaluation judgements to. Reading a
 source or view directly, without going through a resolver, exposes the leaf as the
 `id` column.
+
+## Matcher
+
+🧪 Testkits
+
+A model in a [testkit](#testkit) that already knows the answer, built from an
+[answer key](#answer-key) instead of scoring anything. `PerfectDeduper` and
+`PerfectLinker` are the two matchers. A matcher makes no mistakes, so pointing one at
+generated data leaves the plan as the only variable under test. Build one through
+`LinkedSources.dedupe()` or `.link()` rather than directly.
 
 ## Merge-forward
 
@@ -168,11 +198,41 @@ Where a plan's artifacts live once collected. The reference implementation is a
 DuckDB database. A store keeps everything given to it until something explicitly
 [trims](#trim) it or the file is deleted.
 
+## Testkit
+
+🧪 Testkits
+
+An object that generates test data with a known answer, and exposes what it knows
+about that data. `matchlab.testkit` builds these. `GeneratedSource`, `GeneratedModel`,
+and `LinkedSources` each wrap a real plan node, but expose only the fixture, meaning
+its rows, its features, and its planted answer. Anything you do to the plan itself
+goes through the node a testkit wraps, never through a forwarding shortcut on the
+testkit.
+
+A testkit is what makes the oracle testing pattern possible here. Assert against a
+known, planted answer rather than an answer you have to work out by hand or guess at.
+
+The package checks a plan's answer two ways, because matchlab derives a record's real
+ID by content-hashing at collect time, so no ID is knowable when a fixture is built.
+One check scores a [methodology](#methodology) directly, against the testkit's own
+synthetic IDs, without collecting anything. The other scores a collected plan, keyed
+by row values instead, through an [answer key](#answer-key). See `matchlab.testkit`'s
+module docstring for which to use.
+
 ## Trim
 
 Delete every artifact except the ones named or [published](#publish), and reclaim the
 space that frees. A file-backed store's trim rewrites the file itself, because
 deleting rows inside it does not return space to the operating system.
+
+## True entity
+
+🧪 Testkits
+
+The planted answer a [testkit](#testkit) generated data from. It is one real-world
+thing, identified by the values it was generated from, spanning every source it landed
+in. Project it onto the sources under test to get a [cluster](#cluster), the only form
+that is comparable with an actual result. `TrueEntity` is the class.
 
 ## View
 
