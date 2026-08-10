@@ -2,10 +2,8 @@
 
 ## For data analysts and scientists
 
-* Express cleaning, deduplication and linking as one plan you can iterate on, instead of
-  a pile of notebook cells
-* Measure whether a change actually improved the match, against judgements or known
-  truth
+* Express cleaning, deduplication and linking as one plan you can iterate on, instead of a pile of notebook cells
+* Measure whether a change actually improved the match, against judgements or known truth
 * Re-run cheaply. Collecting again only redoes the work whose inputs changed
 
 [:octicons-download-16: Install](./guide/install.md){ .md-button }
@@ -21,8 +19,7 @@
 
 ## For service owners
 
-* Understand the broader business entities in your service, not just the records you
-  hold
+* Understand the broader business entities in your service, not just the records you hold
 * Resolve a single key against every other source you match against, offline and fast
 * Keep the output stable enough for other services to depend on
 
