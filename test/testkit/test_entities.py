@@ -1,3 +1,4 @@
+import operator
 from typing import Any
 
 import polars as pl
@@ -110,6 +111,95 @@ def test_source_entity_creation() -> None:
     assert entity.base_values == base_values
     assert entity.keys == ref
     assert isinstance(entity.id, int)
+
+
+def test_entity_reference_rejects_foreign_operands() -> None:
+    """Union and subset against a non-reference are type errors, not coercions."""
+    ref = EntityReference({"s": frozenset({"1"})})
+    with pytest.raises(TypeError):
+        ref + "not a reference"
+    with pytest.raises(TypeError):
+        operator.le(ref, "not a reference")
+
+
+def test_entity_id_converts_to_int() -> None:
+    """An entity stands in for its integer id — `int(entity)` is that id."""
+    assert int(make_cluster_entity(42, "s", ["1"])) == 42
+
+
+def test_entity_sorts_by_id() -> None:
+    """Entities order by id, so a list of them sorts predictably."""
+    entities = [make_cluster_entity(i, "s", [str(i)]) for i in (3, 1, 2)]
+    assert [int(e) for e in sorted(entities)] == [1, 2, 3]
+
+
+def test_entity_compares_by_id() -> None:
+    """The ordering operators compare an entity's id, to an entity or a bare int."""
+    two = make_cluster_entity(2, "s", ["1"])
+    five = make_cluster_entity(5, "s", ["2"])
+
+    # against another entity
+    assert two < five
+    assert five > two
+    assert two <= five
+    assert five >= two
+
+    # against a bare int
+    assert two < 5
+    assert five > 2
+    assert two <= 2
+    assert five >= 5
+
+
+def test_entity_comparison_rejects_foreign_operand() -> None:
+    """Ordering against an incomparable type is a type error, not a silent answer."""
+    entity = make_cluster_entity(1, "s", ["1"])
+    for op in (operator.lt, operator.gt, operator.le, operator.ge):
+        with pytest.raises(TypeError):
+            op(entity, object())
+
+
+def test_cluster_entity_add_identity() -> None:
+    """Adding `None` returns the cluster unchanged, so `sum()` over clusters works."""
+    cluster = make_cluster_entity(1, "s", ["1"])
+    assert (cluster + None) is cluster
+
+    total = sum(
+        [make_cluster_entity(1, "s", ["1"]), make_cluster_entity(2, "s", ["2"])]
+    )
+    assert total.keys["s"] == frozenset({"1", "2"})
+
+
+def test_cluster_entity_rejects_foreign_operand() -> None:
+    """The cluster operators refuse a non-cluster rather than coercing it.
+
+    Equality is the exception: `cluster == other` is defined for any object and simply
+    reports inequality, since a set of clusters must be able to hold non-cluster keys.
+    """
+    cluster = make_cluster_entity(1, "s", ["1"])
+    with pytest.raises(TypeError):
+        cluster + "x"
+    with pytest.raises(TypeError):
+        cluster - "x"
+    with pytest.raises(TypeError):
+        5 + cluster  # __radd__ only absorbs the 0 that starts sum()
+    assert (cluster == "x") is False
+
+
+def test_cluster_entity_reverse_diff() -> None:
+    """`__rsub__` mirrors `__sub__`, so `a - b` and `b.__rsub__(a)` agree."""
+    a = make_cluster_entity(1, "s", ["1", "2"])
+    b = make_cluster_entity(2, "s", ["1"])
+
+    assert a - b == {"s": frozenset({"2"})}
+    assert b.__rsub__(a) == a - b
+
+
+def test_source_entity_equals_its_int_id() -> None:
+    """A true entity equals its own integer id, for lookups keyed by id."""
+    entity = make_source_entity("s", ["1"], "alice")
+    assert entity == entity.id
+    assert (entity == "not an int or entity") is False
 
 
 @pytest.mark.parametrize(
