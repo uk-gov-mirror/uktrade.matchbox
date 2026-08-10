@@ -9,7 +9,7 @@ from matchlab.eval.metrics import (
 )
 
 
-def test_judgement_validation() -> None:
+def test_judgement_rejects_inconsistent_groups() -> None:
     """Judgement validates source cluster IDs."""
     # Repeated across groups
     with pytest.raises(ValueError, match="repeated"):
@@ -28,7 +28,7 @@ def test_judgement_validation() -> None:
     Judgement(shown=[1, 2, 3, 4, 5], endorsed=[[1, 2, 3], [4, 5]])
 
 
-def test_precision_recall_fails() -> None:
+def test_precision_recall_raises() -> None:
     """Test instances where PR computation raises."""
     # No judgements
     model = pl.DataFrame([{"root": 12, "leaf": 1}, {"root": 12, "leaf": 2}])
@@ -63,7 +63,7 @@ def test_precision_recall_fails() -> None:
         )
 
 
-def test_precision_recall() -> None:
+def test_precision_recall_scores() -> None:
     """Test calculation of precision and recall from root-leaf tables."""
     # In this test, one-digit cluster IDs are for source clusters.
     # Multiple-digit cluster IDs decompose to source cluster IDs.

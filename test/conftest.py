@@ -1,13 +1,97 @@
+"""Shared fixtures.
+
+Two fixture idioms cover most of the suite (see `test/README.md`):
+
+- The `crn`/`dh` scenario below: a small SQLite `warehouse` with known rows, for plan
+  and end-to-end tests that assert on specific records.
+- The `linked_sources_factory` oracle in `matchlab.testkit`, for methodology
+  correctness at scale.
+
+Every collecting test also gets the autouse in-memory `adapter`, so nothing ever
+touches the real store in the user's cache directory.
+"""
+
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from rich.console import Console
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, text
+
+from matchlab import Source, set_default_adapter
+from matchlab.adapters import DuckDBAdapter
+from matchlab.locations import RelationalDBLocation
 
 TEST_ROOT = Path(__file__).resolve().parent
+
+
+@pytest.fixture(autouse=True)
+def adapter() -> Iterator[DuckDBAdapter]:
+    """An in-memory store, set as the default `collect()` reaches for.
+
+    Autouse so no test can fall through to `default_adapter()`, which would create a
+    real DuckDB file in the user's cache directory.
+    """
+    store = DuckDBAdapter(":memory:")
+    set_default_adapter(store)
+    yield store
+    set_default_adapter(None)
+    store.close()
+
+
+@pytest.fixture
+def warehouse(tmp_path: Path) -> Engine:
+    """The canonical `crn`/`dh` scenario: a dedupe feeding a cross-source link.
+
+        crn: a1=(acme,london) a2=(acme,leeds) a3=(beta,hull)
+        dh:  b1=(acme,bristol) b2=(gamma,york)
+
+    a1/a2 differ on town, so they are distinct leaves and a deduper does real work. The
+    apex is a *link*, yet the dedupe grouping of {a1,a2} must survive it, and a3/b2 —
+    reachable but matched by nothing — must stay singletons (merge-forward). A file that
+    needs a different shape (a distinct second column, a deliberately-agreeing town)
+    overrides this fixture locally and says why.
+    """
+    engine = create_engine(f"sqlite:///{tmp_path / 'wh.sqlite'}")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE crn (pk TEXT, company TEXT, town TEXT)"))
+        conn.execute(
+            text(
+                "INSERT INTO crn VALUES "
+                "('a1','acme','london'),('a2','acme','leeds'),('a3','beta','hull')"
+            )
+        )
+        conn.execute(text("CREATE TABLE dh (pk TEXT, company TEXT, town TEXT)"))
+        conn.execute(
+            text("INSERT INTO dh VALUES ('b1','acme','bristol'),('b2','gamma','york')")
+        )
+    return engine
+
+
+# A callable that builds a `Source` over the shared `warehouse` by table name.
+SourceFactory = Callable[..., Source]
+
+
+@pytest.fixture
+def source(warehouse: Engine) -> SourceFactory:
+    """Build a `Source` reading one of the `warehouse` tables by name.
+
+    The default extract selects `pk, company, town`; pass `extract=` to read a subset
+    or a different shape. This is the one way the suite turns the `warehouse` into a
+    `Source`, so tests and plan builders take it rather than hand-rolling a location.
+    """
+
+    def _make(name: str, extract: str | None = None) -> Source:
+        return Source(
+            location=RelationalDBLocation(name="warehouse", client=warehouse),
+            name=name,
+            extract_transform=extract or f"select pk, company, town from {name}",
+            key_field="pk",
+        )
+
+    return _make
 
 
 @pytest.fixture
@@ -26,6 +110,7 @@ def pytest_configure() -> None:
 
 @pytest.fixture(scope="session")
 def test_root_dir() -> Path:
+    """The `test/` directory, for fixtures that read files alongside the tests."""
     return TEST_ROOT
 
 

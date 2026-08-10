@@ -15,23 +15,30 @@ sources share `company` but not `town`/`region`, which is what `merge_fields` ha
 get right. Three entities result: {a1,a2,b1}, {a3}, {b2}.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable
 from pathlib import Path
 
 import polars as pl
 import pytest
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import Resolver, Source, set_default_adapter
+from matchlab import Resolver, Source
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import StepNotFound
-from matchlab.locations import RelationalDBLocation
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
+
+# The `adapter` fixture comes from `test/conftest.py`.
 
 
 @pytest.fixture
 def warehouse(tmp_path: Path) -> Engine:
+    """Overrides the shared `crn`/`dh` scenario: here `dh` carries `region`, not `town`.
+
+    A second column each source *does not* share is what `view_entity(merge_fields=)`
+    has to get right — `company` collapses onto one column, while `town` and `region`
+    survive separately, null where the other source has no value.
+    """
     engine = create_engine(f"sqlite:///{tmp_path / 'wh.sqlite'}")
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE crn (pk TEXT, company TEXT, town TEXT)"))
@@ -48,36 +55,14 @@ def warehouse(tmp_path: Path) -> Engine:
     return engine
 
 
-@pytest.fixture(autouse=True)
-def adapter() -> Iterator[DuckDBAdapter]:
-    """Isolate every test behind its own in-memory store."""
-    store = DuckDBAdapter(":memory:")
-    set_default_adapter(store)
-    yield store
-    set_default_adapter(None)
-    store.close()
-
-
-def _sources(warehouse: Engine) -> tuple[Source, Source]:
-    location = RelationalDBLocation(name="warehouse", client=warehouse)
-    crn = Source(
-        location=location,
-        name="crn",
-        extract_transform="select pk, company, town from crn",
-        key_field="pk",
-    )
-    dh = Source(
-        location=location,
-        name="dh",
-        extract_transform="select pk, company, region from dh",
-        key_field="pk",
-    )
-    return crn, dh
+def _sources(source: Callable[..., Source]) -> tuple[Source, Source]:
+    return source("crn"), source("dh", "select pk, company, region from dh")
 
 
 @pytest.fixture
-def apex(warehouse: Engine) -> Resolver:
-    crn, dh = _sources(warehouse)
+def apex(source: Callable[..., Source]) -> Resolver:
+    """The collected dedupe → link apex: three entities over crn and dh."""
+    crn, dh = _sources(source)
     deduped = crn.dedupe(
         model_class=NaiveDeduper,
         model_settings={"unique_fields": [crn.f("company")]},
@@ -104,7 +89,8 @@ def _root_of(apex: Resolver, source: str, key: str) -> int:
 # -- entities -------------------------------------------------------------------------
 
 
-def test_entities_is_the_flat_resolver_output(apex: Resolver) -> None:
+def test_entities_flat(apex: Resolver) -> None:
+    """entities() is the whole answer, flat: one row per record, all reachable."""
     resolver_output = apex.entities()
 
     assert set(resolver_output.columns) == {"root", "leaf", "key", "source"}
@@ -120,9 +106,9 @@ def test_entities_is_the_flat_resolver_output(apex: Resolver) -> None:
     assert _root_of(apex, "dh", "b2") != _root_of(apex, "crn", "a1")
 
 
-def test_entities_collects_first(warehouse: Engine) -> None:
+def test_entities_collects_first(source: Callable[..., Source]) -> None:
     """A read on an uncollected resolver runs the plan rather than complaining."""
-    crn, _dh = _sources(warehouse)
+    crn, _dh = _sources(source)
     deduped = crn.dedupe(
         model_class=NaiveDeduper,
         model_settings={"unique_fields": [crn.f("company")]},
@@ -133,11 +119,12 @@ def test_entities_collects_first(warehouse: Engine) -> None:
     assert deduped.is_collected
 
 
-def test_entities_can_be_filtered_to_some_sources(apex: Resolver) -> None:
+def test_entities_filtered(apex: Resolver) -> None:
+    """entities(sources) returns only the named sources' rows."""
     assert set(apex.entities(["crn"])["source"]) == {"crn"}
 
 
-def test_filtering_to_a_source_the_resolver_never_read_is_an_error(
+def test_entities_unknown_source_raises(
     apex: Resolver,
 ) -> None:
     """Silently returning nothing is how a typo stays a typo."""
@@ -151,7 +138,8 @@ def test_filtering_to_a_source_the_resolver_never_read_is_an_error(
 # -- get_lookup -----------------------------------------------------------------------
 
 
-def test_get_lookup_joins_keys_across_sources(apex: Resolver) -> None:
+def test_get_lookup_joins_sources(apex: Resolver) -> None:
+    """get_lookup joins keys across sources on their shared root."""
     lookup = apex.get_lookup()
 
     assert set(lookup.columns) == {"root", "crn_pk", "dh_pk"}
@@ -170,7 +158,8 @@ def test_get_lookup_joins_keys_across_sources(apex: Resolver) -> None:
     assert by_key[("a1", "b1")] == by_key[("a2", "b1")]
 
 
-def test_get_lookup_of_one_source_does_not_explode(apex: Resolver) -> None:
+def test_get_lookup_one_source(apex: Resolver) -> None:
+    """get_lookup of one source is one row per record, no cross-join."""
     lookup = apex.get_lookup(["crn"])
 
     assert set(lookup.columns) == {"root", "crn_pk"}
@@ -181,7 +170,7 @@ def test_get_lookup_of_one_source_does_not_explode(apex: Resolver) -> None:
 # -- leaf_sets ------------------------------------------------------------------------
 
 
-def test_leaf_sets_are_entities_without_their_ids(apex: Resolver) -> None:
+def test_leaf_sets(apex: Resolver) -> None:
     """Structure alone, so two resolver outputs of the same records can be compared."""
     sets = apex.leaf_sets()
 
@@ -193,7 +182,8 @@ def test_leaf_sets_are_entities_without_their_ids(apex: Resolver) -> None:
 # -- view_entity ----------------------------------------------------------------------
 
 
-def test_view_entity_shows_the_records_that_were_grouped(apex: Resolver) -> None:
+def test_view_entity_shows_records(apex: Resolver) -> None:
+    """view_entity shows the records grouped under one root, by source."""
     acme = apex.view_entity(_root_of(apex, "crn", "a1"))
 
     # Keys lead, so you can see which source each row came from. Which key leads is
@@ -213,7 +203,8 @@ def test_view_entity_shows_the_records_that_were_grouped(apex: Resolver) -> None
     assert set(acme["crn_town"].drop_nulls()) == {"london", "leeds"}
 
 
-def test_view_entity_can_merge_fields_the_sources_share(apex: Resolver) -> None:
+def test_view_entity_merges_fields(apex: Resolver) -> None:
+    """merge_fields collapses the shared column and keeps the rest."""
     acme = apex.view_entity(_root_of(apex, "crn", "a1"), merge_fields=True)
 
     # `company` exists in both sources and collapses onto one column; `town` and
@@ -226,7 +217,7 @@ def test_view_entity_can_merge_fields_the_sources_share(apex: Resolver) -> None:
     assert set(acme["crn_pk"].drop_nulls()) == {"a1", "a2"}
 
 
-def test_view_entity_of_a_single_source_entity(apex: Resolver) -> None:
+def test_view_entity_single_source(apex: Resolver) -> None:
     """No columns from a source with no record in the entity."""
     beta = apex.view_entity(_root_of(apex, "crn", "a3"))
 
@@ -235,13 +226,14 @@ def test_view_entity_of_a_single_source_entity(apex: Resolver) -> None:
     assert beta["crn_pk"][0] == "a3"
 
 
-def test_view_entity_of_an_unknown_entity_raises(apex: Resolver) -> None:
+def test_view_entity_unknown_raises(apex: Resolver) -> None:
+    """view_entity of an unknown root raises."""
     with pytest.raises(KeyError, match="Entity 0 not available"):
         apex.view_entity(0)
 
 
-def test_view_entity_reads_the_store_not_the_warehouse(
-    warehouse: Engine, tmp_path: Path
+def test_view_entity_reads_store(
+    warehouse: Engine, source: Callable[..., Source], tmp_path: Path
 ) -> None:
     """The values shown are the ones the matching saw, and need no connection.
 
@@ -249,7 +241,7 @@ def test_view_entity_reads_the_store_not_the_warehouse(
     through the source's extract and so could disagree with what the reviewer showed.
     """
     store = DuckDBAdapter(tmp_path / "run.duckdb")
-    crn, _dh = _sources(warehouse)
+    crn, _dh = _sources(source)
     resolver = crn.dedupe(
         model_class=NaiveDeduper,
         model_settings={"unique_fields": [crn.f("company")]},

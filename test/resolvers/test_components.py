@@ -6,7 +6,7 @@ from matchlab.resolvers import Components, ComponentsSettings
 from matchlab.resolvers.base import SCHEMA_CLUSTERS
 
 
-def test_components_compute_clusters_uses_thresholds() -> None:
+def test_components_uses_thresholds() -> None:
     """Test thresholds are honoured by the Components.compute_clusters."""
     method = Components(settings=ComponentsSettings(thresholds={0: 0.6}))
     model_edges = {
@@ -33,7 +33,7 @@ def test_components_compute_clusters_uses_thresholds() -> None:
     assert grouped_clusters == {frozenset({1, 2})}
 
 
-def test_components_compute_clusters_returns_empty_for_no_edges() -> None:
+def test_components_no_edges() -> None:
     """Test Components.compute_clusters can work with no data."""
     clusters = Components(settings=ComponentsSettings()).compute_clusters(
         model_edges={}
@@ -42,7 +42,7 @@ def test_components_compute_clusters_returns_empty_for_no_edges() -> None:
     assert clusters.schema == pl.Schema(SCHEMA_CLUSTERS)
 
 
-def test_components_compute_clusters_merges_multiple_models() -> None:
+def test_components_merges_models() -> None:
     """Test Components.compute_clusters can work with multiple models."""
     method = Components(
         settings=ComponentsSettings(
@@ -77,7 +77,7 @@ def test_components_compute_clusters_merges_multiple_models() -> None:
     assert grouped_clusters == {frozenset({1, 2}), frozenset({3, 4})}
 
 
-def test_components_compute_clusters_ignores_a_threshold_with_no_edges() -> None:
+def test_components_threshold_no_edges() -> None:
     """A methodology takes positions on trust; `Resolver` is what checks them.
 
     A threshold naming a model that is not an input used to be caught here, at collect

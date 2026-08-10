@@ -37,7 +37,7 @@ WarehouseClient: TypeAlias = Engine | AdbcConnection
     ],
     indirect=["warehouse"],
 )
-def test_relational_db_location_instantiation(
+def test_relational_db_instantiation(
     warehouse: WarehouseClient,
     expected_client_type: ClientType,
 ) -> None:
@@ -49,7 +49,7 @@ def test_relational_db_location_instantiation(
     assert location.client_type == expected_client_type
 
 
-def test_a_location_rejects_a_client_it_cannot_drive(
+def test_location_rejects_bad_client(
     sqla_sqlite_warehouse: Engine,
 ) -> None:
     """Validation is the subclass's, so it knows what it can actually use."""
@@ -63,7 +63,7 @@ def test_a_location_rejects_a_client_it_cannot_drive(
         location.client = sqla_sqlite_warehouse
 
 
-def test_a_location_class_is_found_by_its_registered_name(
+def test_location_found_by_name(
     sqla_sqlite_warehouse: Engine,
 ) -> None:
     """Documents name location classes the way they name dedupers and resolvers."""
@@ -78,7 +78,7 @@ def test_a_location_class_is_found_by_its_registered_name(
         build_location("Nowhere", name="x", client=sqla_sqlite_warehouse)
 
 
-def test_a_custom_location_class_can_be_registered(
+def test_location_registered(
     sqla_sqlite_warehouse: Engine,
 ) -> None:
     """The registry is open, so a document can travel to a codebase we don't ship."""

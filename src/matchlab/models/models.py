@@ -48,9 +48,7 @@ def normalise_model_scores(scores: pl.DataFrame) -> pl.DataFrame:
 
     expected_fields = set(SCHEMA_MODEL_EDGES.names)
     if set(scores.columns) != expected_fields:
-        raise ValueError(
-            f"Expected {expected_fields}.\nFound {set(scores.column_names)}."
-        )
+        raise ValueError(f"Expected {expected_fields}.\nFound {set(scores.columns)}.")
 
     if scores.height == 0:
         scores = pl.DataFrame(schema=pl.Schema(SCHEMA_MODEL_EDGES))

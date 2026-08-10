@@ -5,55 +5,28 @@ land in the same DuckDB store the rest of the library uses. That round trip — 
 paint, store, score — is the thing worth testing.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine
 
-from matchlab import Resolver, Source, set_default_adapter
+from matchlab import Resolver, Source
 from matchlab.adapters import DuckDBAdapter
 from matchlab.eval import EvalData
 from matchlab.eval.tui.app import EntityResolutionApp
-from matchlab.locations import RelationalDBLocation
 from matchlab.models.dedupers import NaiveDeduper
 
-
-@pytest.fixture
-def warehouse(tmp_path: Path) -> Engine:
-    engine = create_engine(f"sqlite:///{tmp_path / 'wh.sqlite'}")
-    with engine.begin() as conn:
-        conn.execute(text("CREATE TABLE crn (pk TEXT, company TEXT, town TEXT)"))
-        conn.execute(
-            text(
-                "INSERT INTO crn VALUES "
-                "('a1','acme','london'),('a2','acme','leeds'),('a3','beta','hull')"
-            )
-        )
-    return engine
-
-
-@pytest.fixture(autouse=True)
-def adapter() -> Iterator[DuckDBAdapter]:
-    store = DuckDBAdapter(":memory:")
-    set_default_adapter(store)
-    yield store
-    set_default_adapter(None)
-    store.close()
+# `warehouse`, `adapter` and `source` come from `test/conftest.py`; only `crn` is read.
 
 
 @pytest.fixture
-def resolver(warehouse: Engine) -> Resolver:
-    location = RelationalDBLocation(name="warehouse", client=warehouse)
-    source = Source(
-        location=location,
-        name="crn",
-        extract_transform="select pk, company, town from crn",
-        key_field="pk",
-    )
-    return source.dedupe(
+def resolver(source: Callable[..., Source]) -> Resolver:
+    """crn deduplicated on `company`, for the review app to sample from."""
+    crn = source("crn")
+    return crn.dedupe(
         model_class=NaiveDeduper,
-        model_settings={"unique_fields": [source.f("company")]},
+        model_settings={"unique_fields": [crn.f("company")]},
     ).resolve()
 
 
@@ -62,9 +35,10 @@ def _app(resolver: Resolver, **kwargs: object) -> EntityResolutionApp:
     return EntityResolutionApp(resolver=resolver, scroll_debounce_delay=None, **kwargs)
 
 
-async def test_the_app_loads_clusters_from_a_collected_resolver(
+async def test_app_loads_clusters(
     resolver: Resolver,
 ) -> None:
+    """The app opens with the collected resolver's clusters queued."""
     resolver.collect()
 
     app = _app(resolver, num_samples=5)
@@ -75,9 +49,7 @@ async def test_the_app_loads_clusters_from_a_collected_resolver(
         assert set(app.current_item.records.columns) >= {"leaf"}
 
 
-async def test_a_judgement_reaches_the_adapter(
-    resolver: Resolver, adapter: DuckDBAdapter
-) -> None:
+async def test_app_stores_judgement(resolver: Resolver, adapter: DuckDBAdapter) -> None:
     """Paint every group, submit, and the judgement is stored and scoreable."""
     resolver.collect()
 
@@ -112,7 +84,7 @@ async def test_a_judgement_reaches_the_adapter(
     assert 0.0 <= recall <= 1.0
 
 
-async def test_a_seeded_session_draws_the_same_clusters(resolver: Resolver) -> None:
+async def test_app_seeded_session(resolver: Resolver) -> None:
     """Reviewing the clusters someone else was shown: same store, same seed.
 
     This is what replaced handing round a dumped sample file. The seed has to move on
@@ -131,9 +103,10 @@ async def test_a_seeded_session_draws_the_same_clusters(resolver: Resolver) -> N
     assert first[0] == first[1]
 
 
-async def test_no_samples_is_handled_rather_than_crashing(
+async def test_app_no_samples(
     resolver: Resolver, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """No samples to review is handled, not crashed on."""
     resolver.collect()
     monkeypatch.setattr(
         "matchlab.eval.tui.app.get_samples", lambda **_kwargs: {}, raising=True
@@ -144,8 +117,8 @@ async def test_no_samples_is_handled_rather_than_crashing(
         assert app.queue.total_count == 0
 
 
-async def test_a_store_can_be_reviewed_without_the_plan(
-    warehouse: Engine, tmp_path: Path
+async def test_app_reviews_without_plan(
+    warehouse: Engine, source: Callable[..., Source], tmp_path: Path
 ) -> None:
     """The point of storing extracts: review needs neither the plan nor the warehouse.
 
@@ -154,20 +127,14 @@ async def test_a_store_can_be_reviewed_without_the_plan(
     cached at collect time, which is the data the matching actually saw.
     """
     store = DuckDBAdapter(tmp_path / "run.duckdb")
-    location = RelationalDBLocation(name="warehouse", client=warehouse)
-    source = Source(
-        location=location,
-        name="crn",
-        extract_transform="select pk, company, town from crn",
-        key_field="pk",
-    )
-    plan = source.dedupe(
+    crn = source("crn")
+    plan = crn.dedupe(
         model_class=NaiveDeduper,
-        model_settings={"unique_fields": [source.f("company")]},
+        model_settings={"unique_fields": [crn.f("company")]},
     ).resolve()
     plan.collect(store).publish("entities")
 
-    del plan, source, location
+    del plan, crn
 
     # Not just "don't use the warehouse" — make it impossible to.
     warehouse.dispose()
@@ -186,9 +153,7 @@ async def test_a_store_can_be_reviewed_without_the_plan(
     store.close()
 
 
-def test_a_resolver_and_its_label_reach_the_same_resolver(
-    resolver: Resolver, adapter: DuckDBAdapter
-) -> None:
+def test_app_resolver_or_label(resolver: Resolver, adapter: DuckDBAdapter) -> None:
     """One parameter, two ways of saying which resolver — and they agree.
 
     The object and the label differ only in how the fingerprint is found, so nothing
@@ -204,9 +169,8 @@ def test_a_resolver_and_its_label_reach_the_same_resolver(
     assert by_object and set(by_object) == set(by_label)
 
 
-async def test_an_unknown_label_lists_what_is_there(
-    resolver: Resolver, adapter: DuckDBAdapter
-) -> None:
+async def test_app_unknown_label(resolver: Resolver, adapter: DuckDBAdapter) -> None:
+    """An unknown label names the labels that do exist."""
     from matchlab.core.exceptions import SourceTableError  # noqa: PLC0415
     from matchlab.eval import get_samples  # noqa: PLC0415
 
