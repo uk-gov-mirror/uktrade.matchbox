@@ -1,8 +1,8 @@
 """Location behaviour across warehouse client types.
 
-Parametrised over SQLAlchemy and ADBC clients — several tests exist specifically to
-compare dialect-specific extract/transform validation. Fixtures live in `conftest.py`;
-none of them needs Docker.
+Parametrised over SQLAlchemy and ADBC clients. Several tests exist specifically to
+compare dialect-specific extract/transform validation. Fixtures live in `conftest.py`.
+None of them needs Docker.
 """
 
 from typing import TypeAlias
@@ -25,7 +25,7 @@ from matchlab.locations import (
 from matchlab.testkit.features import FeatureConfig
 from matchlab.testkit.sources import source_factory
 
-# What the `warehouse` fixture hands back — the client types a location accepts.
+# The client types a location accepts, and what the `warehouse` fixture hands back.
 WarehouseClient: TypeAlias = Engine | AdbcConnection
 
 
@@ -56,7 +56,7 @@ def test_location_rejects_bad_client(
     with pytest.raises(ValueError, match="not a valid client"):
         RelationalDBLocation(name="dbname", client=12)
 
-    # And a client cannot be swapped afterwards, which would silently invalidate
+    # A client cannot be swapped afterwards. That would silently invalidate
     # anything already validated against the old one's dialect.
     location = RelationalDBLocation(name="dbname", client=sqla_sqlite_warehouse)
     with pytest.raises(AttributeError):
@@ -102,7 +102,7 @@ def test_location_registered(
     indirect=True,
 )
 def test_relational_db_connect(warehouse: WarehouseClient) -> None:
-    """Test connecting to database."""
+    """`connect()` succeeds for both SQLAlchemy and ADBC clients."""
     location = RelationalDBLocation(name="dbname", client=warehouse)
     assert location.connect() is True
 
@@ -179,7 +179,11 @@ def test_relational_db_extract_transform(
     sqla_postgres_dialect: Engine,
     sqla_sqlite_warehouse: Engine,
 ) -> None:
-    """Test SQL validation in validate_extract_transform."""
+    """Validation checks SQL against a client's own dialect.
+
+    The same query can be valid for one client's dialect and raise
+    `ExtractTransformError` for another's.
+    """
     if dialects == "none":
         invalid_clients = [sqla_postgres_dialect, sqla_sqlite_warehouse]
         valid_clients = []
@@ -214,7 +218,10 @@ def test_relational_db_execute(
     warehouse: WarehouseClient,
     sqla_sqlite_warehouse: Engine,
 ) -> None:
-    """Test executing a query and returning results using a real SQLite database."""
+    """Execution returns batched polars frames.
+
+    It also supports schema overrides and key filtering.
+    """
     features = [
         FeatureConfig(name="company", base_generator="company"),
         FeatureConfig(name="employees", base_generator="random_int"),
@@ -236,9 +243,9 @@ def test_relational_db_execute(
 
     # Right number of batches and total rows
     if isinstance(warehouse, Engine):
-        # Not asserted for ADBC clients, and not because of the SQLite driver: polars
-        # discards `batch_size` for every ADBC driver. See TODO(adbc-batching) in
-        # `locations.py` — this branch is the shape of the bug, not a gap in the test.
+        # Not asserted for ADBC clients, not because of the SQLite driver but because
+        # polars discards `batch_size` for every ADBC driver. See TODO(adbc-batching)
+        # in `locations.py`. This branch is the shape of the bug, not a gap in the test.
         assert len(results[0]) == batch_size
     combined_df: pl.DataFrame = pl.concat(results)
     assert len(combined_df) == 10
@@ -273,7 +280,10 @@ def test_relational_db_execute(
     indirect=True,
 )
 def test_relational_db_execute_invalid(warehouse: WarehouseClient) -> None:
-    """Test that invalid queries are handled correctly when executing."""
+    """An invalid query raises the client's own error, not a matchlab-specific one.
+
+    `OperationalError` for SQLAlchemy, `ProgrammingError` for ADBC.
+    """
     location = RelationalDBLocation(name="dbname", client=warehouse)
 
     # Invalid SQL query

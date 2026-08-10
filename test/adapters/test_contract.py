@@ -2,8 +2,8 @@
 
 These assert behaviour, not DuckDB: round-trips, `has` before store, schema rejection,
 idempotence, `read_identifiers`, sampling, the evaluation round-trip, trimming, and
-movable labels. A test taking the `store` fixture runs over every backend; one taking
-`durable_store` runs over the tier that survives being closed and opened again. See
+movable labels. A test taking the `store` fixture runs over every backend. A test
+taking `durable_store` runs only over backends that survive a reopen. See
 `conftest.py` for how the backends are wired in.
 """
 
@@ -162,10 +162,10 @@ def test_read_identifiers_one_source(
     leaves: pl.DataFrame,
     resolver_output: pl.DataFrame,
 ) -> None:
-    """The whole point: one source's rows, not every source in the resolver output.
+    """The whole point. One source's rows, not every source in the resolver output.
 
-    `resolver_output` holds crn and dh together. Reading crn must not return dh's rows —
-    a plan linking every pair of sources asks for this once per pair, so returning the
+    `resolver_output` holds crn and dh together. Reading crn must not return dh's rows.
+    A plan linking every pair of sources asks for this once per pair, so returning the
     whole table and filtering afterwards is what made it quadratic.
     """
     store.store_source(fp.src, "key", extract, leaves)
@@ -265,10 +265,10 @@ def test_label_is_movable(
 ) -> None:
     """A label points at a fingerprint, and moves when told to.
 
-    The adapter does not argue about overwriting — that is `Resolver.publish`'s call.
-    What it guarantees is that a label resolves to exactly one fingerprint, which the
-    old (kind, name) column on `artifacts` did not: several generations shared a name
-    and the lookup picked whichever row came back first.
+    The adapter does not argue about overwriting. That is `Resolver.publish`'s call.
+    What it guarantees is that a label resolves to exactly one fingerprint. The old
+    (kind, name) column on `artifacts` did not. Several generations shared a name, and
+    the lookup picked whichever row came back first.
     """
     store.store_resolver(fp.resolver, resolver_output)
     store.store_resolver(fp.resolver_b, resolver_output)
@@ -290,9 +290,9 @@ def test_label_survives_restore(
 ) -> None:
     """Re-collecting a published plan must not quietly revoke the publication.
 
-    Storing replaces the artifact for a fingerprint, and a fingerprint addresses
-    content — so the label resolves to the same bytes it always did. Dropping it here
-    used to mean a re-collect silently unpublished your resolver output.
+    Storing replaces the artifact for a fingerprint. Because a fingerprint addresses
+    content, the label resolves to the same bytes it always did. Dropping it here used
+    to mean a re-collect silently unpublished your resolver output.
     """
     store.store_resolver(fp.resolver, resolver_output)
     store.publish("entities", fp.resolver)
@@ -339,7 +339,7 @@ def test_trim_keeps_named(
     assert result.kept == 1
     assert store.has(fp.src)
     assert not store.has(fp.model)
-    # The kept artifact is not merely listed — it still reads back.
+    # The kept artifact is not merely listed. It still reads back.
     assert store.read_source_extract(fp.src).height == extract.height
 
 
@@ -351,11 +351,11 @@ def test_trim_keeps_label_and_sources(
     edges: pl.DataFrame,
     resolver_output: pl.DataFrame,
 ) -> None:
-    """A publication survives a trim that never mentioned it — and stays *usable*.
+    """A publication survives a trim that never mentioned it, and stays *usable*.
 
     Keeping the label row alone is not enough. Reading a published resolver output
-    without a plan goes through `resolver_output_sources` to each source's extract, so
-    a label kept without its sources resolves to a fingerprint whose data has gone, and
+    without a plan goes through `resolver_output_sources` to each source's extract. A
+    label kept without its sources resolves to a fingerprint whose data has gone. That
     fails with a bare `KeyError` well away from the cause.
     """
     _publish_over_one_source(store, fp, extract, leaves, edges, resolver_output)
@@ -413,9 +413,9 @@ def test_persists_across_reopen(
 ) -> None:
     """Artifacts, publications and judgements are all still there after a reopen.
 
-    Artifacts are a cache and can be recomputed; publications and judgements cannot, and
-    `_open_schema` drops every table when the schema version moves — so this is what
-    would catch a version bump taken without thinking about what else is in there.
+    Artifacts are a cache and can be recomputed. Publications and judgements cannot.
+    `_open_schema` drops every table when the schema version moves, so this test would
+    catch a version bump taken without thinking about what else is in there.
     """
     a = durable_store()
     a.store_resolver(fp.resolver, resolver_output)

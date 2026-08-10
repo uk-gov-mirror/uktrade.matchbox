@@ -1,4 +1,9 @@
-"""Test scored behavior of linkers."""
+"""Linkers checked against scores, not just yes or no matches.
+
+`SCORED_LINKERS` covers only linkers that emit a real probability rather than a fixed
+0 or 1, so thresholding their scores can separate a subset of matches from the full
+set.
+"""
 
 from collections.abc import Callable
 from typing import Any
@@ -34,16 +39,11 @@ LinkerConfigurator = Callable[[GeneratedSource, GeneratedSource], dict[str, Any]
 def configure_weighted_scored(
     left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
-    """Configure WeightedDeterministicLinker with scored-like behavior.
+    """Build validated `WeightedDeterministicSettings` with geometric per-field weights.
 
-    Args:
-        left_testkit: Left source object from linked_sources_factory
-        right_testkit: Right source object from linked_sources_factory
-
-    Returns:
-        A dictionary with validated settings for WeightedDeterministicLinker
+    Each field's weight is half the previous one's, so no two fields matter equally and
+    the resulting scores spread out instead of collapsing to a single value.
     """
-    # Extract field names excluding key and id
     left_fields = {
         name for name in left_testkit.field_names if name not in ("key", "id")
     }
@@ -55,11 +55,10 @@ def configure_weighted_scored(
     if not shared_fields:
         raise ValueError("Must have at least one shared field")
 
-    # Generate geometric series of weights
     weights = [1 * (0.5**i) for i in range(len(shared_fields))]
     total_weight = sum(weights)
 
-    # Normalise weights to sum to 1
+    # Weights must sum to 1, since the linker treats the total as a match probability.
     normalised_weights = [w / total_weight for w in weights]
 
     weighted_comparisons = []
@@ -75,7 +74,6 @@ def configure_weighted_scored(
         "threshold": 0.0,
     }
 
-    # Validate the settings dictionary
     WeightedDeterministicSettings.model_validate(settings_dict)
 
     return settings_dict
@@ -84,16 +82,7 @@ def configure_weighted_scored(
 def configure_splink_scored(
     left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
-    """Configure SplinkLinker for scored matching.
-
-    Args:
-        left_testkit: Left source object from linked_sources_factory
-        right_testkit: Right source object from linked_sources_factory
-
-    Returns:
-        A dictionary with validated settings for SplinkLinker
-    """
-    # Extract field names excluding key and id
+    """Build validated `SplinkSettings`, choosing comparisons by each field's type."""
     left_fields = {
         name for name in left_testkit.field_names if name not in ("key", "id")
     }
@@ -102,7 +91,6 @@ def configure_splink_scored(
     }
     shared_fields: list[str] = sorted(left_fields & right_fields)
 
-    # Create comparison functions based on field type
     comparisons = []
     blocking_rules = []
     deterministic_matching_rules = []
@@ -113,15 +101,12 @@ def configure_splink_scored(
             None,
         )
 
-        # Create deterministic matching rule for each field
         deterministic_matching_rules.append(f"l.{field} = r.{field}")
 
-        # String fields
         if field_type == pl.String:
             blocking_rules.append(f"SUBSTR(l.{field}, 1, 3) = SUBSTR(r.{field}, 1, 3)")
             comparisons.append(cl.JaroWinklerAtThresholds(field, [0.9, 0.7]))
 
-        # Numeric fields
         elif field_type in (pl.Int64, pl.Float64, pl.Decimal):
             blocking_rules.append(f"CAST(l.{field} AS INT) = CAST(r.{field} AS INT)")
             comparisons.append(cl.ExactMatch(field))
@@ -129,14 +114,12 @@ def configure_splink_scored(
         else:
             comparisons.append(cl.ExactMatch(field))
 
-    # Create Splink settings
     linker_settings = SettingsCreator(
         link_type="link_only",
         blocking_rules_to_generate_predictions=blocking_rules,
         comparisons=comparisons,
     )
 
-    # Create training functions
     training_functions = [
         {
             "function": "estimate_probability_two_random_records_match",
@@ -159,7 +142,6 @@ def configure_splink_scored(
         "threshold": 0.01,
     }
 
-    # Validate the settings dictionary
     SplinkSettings.model_validate(settings_dict)
 
     return settings_dict
@@ -182,8 +164,12 @@ SCORED_LINKERS = [
 def test_probabilistic_scores_vary(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
-    """Test that linkers can generate varying scores."""
-    # Create sources with variations
+    """Thresholding on the mean score keeps a strict subset of the full match set.
+
+    Every match still appears when nothing is thresholded out. Raising the threshold to
+    the mean score drops the weaker matches, but must never turn a real match wrong or
+    invalid.
+    """
     features = (
         FeatureConfig(
             name="company_name",
@@ -218,7 +204,6 @@ def test_probabilistic_scores_vary(
         pl.from_arrow(right_source.data),
     ]
 
-    # Configure and run the linker
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
@@ -228,14 +213,12 @@ def test_probabilistic_scores_vary(
 
     results = linker.collect().edges()
 
-    # Validate results against ground truth
     identical, report = linked.diff_model_edges(
         results, left=left_source, right=right_source
     )
 
     assert identical, f"Expected perfect results but got: {report}"
 
-    # Validate results over a threshold as a subset of the ground truth
     identical, report = linked.diff_model_edges(
         results,
         left=left_source,

@@ -1,7 +1,7 @@
 """Ground-truth tests: does a collected plan recover the entities we planted?
 
-The testkit generates sources whose true entities are known, then a perfect matcher
-matches on row *values* — so the edges it emits reference whatever content-derived IDs
+The testkit generates sources whose true entities are known. A perfect matcher then
+matches on row *values*, so the edges it emits reference whatever content-derived IDs
 the plan actually produced. That makes it possible to assert the resolver output
 against truth rather than against hand-built fixtures.
 
@@ -9,9 +9,6 @@ Every test here is the same three steps: generate and write, build a plan, diff 
 `linked` planted the entities, so `.dedupe()`/`.link()` and `.diff_resolver_output()`
 all know the answer without being told it. The diff reports *how* a mismatch failed
 (perfect/subset/superset/wrong/invalid) rather than only that it did.
-
-This is the capability the brief calls out as a differentiator (ER evaluation), and
-the reason the testkit was worth porting rather than deleting.
 """
 
 import pytest
@@ -65,7 +62,7 @@ def test_link_recovers_entities(warehouse: Engine) -> None:
 
 
 def test_resolver_output_complete(warehouse: Engine) -> None:
-    """No record may be dropped: the resolver output is complete over the source."""
+    """No record may be dropped. The resolver output is complete over the source."""
     linked = planted(6, warehouse)
 
     resolver_output = linked.dedupe("crn").model.resolve().collect().entities()
@@ -79,9 +76,9 @@ def test_resolver_output_complete(warehouse: Engine) -> None:
 def test_link_through_dedupe_merges_forward(warehouse: Engine) -> None:
     """A link built *through* an upstream resolver must preserve its grouping.
 
-    This is merge-forward end to end: the apex is a link, but the dedupe's clusters
+    This is merge-forward end to end. The apex is a link, but the dedupe's clusters
     have to survive it, and records the link never touched must not collapse. `through=`
-    is the whole point of the parameter — the left side is read as the dedupe resolved
+    is the whole point of the parameter. It reads the left side as the dedupe resolved
     it, not raw.
     """
     linked = planted(8, warehouse)

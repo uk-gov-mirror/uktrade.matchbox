@@ -1,11 +1,9 @@
 """The reads a collected resolver offers, over a real SQLite warehouse.
 
-`entities()` is the whole answer, flat; `get_lookup`, `leaf_sets` and `view_entity` are
-projections of it. They used to live on a `ResolverMatches` object built by
-`get_matches()`, which renamed the resolver output's columns on the way in and back out
-again.
+`entities()` is the whole answer, flat. `get_lookup`, `leaf_sets` and `view_entity` are
+projections of it, and none of them rename the resolver output's columns.
 
-Scenario — a dedupe feeding a cross-source link:
+Scenario: a dedupe feeding a cross-source link.
 
     crn (pk, company, town):    a1=(acme,london) a2=(acme,leeds) a3=(beta,hull)
     dh  (pk, company, region):  b1=(acme,south)  b2=(gamma,north)
@@ -33,10 +31,10 @@ from matchlab.models.linkers import DeterministicLinker
 
 @pytest.fixture
 def warehouse(tmp_path: Path) -> Engine:
-    """Overrides the shared `crn`/`dh` scenario: here `dh` carries `region`, not `town`.
+    """Overrides the shared `crn`/`dh` scenario. Here `dh` carries `region`, not `town`.
 
     A second column each source *does not* share is what `view_entity(merge_fields=)`
-    has to get right — `company` collapses onto one column, while `town` and `region`
+    has to get right. `company` collapses onto one column, while `town` and `region`
     survive separately, null where the other source has no value.
     """
     engine = create_engine(f"sqlite:///{tmp_path / 'wh.sqlite'}")
@@ -152,7 +150,7 @@ def test_get_lookup_joins_sources(apex: Resolver) -> None:
     # explodes it into a row per pair.
     assert ("a1", "b1") in by_key
     assert ("a2", "b1") in by_key
-    # And a record with no counterpart keeps its row, with a null on the other side.
+    # A record with no counterpart keeps its row, with a null on the other side.
     assert ("a3", None) in by_key
     assert (None, "b2") in by_key
     assert by_key[("a1", "b1")] == by_key[("a2", "b1")]
@@ -207,18 +205,18 @@ def test_view_entity_merges_fields(apex: Resolver) -> None:
     """merge_fields collapses the shared column and keeps the rest."""
     acme = apex.view_entity(_root_of(apex, "crn", "a1"), merge_fields=True)
 
-    # `company` exists in both sources and collapses onto one column; `town` and
+    # `company` exists in both sources and collapses onto one column. `town` and
     # `region` exist in one each and stay, null where the other source has no value.
     assert set(acme.columns) == {"crn_pk", "dh_pk", "company", "town", "region"}
     assert set(acme["company"]) == {"acme"}
     assert acme["town"].null_count() == 1
     assert acme["region"].null_count() == 2
-    # Keys are never merged: that is what says where a row came from.
+    # Keys are never merged. That is what says where a row came from.
     assert set(acme["crn_pk"].drop_nulls()) == {"a1", "a2"}
 
 
 def test_view_entity_single_source(apex: Resolver) -> None:
-    """No columns from a source with no record in the entity."""
+    """A source with no record in the entity contributes no columns."""
     beta = apex.view_entity(_root_of(apex, "crn", "a3"))
 
     assert set(beta.columns) == {"crn_pk", "crn_company", "crn_town"}
@@ -237,8 +235,8 @@ def test_view_entity_reads_store(
 ) -> None:
     """The values shown are the ones the matching saw, and need no connection.
 
-    This is the difference from the old `view_cluster`, which re-read the warehouse
-    through the source's extract and so could disagree with what the reviewer showed.
+    Reading from the store instead of the warehouse is what keeps these values from
+    silently disagreeing with what the matching actually saw.
     """
     store = DuckDBAdapter(tmp_path / "run.duckdb")
     crn, _dh = _sources(source)
@@ -250,7 +248,7 @@ def test_view_entity_reads_store(
 
     root = resolver.entities().filter(pl.col("key") == "a1")["root"][0]
 
-    # Not just "don't use the warehouse" — make it impossible to.
+    # Not just "don't use the warehouse". Make it impossible to.
     warehouse.dispose()
     (tmp_path / "wh.sqlite").unlink()
 

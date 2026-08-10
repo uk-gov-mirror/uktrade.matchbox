@@ -14,16 +14,7 @@ from matchlab.testkit.features import FeatureConfig
 
 
 def make_cluster_entity(id: int, *args: Any) -> Cluster:
-    """Helper to create a Cluster.
-
-    Args:
-        id: Entity ID
-        *args: Variable arguments in pairs of (source_name, keys_list)
-            e.g., "d1", ["1", "2"], "d2", ["3", "4"]
-
-    Returns:
-        Cluster with the specified sources and primary keys
-    """
+    """Build a Cluster from id, source, keys pairs, e.g. `1, "d1", ["1", "2"]`."""
     if len(args) % 2 != 0:
         raise ValueError("Arguments must be pairs of source name and keys list")
 
@@ -55,7 +46,7 @@ def make_source_entity(source: str, keys: list[str], base_val: str) -> TrueEntit
     ),
 )
 def test_entity_reference_creation(name: str, keys: frozenset[str]) -> None:
-    """Test basic EntityReference creation and access."""
+    """An EntityReference stores each source's keys and reports unknown sources."""
     ref = EntityReference({name: keys})
     assert ref[name] == keys
     assert name in ref
@@ -64,7 +55,7 @@ def test_entity_reference_creation(name: str, keys: frozenset[str]) -> None:
 
 
 def test_entity_reference_addition() -> None:
-    """Test combining EntityReferences."""
+    """Adding two EntityReferences unions the keys each holds for a shared source."""
     ref1 = EntityReference({"source1": frozenset({"1", "2"})})
     ref2 = EntityReference(
         {"source1": frozenset({"2", "3"}), "source2": frozenset({"A"})}
@@ -75,7 +66,7 @@ def test_entity_reference_addition() -> None:
 
 
 def test_entity_reference_subset() -> None:
-    """Test subset relationships between EntityReferences."""
+    """`<=` holds when every source's keys in one reference are covered by the other."""
     subset = EntityReference({"source1": frozenset({"1", "2"})})
     superset = EntityReference(
         {"source1": frozenset({"1", "2", "3"}), "source2": frozenset({"A"})}
@@ -86,7 +77,7 @@ def test_entity_reference_subset() -> None:
 
 
 def test_cluster_entity_creation() -> None:
-    """Test basic Cluster functionality."""
+    """A Cluster keeps the keys it was given and gets an integer id."""
     ref = EntityReference({"source1": frozenset({"1", "2"})})
     entity = Cluster(keys=ref)
 
@@ -95,7 +86,7 @@ def test_cluster_entity_creation() -> None:
 
 
 def test_cluster_entity_addition() -> None:
-    """Test combining Cluster objects."""
+    """Adding two Clusters unions their keys for a shared source."""
     entity1 = Cluster(keys=EntityReference({"source1": frozenset({"1"})}))
     entity2 = Cluster(keys=EntityReference({"source1": frozenset({"2"})}))
 
@@ -104,7 +95,7 @@ def test_cluster_entity_addition() -> None:
 
 
 def test_source_entity_creation() -> None:
-    """Test basic TrueEntity functionality."""
+    """A TrueEntity keeps its base values, its keys, and gets an integer id."""
     base_values = {"name": "John", "age": 30}
     ref = EntityReference({"source1": frozenset({"1", "2"})})
 
@@ -125,7 +116,7 @@ def test_entity_reference_rejects_foreign_operands() -> None:
 
 
 def test_entity_id_converts_to_int() -> None:
-    """An entity stands in for its integer id — `int(entity)` is that id."""
+    """An entity stands in for its integer id. `int(entity)` is that id."""
     assert int(make_cluster_entity(42, "s", ["1"])) == 42
 
 
@@ -175,7 +166,7 @@ def test_cluster_entity_add_identity() -> None:
 def test_cluster_entity_rejects_foreign_operand() -> None:
     """The cluster operators refuse a non-cluster rather than coercing it.
 
-    Equality is the exception: `cluster == other` is defined for any object and simply
+    Equality is the exception. `cluster == other` is defined for any object and simply
     reports inequality, since a set of clusters must be able to hold non-cluster keys.
     """
     cluster = make_cluster_entity(1, "s", ["1"])
@@ -218,7 +209,7 @@ def test_source_entity_equals_its_int_id() -> None:
     ),
 )
 def test_generate_entities(features: tuple[FeatureConfig, ...], n: int) -> None:
-    """Test entity generation with different features and counts."""
+    """generate_entities returns n entities, each holding a value for every feature."""
     faker = Faker(seed=42)
     entities = generate_entities(faker, features, n)
 
@@ -315,7 +306,7 @@ def test_scores_to_clusters(
     threshold: float,
     expected_count: int,
 ) -> None:
-    """Test scores_to_clusters with various scenarios."""
+    """scores_to_clusters merges only pairs scoring at or above the threshold."""
     result = scores_to_clusters(
         scores=scores,
         left_clusters=left_clusters,
@@ -325,20 +316,18 @@ def test_scores_to_clusters(
 
     assert len(result) == expected_count
 
-    # For merging cases, verify all input entities are contained in the output
     all_inputs = set(left_clusters)
     if right_clusters:
         all_inputs.update(right_clusters)
 
     for input_entity in all_inputs:
-        # Each input entity should be contained within one of the output entities
         assert any(input_entity in output_entity for output_entity in result)
 
 
 def assert_deep_approx_equal(
     got: float | dict | list, want: float | dict | list
 ) -> None:
-    """Compare nested structures with approximate equality for floats."""
+    """Compare nested structures, treating floats as equal within a small tolerance."""
     # Handle float comparison
     if isinstance(want, float):
         assert got == pytest.approx(want, rel=1e-2)
@@ -347,7 +336,7 @@ def assert_deep_approx_equal(
     # Handle dictionary comparison
     if isinstance(want, dict):
         assert isinstance(got, dict)
-        assert set(want.keys()) <= set(got.keys())  # All expected keys must exist
+        assert set(want.keys()) <= set(got.keys())
         for k, v in want.items():
             assert_deep_approx_equal(got[k], v)
         return
@@ -357,7 +346,7 @@ def assert_deep_approx_equal(
         assert isinstance(got, list)
         assert len(got) == len(want)
 
-        # Sort lists of dictionaries by ID fields for easier comparison
+        # Sort dict lists by whichever id field they share, so order doesn't matter.
         if want and all(isinstance(x, dict) for x in want + got):
             for id_key in ["entity_id", "expected_entity_id", "actual_entity_id"]:
                 if all(id_key in x for x in want + got):
@@ -471,7 +460,7 @@ def test_diff_entities(
     want_identical: bool,
     want_result: dict[str, Any],
 ) -> None:
-    """Test diff_entities function handles various scenarios correctly."""
+    """diff_entities classifies each cluster as perfect, subset, superset, or wrong."""
     got_identical, got_result = diff_entities(expected, actual)
 
     assert got_identical == want_identical
@@ -479,7 +468,7 @@ def test_diff_entities(
 
 
 def test_source_to_results_conversion() -> None:
-    """Test projecting true entities onto clusters and comparing them."""
+    """A TrueEntity projects onto a chosen subset of its sources as a Cluster."""
     # Create a true entity present in multiple sources
     source = TrueEntity(
         base_values={"name": "Test"},
@@ -523,6 +512,6 @@ def test_source_to_results_conversion() -> None:
 def test_feature_config_datatype_inference(
     base_generator: str, expected_type: pl.DataType
 ) -> None:
-    """Test that SQL types are correctly inferred from feature configurations."""
+    """A FeatureConfig's datatype follows from its base_generator."""
     feature_config = FeatureConfig(name=base_generator, base_generator=base_generator)
     assert feature_config.datatype == expected_type

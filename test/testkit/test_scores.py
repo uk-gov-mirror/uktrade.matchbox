@@ -173,16 +173,14 @@ def test_generate_entity_scores_scenarios(
     score_range: tuple[float, float],
     expected: dict,
 ) -> None:
-    """Comprehensive test for generate_entity_scores with various scenarios."""
+    """generate_entity_scores emits one edge per pair the true entities connect."""
     # Run the function
     result = generate_entity_scores(
         left_entities, right_entities, true_entities, score_range
     )
 
-    # Check schema
     assert result.schema == pl.Schema(SCHEMA_MODEL_EDGES)
 
-    # Get edges from result
     edges = list(
         zip(
             result["left_id"].to_list(),
@@ -191,10 +189,8 @@ def test_generate_entity_scores_scenarios(
         )
     )
 
-    # Check number of edges matches expected
     assert len(edges) == expected["edge_count"]
 
-    # For non-empty results, validate score ranges
     if edges:
         score_values = result["score"].to_numpy()
         score_min, score_max = expected["score_range"]
@@ -216,7 +212,7 @@ def test_seed_determinism(
     should_be_equal: bool,
     case: str,
 ) -> None:
-    """Test that seeds produce consistent/different results as expected."""
+    """The same seed reproduces identical scores. A different seed changes them."""
     # Create test entities
     source = make_source_entity("test", ["a1", "a2", "a3"], "entity_a")
     entities = frozenset(
@@ -230,7 +226,7 @@ def test_seed_determinism(
     if case == "dedupe":
         right_entities = None
     else:
-        # For linking case, use second set of entities
+        # A linking case needs a second, disjoint set of entities to link against
         right_entities = frozenset(
             [
                 make_cluster_entity(4, "test", ["a1"]),
@@ -239,7 +235,6 @@ def test_seed_determinism(
             ]
         )
 
-    # Generate results with the two seeds
     result1 = generate_entity_scores(
         left_entities=entities,
         right_entities=right_entities,
@@ -266,12 +261,10 @@ def test_seed_determinism(
 
 
 def test_disjoint_set_recovery() -> None:
-    """Test that DisjointSet can recover the entity structure from scores."""
-    # Create true entities
+    """A DisjointSet built from generated scores recovers the planted entities."""
     source1 = make_source_entity("source1", ["1", "2", "3"], "entity1")
     source2 = make_source_entity("source1", ["4", "5", "6"], "entity2")
 
-    # Create split clusters
     clusters = frozenset(
         [
             make_cluster_entity(1, "source1", ["1"]),
@@ -283,7 +276,6 @@ def test_disjoint_set_recovery() -> None:
         ]
     )
 
-    # Generate scores
     table = generate_entity_scores(
         left_entities=clusters,
         right_entities=None,
@@ -291,19 +283,16 @@ def test_disjoint_set_recovery() -> None:
         score_range=(0.9, 1.0),
     )
 
-    # Use DisjointSet to cluster based on high scores
     ds = DisjointSet[int]()
     for row in table.to_dicts():
         if row["score"] >= 0.9:  # High confidence matches
             ds.union(row["left_id"], row["right_id"])
 
-    # Get resulting clusters
     clusters = ds.get_components()
 
-    # Should recover original entities - exactly two clusters
+    # Splitting each entity into six one-record clusters should recover exactly two
     assert len(clusters) == 2
 
-    # Each cluster should contain the right number of Cluster objects
     cluster_sizes = sorted(len(cluster) for cluster in clusters)
     assert cluster_sizes == [3, 3]
 
@@ -317,7 +306,7 @@ def test_disjoint_set_recovery() -> None:
     ],
 )
 def test_invalid_score_ranges(score_range: tuple[float, float]) -> None:
-    """Test that invalid score ranges raise appropriate errors."""
+    """An out-of-order or out-of-bounds score range raises ValueError."""
     source = make_source_entity("test", ["a1", "a2"], "entity")
     entities = frozenset(
         [
@@ -336,8 +325,7 @@ def test_invalid_score_ranges(score_range: tuple[float, float]) -> None:
 
 
 def test_complex_entity_recovery() -> None:
-    """Test recovery of complex, multi-source true-entity structures."""
-    # Create a true entity spanning multiple sources
+    """An entity fragmented across three sources still recovers as one component."""
     source = TrueEntity(
         base_values={"name": "Complex Entity"},
         keys=EntityReference(
@@ -349,7 +337,6 @@ def test_complex_entity_recovery() -> None:
         ),
     )
 
-    # Create fragmented Cluster objects
     clusters = frozenset(
         [
             Cluster(keys=EntityReference({"source1": frozenset(["1"])})),
@@ -360,7 +347,6 @@ def test_complex_entity_recovery() -> None:
         ]
     )
 
-    # Generate scores
     table = generate_entity_scores(
         left_entities=clusters,
         right_entities=None,
@@ -368,16 +354,14 @@ def test_complex_entity_recovery() -> None:
         score_range=(0.9, 1.0),
     )
 
-    # There should be edges connecting all entities (n*(n-1))/2 = 10 edges
+    # Every one of the 5 fragments pairs with every other: n*(n-1)/2 = 10 edges
     assert len(table) == 10
 
-    # Use DisjointSet to cluster
     ds = DisjointSet[int]()
     for row in table.to_dicts():
         if row["score"] >= 0.9:
             ds.union(row["left_id"], row["right_id"])
 
-    # Should recover as a single component
     clusters = ds.get_components()
     assert len(clusters) == 1
-    assert len(clusters[0]) == 5  # All entities in one cluster
+    assert len(clusters[0]) == 5

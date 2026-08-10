@@ -1,6 +1,6 @@
 """`comparison()` validates the SQL a linker compares two sides with.
 
-A user writes the condition by hand, so its validation is the input boundary: every
+A user writes the condition by hand, so its validation is the input boundary. Every
 column must be qualified `l` or `r`, both sides must appear, and it must be a boolean
 condition. These pin the rejections, which is what turns a typo into a clear message
 rather than a confusing SQL error three steps later.
@@ -30,11 +30,7 @@ def test_comparison_warns_on_or(caplog: pytest.LogCaptureFixture) -> None:
 
 
 def test_comparison_rejects_a_subquery() -> None:
-    """A comparison is a plain boolean condition, not a statement with a subquery.
-
-    The check went live with a sqlglot walk-API fix; it was inert before (reading
-    `node[0]`), so a subquery slipped through instead of being rejected here.
-    """
+    """A comparison is a plain boolean condition, not a statement with a subquery."""
     with pytest.raises(ParseError, match="valid WHERE clause"):
         comparison("l.x = (select r.y from t)")
 

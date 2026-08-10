@@ -143,8 +143,10 @@ def test_precision_recall_scores() -> None:
         expansion=judgement_cluster_expansion,
     )
 
-    # Validation pairs: (12) (as (45) is more negative; (67) is neutralised)
-    # Model 1 pairs: (12), (13), (23) (as (67) is neutralised; (89) has extra leaves)
+    # Validation pairs: (12). (45) is dropped for being more negative, and (67) is
+    # dropped for being neutralised.
+    # Model 1 pairs: (12), (13), (23). (67) is dropped for being neutralised, and (89)
+    # is dropped for having extra leaves.
     assert pr_scores[0] == (1 / 4, 1)
     # Model 2 pairs: (13) (as (67) is neutralised)
     assert pr_scores[1] == (0, 0)

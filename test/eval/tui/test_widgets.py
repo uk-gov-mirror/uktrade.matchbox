@@ -1,8 +1,8 @@
 """Review-widget display logic: the header formatting and the assignment bar.
 
-These assert on what the widgets emit to render — header text, a dim-or-coloured
-segment, the markup the bar hands Rich — rather than on the widgets' private structure,
-so a behaviour-preserving refactor of either widget leaves them green.
+These tests assert on what the widgets emit to render: header text, a dim-or-coloured
+segment, and the markup the bar hands Rich. They don't assert on the widgets' private
+structure, so a behaviour-preserving refactor of either widget leaves them green.
 """
 
 from unittest.mock import Mock
@@ -32,12 +32,12 @@ def test_header_formats() -> None:
 
     assigned = table._build_header(2, [1, 2], "b")
     assert "2 (×2)" in assigned.plain
-    # A group symbol leads the header; which glyph is `get_group_style`'s business.
+    # A group symbol leads the header. `get_group_style` decides which glyph to show.
     assert assigned.plain.startswith(("◇", "⬤"))
 
 
 def test_header_dim_vs_coloured() -> None:
-    """The visible cue a column is judged: dim until it carries a group colour."""
+    """A column looks dim until it is judged, when it takes a group colour instead."""
     table = ComparisonDisplayTable()
 
     unassigned = _rendered_styles(table._build_header(1, [1], None))
@@ -59,7 +59,7 @@ def test_bar_starts_empty() -> None:
 def test_bar_reset() -> None:
     """Reset lays out that many empty slots."""
     bar = AssignmentBar()
-    bar.update = Mock()  # Bar.update renders; these tests only read the state it holds.
+    bar.update = Mock()  # `update` renders. These tests only read the state it holds.
 
     bar.reset(5)
 
@@ -80,7 +80,7 @@ def test_bar_set_position() -> None:
 
 
 def test_bar_renders_letters_and_dots() -> None:
-    """A group's first slot shows its letter; the next in that group is a dot."""
+    """A group's first slot shows its letter. The next slot in that group is a dot."""
     bar = AssignmentBar()
     bar.update = Mock()
 
@@ -90,7 +90,8 @@ def test_bar_renders_letters_and_dots() -> None:
     bar.set_position(1, "a", "red")
     bar.update.assert_called_with("[dim]•[/dim][red]a[/red][dim]•[/dim]")
 
-    # Adjacent same group: the letter is not repeated, a dot stands in.
+    # Within the same group, an adjacent slot doesn't repeat the letter,
+    # a dot stands in.
     bar.set_position(2, "a", "red")
     bar.update.assert_called_with("[dim]•[/dim][red]a[/red][red]•[/red]")
 

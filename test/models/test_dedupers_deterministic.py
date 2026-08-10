@@ -1,7 +1,7 @@
 """Deterministic dedupers, checked against the testkit oracle.
 
 Each deduper is a `pytest.param` in `DEDUPERS`, so covering a new one is a new row, not
-a new test body. The oracle plants the answer; `diff_model_edges` scores the edges the
+a new test body. The oracle plants the answer. `diff_model_edges` scores the edges the
 methodology emits against it.
 """
 
@@ -54,9 +54,9 @@ def test_recovers_planted(
 ) -> None:
     """A deterministic deduper recovers the planted entities, duplicates or not.
 
-    `repetition=0` plants each entity once, so there is nothing to merge;
+    `repetition=0` plants each entity once, so there is nothing to merge.
     `repetition=2` plants it three times over. The oracle knows the answer either way,
-    so the same body covers both: the edges must diff clean against it.
+    so the same body covers both. The edges must diff clean against it.
     """
     features = (
         FeatureConfig(name="company", base_generator="company"),

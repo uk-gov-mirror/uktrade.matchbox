@@ -1,8 +1,8 @@
 """Content-addressing: the hash a fingerprint is built from.
 
-The contract `hash_arrow_table` promises is order-invariance — a table hashes by what it
-contains, not the order rows, columns, or list elements happen to arrive in — while any
-real change to content changes the hash. `as_sorted_list` extends that to a set of
+`hash_arrow_table` promises order-invariance. A table hashes by what it contains, not
+the order rows, columns, or list elements happen to arrive in. It still changes the
+hash for any real change to content. `as_sorted_list` extends that to a set of
 columns, so `(1, 2)` and `(2, 1)` count as the same pair. Both hash methods must honour
 the same contract, so every test runs over both.
 """
@@ -29,7 +29,7 @@ methods = pytest.mark.parametrize(
 def test_hash_rows_all_dtypes(method: HashMethod) -> None:
     """One hash per row over the full spread of dtypes a source can present.
 
-    The dtype assertions guard the fixture: they are what says this really exercises the
+    The dtype assertions guard the fixture. They show this really exercises the
     binary, struct, and list branches of `_process_column_for_hashing`, not three string
     columns in disguise.
     """
@@ -74,7 +74,7 @@ def test_hash_ignores_row_and_field_order(method: HashMethod) -> None:
 
 @methods
 def test_hash_ignores_list_element_order(method: HashMethod) -> None:
-    """List elements hash as a set: `[1, 2]` and `[2, 1]` are the same cell."""
+    """List elements hash as a set. `[1, 2]` and `[2, 1]` are the same cell."""
     ordered = pa.Table.from_pydict({"a": [1, 2, 3], "b": [[1, 2], [3, 4], [5, 6]]})
     reordered = pa.Table.from_pydict({"a": [1, 2, 3], "b": [[2, 1], [4, 3], [6, 5]]})
 
@@ -138,7 +138,7 @@ def test_hash_binary_columns(method: HashMethod) -> None:
 
 @methods
 def test_sorted_list_off_by_default(method: HashMethod) -> None:
-    """The default: `(left, right)` is ordered, so swapping the two changes the hash."""
+    """By default, `(left, right)` is ordered, so swapping the two changes the hash."""
     original = pa.Table.from_pydict({"left_id": [1, 2, 3], "right_id": [4, 5, 6]})
     swapped = pa.Table.from_pydict({"left_id": [4, 5, 6], "right_id": [1, 2, 3]})
 
@@ -149,7 +149,7 @@ def test_sorted_list_off_by_default(method: HashMethod) -> None:
 
 @methods
 def test_sorted_list_ignores_id_order(method: HashMethod) -> None:
-    """Swapped or row-reordered IDs hash the same; changed IDs do not."""
+    """Swapped or row-reordered IDs hash the same. Changed IDs do not."""
     sort_on = ["left_id", "right_id"]
     original = pa.Table.from_pydict(
         {"left_id": [1, 2, 3], "right_id": [4, 5, 6], "score": [0.8, 0.9, 0.7]}
@@ -213,9 +213,9 @@ def test_sorted_list_with_nulls(method: HashMethod) -> None:
 def test_hash_empty_table(method: HashMethod) -> None:
     """An empty table has one stable hash, whatever its columns, unlike a full one.
 
-    A behavioural check in place of asserting the literal sentinel the function returns:
-    the value is an implementation detail, but "empty is stable and distinct" is the
-    contract a store relies on.
+    This is a behavioural check rather than an assertion on the literal sentinel the
+    function returns. That value is an implementation detail. What a store relies on is
+    the contract that empty is stable and distinct.
     """
     empty_two_col = pa.Table.from_pydict({"a": [], "b": []})
     empty_one_col = pa.Table.from_pydict({"x": []})

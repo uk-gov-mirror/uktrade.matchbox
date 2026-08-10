@@ -1,7 +1,7 @@
-"""The stats helpers on the `Adapter` base: `format_bytes` and `StoreStats.describe`.
+"""Tests for `format_bytes` and `StoreStats.describe` on the `Adapter` base.
 
-These are pure formatting over plain values — no store, no backend — so they belong to
-`base.py`'s unit, not to a round-trip through a DuckDB file.
+These are pure formatting over plain values, with no store and no backend, so they
+belong to `base.py`'s own unit tests, not to a round-trip through a DuckDB file.
 """
 
 import pytest
@@ -24,7 +24,7 @@ from matchlab.core.kinds import StepKind
     ],
 )
 def test_format_bytes(count: int, signed: bool, expected: str) -> None:
-    """Bytes render as B/KB/GB; a signed delta keeps its sign."""
+    """Bytes render as B, KB, or GB. A signed delta keeps its sign."""
     assert format_bytes(count, signed=signed) == expected
 
 
@@ -40,7 +40,7 @@ def test_describe_populated() -> None:
 
 
 def test_describe_empty() -> None:
-    """Zero artifacts reads plural; a single artifact reads singular."""
+    """Zero artifacts reads as plural. A single artifact reads as singular."""
     one = StoreStats(location="x", bytes=0, artifacts={StepKind.SOURCE: 1})
 
     assert StoreStats(location="x", bytes=0).describe() == "Store 0 B, 0 artifacts"
