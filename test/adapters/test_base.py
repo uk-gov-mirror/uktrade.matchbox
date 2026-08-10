@@ -24,10 +24,12 @@ from matchlab.core.kinds import StepKind
     ],
 )
 def test_format_bytes(count: int, signed: bool, expected: str) -> None:
+    """Bytes render as B/KB/GB; a signed delta keeps its sign."""
     assert format_bytes(count, signed=signed) == expected
 
 
-def test_stats_describe_themselves() -> None:
+def test_describe_populated() -> None:
+    """A store's size, its growth over a baseline, and its artifact count."""
     stats = StoreStats(location="somewhere", bytes=2048, artifacts={StepKind.VIEW: 3})
 
     assert stats.describe() == "Store 2.0 KB, 3 artifacts"
@@ -37,7 +39,8 @@ def test_stats_describe_themselves() -> None:
     )
 
 
-def test_an_empty_store_describes_itself_without_a_plural() -> None:
+def test_describe_empty() -> None:
+    """Zero artifacts reads plural; a single artifact reads singular."""
     one = StoreStats(location="x", bytes=0, artifacts={StepKind.SOURCE: 1})
 
     assert StoreStats(location="x", bytes=0).describe() == "Store 0 B, 0 artifacts"

@@ -26,7 +26,7 @@ methods = pytest.mark.parametrize(
 
 
 @methods
-def test_hash_rows_handles_every_column_type(method: HashMethod) -> None:
+def test_hash_rows_all_dtypes(method: HashMethod) -> None:
     """One hash per row over the full spread of dtypes a source can present.
 
     The dtype assertions guard the fixture: they are what says this really exercises the
@@ -57,7 +57,7 @@ def test_hash_rows_handles_every_column_type(method: HashMethod) -> None:
 
 
 @methods
-def test_field_and_row_order_do_not_change_the_hash(method: HashMethod) -> None:
+def test_hash_ignores_row_and_field_order(method: HashMethod) -> None:
     """The same content in any column or row order is the same table to the hash."""
     original = pa.Table.from_pydict({"a": [1, 2, 3], "b": [4, 5, 6]})
     field_reordered = pa.Table.from_pydict({"b": [4, 5, 6], "a": [1, 2, 3]})
@@ -73,7 +73,7 @@ def test_field_and_row_order_do_not_change_the_hash(method: HashMethod) -> None:
 
 
 @methods
-def test_order_within_a_list_field_does_not_change_the_hash(method: HashMethod) -> None:
+def test_hash_ignores_list_element_order(method: HashMethod) -> None:
     """List elements hash as a set: `[1, 2]` and `[2, 1]` are the same cell."""
     ordered = pa.Table.from_pydict({"a": [1, 2, 3], "b": [[1, 2], [3, 4], [5, 6]]})
     reordered = pa.Table.from_pydict({"a": [1, 2, 3], "b": [[2, 1], [4, 3], [6, 5]]})
@@ -99,9 +99,7 @@ def test_order_within_a_list_field_does_not_change_the_hash(method: HashMethod) 
         ),
     ],
 )
-def test_changed_content_changes_the_hash(
-    method: HashMethod, changed: pa.Table
-) -> None:
+def test_hash_changes_on_content(method: HashMethod, changed: pa.Table) -> None:
     """Order-invariance must not reach so far it stops noticing a real difference."""
     original = pa.Table.from_pydict({"a": [1, 2, 3], "b": [4, 5, 6]})
 
@@ -111,7 +109,7 @@ def test_changed_content_changes_the_hash(
 
 
 @methods
-def test_changed_struct_content_changes_the_hash(method: HashMethod) -> None:
+def test_hash_changes_on_struct(method: HashMethod) -> None:
     """Structs hash by their contents, nested values included, not their shape alone."""
     basic = pa.Table.from_pydict(
         {"id": [1, 2], "meta": [{"name": "Alice", "age": 30}, {"name": "Bob"}]}
@@ -126,7 +124,7 @@ def test_changed_struct_content_changes_the_hash(method: HashMethod) -> None:
 
 
 @methods
-def test_binary_columns_hash_including_non_utf8_bytes(method: HashMethod) -> None:
+def test_hash_binary_columns(method: HashMethod) -> None:
     """Binary is hex-encoded before hashing, so non-UTF-8 bytes survive."""
     table = pa.Table.from_pydict(
         {"a": [1, 2, 3], "b": [b"abc", None, bytes([255, 254, 253])]}
@@ -139,7 +137,7 @@ def test_binary_columns_hash_including_non_utf8_bytes(method: HashMethod) -> Non
 
 
 @methods
-def test_column_order_matters_without_as_sorted_list(method: HashMethod) -> None:
+def test_sorted_list_off_by_default(method: HashMethod) -> None:
     """The default: `(left, right)` is ordered, so swapping the two changes the hash."""
     original = pa.Table.from_pydict({"left_id": [1, 2, 3], "right_id": [4, 5, 6]})
     swapped = pa.Table.from_pydict({"left_id": [4, 5, 6], "right_id": [1, 2, 3]})
@@ -150,7 +148,7 @@ def test_column_order_matters_without_as_sorted_list(method: HashMethod) -> None
 
 
 @methods
-def test_as_sorted_list_makes_id_order_irrelevant(method: HashMethod) -> None:
+def test_sorted_list_ignores_id_order(method: HashMethod) -> None:
     """Swapped or row-reordered IDs hash the same; changed IDs do not."""
     sort_on = ["left_id", "right_id"]
     original = pa.Table.from_pydict(
@@ -177,7 +175,7 @@ def test_as_sorted_list_makes_id_order_irrelevant(method: HashMethod) -> None:
 
 
 @methods
-def test_as_sorted_list_spans_more_than_two_columns(method: HashMethod) -> None:
+def test_sorted_list_many_columns(method: HashMethod) -> None:
     """Wider than a pair: the same trio in any columns hashes the same."""
     sort_on = ["person_a", "person_b", "person_c"]
     abc = pa.Table.from_pydict(
@@ -193,7 +191,7 @@ def test_as_sorted_list_spans_more_than_two_columns(method: HashMethod) -> None:
 
 
 @methods
-def test_as_sorted_list_treats_nulls_as_content(method: HashMethod) -> None:
+def test_sorted_list_with_nulls(method: HashMethod) -> None:
     """A null is a value in the set, so two frames with the same nulls sorted agree."""
     sort_on = ["left_id", "right_id"]
     a = pa.Table.from_pydict(
@@ -212,7 +210,7 @@ def test_as_sorted_list_treats_nulls_as_content(method: HashMethod) -> None:
 
 
 @methods
-def test_empty_table_hashes_consistently(method: HashMethod) -> None:
+def test_hash_empty_table(method: HashMethod) -> None:
     """An empty table has one stable hash, whatever its columns, unlike a full one.
 
     A behavioural check in place of asserting the literal sentinel the function returns:

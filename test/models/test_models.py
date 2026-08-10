@@ -47,7 +47,7 @@ from matchlab.models.models import normalise_model_scores
         ),
     ],
 )
-def test_collapses_a_pair_scored_twice_to_its_highest(
+def test_normalise_one_edge_per_pair(
     scores: pl.DataFrame, expected: pl.DataFrame
 ) -> None:
     """One edge per unordered pair: `(a, b)` and `(b, a)` collapse, top score wins."""

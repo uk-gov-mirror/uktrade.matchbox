@@ -37,11 +37,12 @@ from matchlab.views import _apply_cleaning
         ),
     ],
 )
-def test_basic_projection(
+def test_cleaning_projects(
     cleaning: dict[str, str],
     expected_columns: list[str],
     expected_values: dict[str, list],
 ) -> None:
+    """A cleaning renames and selects the named columns."""
     data = pl.DataFrame(
         {
             "id": [1, 2, 3],
@@ -58,12 +59,13 @@ def test_basic_projection(
         assert result[column].to_list() == values
 
 
-def test_none_passes_the_frame_through() -> None:
+def test_cleaning_none_passthrough() -> None:
+    """cleaning=None passes the frame through untouched."""
     data = pl.DataFrame({"id": [1, 2], "name": ["John", "Jane"], "age": [25, 30]})
     assert_frame_equal(_apply_cleaning(data, None), data)
 
 
-def test_empty_dict_projects_to_identifiers_only() -> None:
+def test_cleaning_empty_dict() -> None:
     """`{}` is a real projection selecting nothing — distinct from `None`."""
     data = pl.DataFrame(
         {"id": [1, 2, 3], "name": ["A", "B", "C"], "value": [10, 20, 30]}
@@ -75,7 +77,8 @@ def test_empty_dict_projects_to_identifiers_only() -> None:
     assert result["id"].to_list() == [1, 2, 3]
 
 
-def test_unreferenced_columns_are_dropped() -> None:
+def test_cleaning_drops_unreferenced() -> None:
+    """Columns no cleaning names are dropped."""
     data = pl.DataFrame(
         {
             "id": [1, 2, 3],
@@ -91,7 +94,8 @@ def test_unreferenced_columns_are_dropped() -> None:
     assert result["full_name"].to_list() == ["John", "Jane", "Bob"]
 
 
-def test_expressions_may_reference_multiple_columns() -> None:
+def test_cleaning_multi_column_expr() -> None:
+    """A cleaning expression may combine several columns."""
     data = pl.DataFrame(
         {
             "id": [1, 2, 3],
@@ -110,7 +114,8 @@ def test_expressions_may_reference_multiple_columns() -> None:
     assert result["high_earner"].to_list() == [False, True, False]
 
 
-def test_complex_sql_expressions() -> None:
+def test_cleaning_complex_sql() -> None:
+    """Cleaning accepts arbitrary SQL expressions."""
     data = pl.DataFrame(
         {
             "id": [1, 2, 3],
@@ -135,7 +140,7 @@ def test_complex_sql_expressions() -> None:
     assert result["category_upper"].to_list() == ["A", "B", "A"]
 
 
-def test_only_id_and_the_named_columns_survive() -> None:
+def test_cleaning_keeps_id_and_named() -> None:
     """`id` passes through automatically; everything else must be asked for."""
     data = pl.DataFrame(
         {
@@ -151,7 +156,7 @@ def test_only_id_and_the_named_columns_survive() -> None:
     assert result["processed_value"].to_list() == [20, 40, 60]
 
 
-def test_group_collapses_each_id_to_one_row() -> None:
+def test_group_one_row_per_id() -> None:
     """Aggregates decide how each column combines — per column, not wholesale."""
     data = pl.DataFrame(
         {
@@ -176,7 +181,7 @@ def test_group_collapses_each_id_to_one_row() -> None:
     assert result["towns"][1].to_list() == ["hull"]
 
 
-def test_group_reports_a_non_aggregate_expression() -> None:
+def test_group_non_aggregate_raises() -> None:
     """DuckDB names the offending column, which is a better error than we'd write."""
     data = pl.DataFrame({"id": [1, 1], "town": ["london", "leeds"]})
 
@@ -184,13 +189,14 @@ def test_group_reports_a_non_aggregate_expression() -> None:
         _apply_cleaning(data, {"town": "town"}, group=True)
 
 
-def test_invalid_sql_raises() -> None:
+def test_cleaning_invalid_sql_raises() -> None:
+    """Invalid cleaning SQL raises at build time."""
     data = pl.DataFrame({"id": [1, 2, 3], "name": ["A", "B", "C"]})
     with pytest.raises(ParseError):
         _apply_cleaning(data, {"invalid": "foo bar baz"})
 
 
-def test_combines_fields_across_sources() -> None:
+def test_cleaning_across_sources() -> None:
     """Multi-source frames are already joined by the time cleaning runs."""
     data = pl.DataFrame(
         {

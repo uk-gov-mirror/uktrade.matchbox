@@ -22,6 +22,7 @@ from matchlab.models.dedupers import NaiveDeduper
 
 @pytest.fixture
 def resolver(source: Callable[..., Source]) -> Resolver:
+    """crn deduplicated on `company`, for the review app to sample from."""
     crn = source("crn")
     return crn.dedupe(
         model_class=NaiveDeduper,
@@ -34,9 +35,10 @@ def _app(resolver: Resolver, **kwargs: object) -> EntityResolutionApp:
     return EntityResolutionApp(resolver=resolver, scroll_debounce_delay=None, **kwargs)
 
 
-async def test_the_app_loads_clusters_from_a_collected_resolver(
+async def test_app_loads_clusters(
     resolver: Resolver,
 ) -> None:
+    """The app opens with the collected resolver's clusters queued."""
     resolver.collect()
 
     app = _app(resolver, num_samples=5)
@@ -47,9 +49,7 @@ async def test_the_app_loads_clusters_from_a_collected_resolver(
         assert set(app.current_item.records.columns) >= {"leaf"}
 
 
-async def test_a_judgement_reaches_the_adapter(
-    resolver: Resolver, adapter: DuckDBAdapter
-) -> None:
+async def test_app_stores_judgement(resolver: Resolver, adapter: DuckDBAdapter) -> None:
     """Paint every group, submit, and the judgement is stored and scoreable."""
     resolver.collect()
 
@@ -84,7 +84,7 @@ async def test_a_judgement_reaches_the_adapter(
     assert 0.0 <= recall <= 1.0
 
 
-async def test_a_seeded_session_draws_the_same_clusters(resolver: Resolver) -> None:
+async def test_app_seeded_session(resolver: Resolver) -> None:
     """Reviewing the clusters someone else was shown: same store, same seed.
 
     This is what replaced handing round a dumped sample file. The seed has to move on
@@ -103,9 +103,10 @@ async def test_a_seeded_session_draws_the_same_clusters(resolver: Resolver) -> N
     assert first[0] == first[1]
 
 
-async def test_no_samples_is_handled_rather_than_crashing(
+async def test_app_no_samples(
     resolver: Resolver, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """No samples to review is handled, not crashed on."""
     resolver.collect()
     monkeypatch.setattr(
         "matchlab.eval.tui.app.get_samples", lambda **_kwargs: {}, raising=True
@@ -116,7 +117,7 @@ async def test_no_samples_is_handled_rather_than_crashing(
         assert app.queue.total_count == 0
 
 
-async def test_a_store_can_be_reviewed_without_the_plan(
+async def test_app_reviews_without_plan(
     warehouse: Engine, source: Callable[..., Source], tmp_path: Path
 ) -> None:
     """The point of storing extracts: review needs neither the plan nor the warehouse.
@@ -152,9 +153,7 @@ async def test_a_store_can_be_reviewed_without_the_plan(
     store.close()
 
 
-def test_a_resolver_and_its_label_reach_the_same_resolver(
-    resolver: Resolver, adapter: DuckDBAdapter
-) -> None:
+def test_app_resolver_or_label(resolver: Resolver, adapter: DuckDBAdapter) -> None:
     """One parameter, two ways of saying which resolver — and they agree.
 
     The object and the label differ only in how the fingerprint is found, so nothing
@@ -170,9 +169,8 @@ def test_a_resolver_and_its_label_reach_the_same_resolver(
     assert by_object and set(by_object) == set(by_label)
 
 
-async def test_an_unknown_label_lists_what_is_there(
-    resolver: Resolver, adapter: DuckDBAdapter
-) -> None:
+async def test_app_unknown_label(resolver: Resolver, adapter: DuckDBAdapter) -> None:
+    """An unknown label names the labels that do exist."""
     from matchlab.core.exceptions import SourceTableError  # noqa: PLC0415
     from matchlab.eval import get_samples  # noqa: PLC0415
 

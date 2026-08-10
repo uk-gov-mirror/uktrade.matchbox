@@ -46,7 +46,8 @@ class FakeStep(Step):
         raise AssertionError("FakeStep never executes")
 
 
-def test_walk_returns_inputs_before_consumers() -> None:
+def test_walk_inputs_before_consumers() -> None:
+    """walk yields every input before the step that consumes it."""
     a = FakeStep("a")
     b = FakeStep("b", upstream=(a,))
     c = FakeStep("c", upstream=(b,))
@@ -55,7 +56,7 @@ def test_walk_returns_inputs_before_consumers() -> None:
     assert order == ["a", "b", "c"]
 
 
-def test_walk_visits_a_shared_input_once() -> None:
+def test_walk_shared_once() -> None:
     """A diamond: shared nodes are structurally shared, not duplicated."""
     shared = FakeStep("shared")
     left = FakeStep("left", upstream=(shared,))
@@ -70,13 +71,14 @@ def test_walk_visits_a_shared_input_once() -> None:
     assert order[-1] == "root"
 
 
-def test_walk_from_a_leaf_is_just_the_leaf() -> None:
+def test_walk_from_leaf() -> None:
+    """walk from a leaf is just the leaf."""
     leaf = FakeStep("leaf")
     FakeStep("downstream", upstream=(leaf,))  # never reachable from the leaf
     assert [step.label for step in lineage.walk(leaf)] == ["leaf"]
 
 
-def test_draw_expands_a_shared_node_once_and_refers_back_after() -> None:
+def test_draw_shared_refers_back() -> None:
     """Otherwise the drawing contradicts the sharing it exists to show.
 
     Redrawing a shared subtree per branch is exponential in the depth of the sharing —
@@ -97,7 +99,8 @@ def test_draw_expands_a_shared_node_once_and_refers_back_after() -> None:
         assert f"[{position}] " in drawing
 
 
-def test_draw_nests_inputs_under_consumers() -> None:
+def test_draw_nests_inputs() -> None:
+    """draw nests each step's inputs beneath it."""
     source = FakeStep("source")
     apex = FakeStep("apex", upstream=(source,))
 
@@ -109,7 +112,7 @@ def test_draw_nests_inputs_under_consumers() -> None:
     assert "└── " in drawing
 
 
-def test_draw_numbers_nodes_by_walk_position_not_by_line() -> None:
+def test_draw_numbers_by_position() -> None:
     """The drawing is the key to the log: `step 7` in a run is `[7]` here.
 
     A tree prints consumers above their inputs while a walk lists inputs first, so the
@@ -124,7 +127,7 @@ def test_draw_numbers_nodes_by_walk_position_not_by_line() -> None:
     assert drawing.index("[1]") < drawing.index("[0]")
 
 
-def test_numbering_writes_nothing_back_onto_the_steps() -> None:
+def test_number_is_read_only() -> None:
     """A position belongs to the walk, not to the step.
 
     The same node numbers differently depending on the apex, so storing one on the step
@@ -140,7 +143,7 @@ def test_numbering_writes_nothing_back_onto_the_steps() -> None:
     assert not hasattr(source, "name")  # steps have no names at all
 
 
-def test_steps_have_no_downstream_reference() -> None:
+def test_step_no_downstream_ref() -> None:
     """The structural guarantee: a node exposes its inputs and nothing else."""
     source = FakeStep("source")
     FakeStep("apex", upstream=(source,))

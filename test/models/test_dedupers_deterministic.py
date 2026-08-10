@@ -46,7 +46,7 @@ DEDUPERS = [
     ],
 )
 @patch.object(View, "_read_cache")
-def test_recovers_the_planted_entities(
+def test_recovers_planted(
     mock_read_cache: Mock,
     repetition: int,
     Deduper: Deduper,

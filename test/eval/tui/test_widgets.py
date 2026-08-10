@@ -23,7 +23,7 @@ def _rendered_styles(text: Text) -> list[Style]:
 # -- ComparisonDisplayTable header ----------------------------------------------------
 
 
-def test_header_formats_position_count_and_symbol() -> None:
+def test_header_formats() -> None:
     """Position, a duplicate count once there's more than one, and the group symbol."""
     table = ComparisonDisplayTable()
 
@@ -36,7 +36,7 @@ def test_header_formats_position_count_and_symbol() -> None:
     assert assigned.plain.startswith(("◇", "⬤"))
 
 
-def test_unassigned_header_is_dim_and_assigned_is_coloured() -> None:
+def test_header_dim_vs_coloured() -> None:
     """The visible cue a column is judged: dim until it carries a group colour."""
     table = ComparisonDisplayTable()
 
@@ -52,10 +52,12 @@ def test_unassigned_header_is_dim_and_assigned_is_coloured() -> None:
 
 
 def test_bar_starts_empty() -> None:
+    """A fresh bar holds no positions."""
     assert AssignmentBar().positions == []
 
 
-def test_reset_creates_that_many_empty_slots() -> None:
+def test_bar_reset() -> None:
+    """Reset lays out that many empty slots."""
     bar = AssignmentBar()
     bar.update = Mock()  # Bar.update renders; these tests only read the state it holds.
 
@@ -64,7 +66,8 @@ def test_reset_creates_that_many_empty_slots() -> None:
     assert bar.positions == [None] * 5
 
 
-def test_set_position_records_the_group_and_colour() -> None:
+def test_bar_set_position() -> None:
+    """Setting a position records its group letter and colour."""
     bar = AssignmentBar()
     bar.update = Mock()
     bar.reset(3)
@@ -76,7 +79,7 @@ def test_set_position_records_the_group_and_colour() -> None:
     assert bar.positions[1].colour == "red"
 
 
-def test_bar_shows_letters_and_folds_adjacent_repeats_to_dots() -> None:
+def test_bar_renders_letters_and_dots() -> None:
     """A group's first slot shows its letter; the next in that group is a dot."""
     bar = AssignmentBar()
     bar.update = Mock()

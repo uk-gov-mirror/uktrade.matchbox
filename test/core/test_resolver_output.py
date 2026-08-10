@@ -42,7 +42,8 @@ def _partition(resolver_output: pl.DataFrame) -> set[frozenset[str]]:
 # -- content-addressed IDs ------------------------------------------------------------
 
 
-def test_leaf_id_is_stable_and_int() -> None:
+def test_leaf_id() -> None:
+    """A leaf is a stable int: the first 8 bytes of a row's content hash."""
     h = b"\xab" * 32
     frame = pl.DataFrame({"hash": [h, h]})
     leaves = frame.select(leaf_id(pl.col("hash")).alias("leaf"))["leaf"]
@@ -50,7 +51,8 @@ def test_leaf_id_is_stable_and_int() -> None:
     assert leaves[0] == int.from_bytes(h[:8], "big")
 
 
-def test_root_id_is_order_invariant() -> None:
+def test_root_id_order_invariant() -> None:
+    """A root ignores leaf order, but not which leaves it covers."""
     assert root_id_of([3, 1, 2]) == root_id_of([1, 2, 3])
     assert root_id_of([1, 2]) != root_id_of([1, 3])
 
@@ -58,7 +60,7 @@ def test_root_id_is_order_invariant() -> None:
 # -- the layered fall-through scenario -------------------------------------------------
 
 
-def test_layered_fallthrough_preserves_upstream_clusters() -> None:
+def test_materialise_layered_fallthrough() -> None:
     """Apex links A+B; C, grouped by an upstream dedupe, must survive untouched.
 
     Leaf IDs: a1=1 a2=2 a3=3 b1=4 b2=5 c1=6 c2=7.
@@ -92,7 +94,8 @@ def test_layered_fallthrough_preserves_upstream_clusters() -> None:
     assert resolver_output.schema["root"] == pl.UInt64
 
 
-def test_grouped_ids_share_a_root_and_untouched_do_not() -> None:
+def test_materialise_links_clusters() -> None:
+    """Two upstream clusters an apex edge joins collapse to one root."""
     upstream = _upstream(
         [
             (101, "A", "ka1", 1),
@@ -111,7 +114,8 @@ def test_grouped_ids_share_a_root_and_untouched_do_not() -> None:
 # -- single resolver, no layering -----------------------------------------------------
 
 
-def test_single_resolver_over_bare_leaves() -> None:
+def test_materialise_single_resolver() -> None:
+    """With no upstream resolver, a leaf is its own query-space id."""
     # No upstream resolver: query-space id == leaf.
     upstream = _upstream(
         [
@@ -132,7 +136,8 @@ def test_single_resolver_over_bare_leaves() -> None:
 # -- determinism ----------------------------------------------------------------------
 
 
-def test_roots_are_deterministic_across_runs() -> None:
+def test_materialise_deterministic() -> None:
+    """The same clusters and upstream produce the same output twice."""
     upstream = _upstream([(1, "A", "ka1", 1), (2, "A", "ka2", 2)])
     clusters = _clusters([(1, 1), (1, 2)])
     a = materialise_resolver_output(clusters, upstream)
@@ -143,7 +148,8 @@ def test_roots_are_deterministic_across_runs() -> None:
 # -- edge cases -----------------------------------------------------------------------
 
 
-def test_empty_upstream_returns_empty_resolver_output() -> None:
+def test_materialise_empty_upstream() -> None:
+    """Empty upstream yields an empty, correctly-shaped output."""
     upstream = pl.DataFrame(
         schema={"id": pl.UInt64, "source": pl.Utf8, "key": pl.Utf8, "leaf": pl.UInt64}
     )
@@ -152,7 +158,7 @@ def test_empty_upstream_returns_empty_resolver_output() -> None:
     assert set(resolver_output.columns) == {"root", "leaf", "key", "source"}
 
 
-def test_no_clusters_means_everything_falls_through() -> None:
+def test_materialise_no_clusters() -> None:
     """A resolver whose models formed no edges keeps the upstream grouping intact."""
     upstream = _upstream(
         [
@@ -168,7 +174,7 @@ def test_no_clusters_means_everything_falls_through() -> None:
     }
 
 
-def test_the_adapter_mints_the_same_ids_a_resolver_does() -> None:
+def test_root_id_matches_adapter_mint() -> None:
     """Scoring compares judged groups to resolved clusters *by ID*.
 
     If `_mint_cluster_id` and `root_id` ever diverge, every comparison misses and

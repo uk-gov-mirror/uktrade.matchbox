@@ -18,7 +18,8 @@ def _components(dsu: DisjointSet) -> set[frozenset[Hashable]]:
     return {frozenset(group) for group in dsu.get_components()}
 
 
-def test_an_empty_forest_has_no_components() -> None:
+def test_empty_forest() -> None:
+    """A fresh forest reports no components."""
     assert DisjointSet().get_components() == []
 
 
@@ -41,9 +42,7 @@ def test_an_empty_forest_has_no_components() -> None:
         ),
     ],
 )
-def test_union_forms_transitive_components(
-    unions: list[tuple[int, int]], expected: set[frozenset[int]]
-) -> None:
+def test_union(unions: list[tuple[int, int]], expected: set[frozenset[int]]) -> None:
     """The one property union-find exists for: unioned elements share a component."""
     dsu: DisjointSet[int] = DisjointSet()
     for left, right in unions:
@@ -63,9 +62,7 @@ def test_union_forms_transitive_components(
         ),
     ],
 )
-def test_add_is_an_idempotent_singleton(
-    adds: list[int], expected: set[frozenset[int]]
-) -> None:
+def test_add(adds: list[int], expected: set[frozenset[int]]) -> None:
     """A new element is its own component; adding it again changes nothing."""
     dsu: DisjointSet[int] = DisjointSet()
     for element in adds:
@@ -73,7 +70,7 @@ def test_add_is_an_idempotent_singleton(
     assert _components(dsu) == expected
 
 
-def test_add_and_union_compose() -> None:
+def test_add_and_union() -> None:
     """An element no `union` touched keeps its own component beside the merged ones."""
     dsu: DisjointSet[int] = DisjointSet()
     dsu.add(1)

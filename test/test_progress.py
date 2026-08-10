@@ -90,6 +90,7 @@ def _no_report_leaks() -> None:
 
 @pytest.fixture
 def store() -> DuckDBAdapter:
+    """An in-memory store for the fake steps to collect into."""
     return DuckDBAdapter(":memory:")
 
 
@@ -160,7 +161,8 @@ def _untimed(messages: list[str]) -> list[str]:
 # -- what collect reports ------------------------------------------------------------
 
 
-def test_a_first_collect_runs_every_storing_step(store: DuckDBAdapter) -> None:
+def test_report_first_collect_runs_all(store: DuckDBAdapter) -> None:
+    """A first collect runs every storing step."""
     apex, source, view = _plan()
 
     state = _run(apex, store).state
@@ -170,7 +172,7 @@ def test_a_first_collect_runs_every_storing_step(store: DuckDBAdapter) -> None:
     assert state[id(view)].status is StepStatus.DONE
 
 
-def test_recollecting_reports_cached_not_ran(store: DuckDBAdapter) -> None:
+def test_report_recollect_cached(store: DuckDBAdapter) -> None:
     """The distinction the report exists to show: what your edit actually re-ran."""
     apex, source, _view = _plan()
     apex.collect(adapter=store, interactive=False)
@@ -183,7 +185,7 @@ def test_recollecting_reports_cached_not_ran(store: DuckDBAdapter) -> None:
     assert source.executions == 1
 
 
-def test_a_fresh_plan_over_a_warm_store_is_all_cached(store: DuckDBAdapter) -> None:
+def test_report_warm_store_all_cached(store: DuckDBAdapter) -> None:
     """Fingerprints are plan-derived, so a rebuilt plan hits the same artifacts."""
     _plan()[0].collect(adapter=store, interactive=False)
 
@@ -194,7 +196,8 @@ def test_a_fresh_plan_over_a_warm_store_is_all_cached(store: DuckDBAdapter) -> N
     assert source.executions == 0
 
 
-def test_a_failure_is_marked_and_reraised(store: DuckDBAdapter) -> None:
+def test_report_failure_reraised(store: DuckDBAdapter) -> None:
+    """A failing step is marked failed and the error re-raised."""
     source = StoringStep("source")
     apex = FailingStep("apex", upstream=(source,))
 
@@ -202,7 +205,8 @@ def test_a_failure_is_marked_and_reraised(store: DuckDBAdapter) -> None:
         apex.collect(adapter=store, interactive=False)
 
 
-def test_every_step_is_timed(store: DuckDBAdapter) -> None:
+def test_report_steps_timed(store: DuckDBAdapter) -> None:
+    """Every step's duration is recorded."""
     apex, source, _view = _plan()
 
     reporter = _run(apex, store)
@@ -213,7 +217,7 @@ def test_every_step_is_timed(store: DuckDBAdapter) -> None:
     assert "3 steps" in reporter.summary()
 
 
-def test_the_summary_totals_the_debug_counts(
+def test_summary_totals_debug_counts(
     store: DuckDBAdapter,
 ) -> None:
     """`Cached` sits at DEBUG, so the INFO summary has to total it."""
@@ -238,9 +242,7 @@ def _summary_of(caplog: pytest.LogCaptureFixture) -> str:
     ][-1]
 
 
-def test_the_summary_reports_the_store_size(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_summary_store_size(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """Nothing else tells a user what the store costs, so the end of a run does.
 
     A file store, because that is the one that outlives the process and fills a disk.
@@ -258,9 +260,7 @@ def test_the_summary_reports_the_store_size(
     )
 
 
-def test_a_collect_that_stored_nothing_reports_no_growth(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_summary_no_growth(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """The delta is what attributes growth to the run that caused it.
 
     A fully cached collect wrote nothing, and has to say so — otherwise the number is
@@ -279,7 +279,7 @@ def test_a_collect_that_stored_nothing_reports_no_growth(
     assert "(+0 B)" in summary
 
 
-def test_the_summary_omits_the_store_when_there_is_no_adapter(
+def test_summary_omits_store_without_adapter(
     store: DuckDBAdapter,
 ) -> None:
     """`Progress` is constructible without one, and then simply says less."""
@@ -291,7 +291,7 @@ def test_the_summary_omits_the_store_when_there_is_no_adapter(
     assert "Store" not in summary
 
 
-def test_the_store_describes_itself(
+def test_summary_store_describes_itself(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -324,7 +324,7 @@ def test_the_store_describes_itself(
 # -- the log channel -----------------------------------------------------------------
 
 
-def test_the_plan_is_logged_once_up_front(
+def test_log_plan_once_up_front(
     store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Without the tree, the numbered lines that follow refer to nothing."""
@@ -341,7 +341,7 @@ def test_the_plan_is_logged_once_up_front(
     assert "└── " in headers[0]
 
 
-def test_a_log_line_quotes_a_position_the_logged_tree_numbers(
+def test_log_quotes_position(
     store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The cross-reference, end to end: every `[step N]` is an `[N]` in the drawing."""
@@ -361,7 +361,7 @@ def test_a_log_line_quotes_a_position_the_logged_tree_numbers(
         assert f"[{position}] " in tree
 
 
-def test_a_step_own_records_are_attributed_to_it(
+def test_log_attributes_step_records(
     store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
 ) -> None:
     """What a step logs while it runs is tied to the plan without it saying so.
@@ -385,7 +385,7 @@ def test_a_step_own_records_are_attributed_to_it(
     assert f"[step {position}] Round 1: Found 13,336 matches" in _messages(caplog)
 
 
-def test_a_nested_collection_gives_the_outer_positions_back(
+def test_log_nested_restores_positions(
     store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A step can collect — `Model.results()` does — and that walk numbers its own.
@@ -418,7 +418,7 @@ def test_a_nested_collection_gives_the_outer_positions_back(
     assert f"[step {outer}] Collecting 3 steps" in "\n".join(messages)
 
 
-def test_a_supplied_prefix_applies_outside_a_collection(
+def test_log_prefix_outside_collection(
     store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A `Source` reads the warehouse from both, and each has its own best answer.
@@ -445,7 +445,7 @@ def test_a_supplied_prefix_applies_outside_a_collection(
     assert f"[step {position}] Reading from the warehouse" in messages
 
 
-def test_the_prefix_is_released_when_the_collection_ends(
+def test_log_prefix_released(
     store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A position outlives its walk as a lie: it numbers a tree nobody is inside."""
@@ -460,7 +460,7 @@ def test_the_prefix_is_released_when_the_collection_ends(
     assert _messages(caplog) == ["afterwards"]
 
 
-def test_a_failing_step_does_not_leak_its_prefix(store: DuckDBAdapter) -> None:
+def test_log_prefix_released_on_failure(store: DuckDBAdapter) -> None:
     """The raise skips `end`, so releasing has to happen on the way out too."""
     apex = FailingStep("apex", upstream=(StoringStep("source"),))
 
@@ -470,7 +470,7 @@ def test_a_failing_step_does_not_leak_its_prefix(store: DuckDBAdapter) -> None:
     assert mlog.prefix.get() is None
 
 
-def test_each_outcome_logs_at_the_level_it_deserves(
+def test_log_level_per_outcome(
     store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Work done is INFO; structure — cached — is DEBUG."""
@@ -494,7 +494,7 @@ def test_each_outcome_logs_at_the_level_it_deserves(
     assert levels[f"step {positions[id(top)]}"] == logging.INFO  # ran
 
 
-def test_the_records_are_the_same_whether_or_not_a_tree_is_drawn(
+def test_log_records_match_drawn(
     terminal: io.StringIO, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Only the key moves between channels. What each step reports does not.
@@ -519,7 +519,7 @@ def test_the_records_are_the_same_whether_or_not_a_tree_is_drawn(
     assert any(m.startswith("Collected") for m in drawn)
 
 
-def test_a_drawn_tree_is_not_logged_as_well(
+def test_log_not_duplicated_when_drawn(
     store: DuckDBAdapter, terminal: io.StringIO, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The frame is already the key, and stays on screen — a second copy is noise.
@@ -536,9 +536,7 @@ def test_a_drawn_tree_is_not_logged_as_well(
     assert "apex" in terminal.getvalue()  # and the plan is on screen instead
 
 
-def test_a_plain_stream_handler_does_not_smear_the_frame(
-    store: DuckDBAdapter, terminal: io.StringIO
-) -> None:
+def test_log_handler_no_smear(store: DuckDBAdapter, terminal: io.StringIO) -> None:
     """`logging.basicConfig(level=INFO)` is what people write, so it has to work.
 
     Its handler holds the stream it was built with, so it never sees the redirect Rich
@@ -595,7 +593,7 @@ def _in_a_notebook(monkeypatch: pytest.MonkeyPatch) -> logging.StreamHandler:
         pytest.param(_in_a_notebook, False, id="in-a-notebook"),
     ],
 )
-def test_a_handler_is_borrowed_only_when_it_would_collide(
+def test_log_handler_borrowed_on_collision(
     monkeypatch: pytest.MonkeyPatch,
     configure: Callable[[pytest.MonkeyPatch], logging.StreamHandler],
     borrowed: bool,
@@ -621,7 +619,7 @@ def test_a_handler_is_borrowed_only_when_it_would_collide(
     assert handler.stream is original  # handed back afterwards
 
 
-def test_a_console_handler_lets_the_log_and_the_tree_share_a_terminal(
+def test_log_console_handler_shares_terminal(
     store: DuckDBAdapter, terminal: io.StringIO
 ) -> None:
     """The alternative to silencing records: put them where Rich can see them.
@@ -655,7 +653,8 @@ def test_a_console_handler_lets_the_log_and_the_tree_share_a_terminal(
 # -- the drawn channel ---------------------------------------------------------------
 
 
-def test_the_tree_marks_each_status() -> None:
+def test_tree_marks_status() -> None:
+    """The drawn tree marks each step ran, cached, or failed."""
     apex, source, view = _plan()
     state = {
         id(source): StepState(StepStatus.CACHED),
@@ -670,18 +669,19 @@ def test_the_tree_marks_each_status() -> None:
     assert "◍ [0] source cached" in tree
 
 
-def test_a_step_missing_from_the_state_is_drawn_as_pending() -> None:
+def test_tree_missing_is_pending() -> None:
+    """A step absent from the state is drawn as pending."""
     apex, _source, _view = _plan()
     assert "○ [2] apex" in draw(apex, {})
 
 
-def test_a_cached_step_is_not_given_a_time() -> None:
+def test_tree_cached_untimed() -> None:
     """`0.0s` beside a skipped step says nothing; the marker already said it."""
     assert StepState(StepStatus.CACHED, 0.0).annotation() == "cached"
     assert StepState(StepStatus.DONE, 1.24).annotation() == "1.2s"
 
 
-def test_drawing_with_markup_escapes_the_position() -> None:
+def test_tree_escapes_markup() -> None:
     """`[7]` would otherwise parse as a style tag and blow up the render."""
     apex, _source, _view = _plan()
 
@@ -691,9 +691,10 @@ def test_drawing_with_markup_escapes_the_position() -> None:
     Console(file=io.StringIO()).print(markup)  # would raise on a bad tag
 
 
-def test_the_live_display_redraws_in_place(
+def test_tree_live_redraws_in_place(
     store: DuckDBAdapter, terminal: io.StringIO
 ) -> None:
+    """The live display redraws in place rather than scrolling."""
     apex, _source, _view = _plan()
 
     apex.collect(adapter=store, interactive=True)
@@ -709,7 +710,7 @@ def test_the_live_display_redraws_in_place(
 # -- windowing a tall plan -----------------------------------------------------------
 
 
-def test_the_window_follows_the_running_step(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_window_follows_running_step(monkeypatch: pytest.MonkeyPatch) -> None:
     """The point of a frame is to show what is happening in it."""
     _terminal(monkeypatch, height=8)
     apex = _tall_plan(12)
@@ -729,7 +730,7 @@ def test_the_window_follows_the_running_step(monkeypatch: pytest.MonkeyPatch) ->
     assert "step0" not in highest
 
 
-def test_the_window_says_what_it_is_leaving_out(
+def test_window_shows_elision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without it the frame looks like the whole plan, and the positions look wrong."""
@@ -752,7 +753,7 @@ def test_the_window_says_what_it_is_leaving_out(
     assert "below" not in at_leaf
 
 
-def test_a_plan_that_fits_is_drawn_whole_and_unannotated(
+def test_window_fits_whole(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The note is for a frame that is hiding something; most frames aren't."""
@@ -769,7 +770,7 @@ def test_a_plan_that_fits_is_drawn_whole_and_unannotated(
     assert "⋮" not in frame
 
 
-def test_the_last_frame_is_the_whole_tree(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_window_last_frame_whole(monkeypatch: pytest.MonkeyPatch) -> None:
     """It is what stays on screen, and what the summary line refers to.
 
     Nothing is being redrawn in place any more, so letting it scroll costs nothing.
@@ -790,7 +791,7 @@ def test_the_last_frame_is_the_whole_tree(monkeypatch: pytest.MonkeyPatch) -> No
 # -- choosing a channel --------------------------------------------------------------
 
 
-def test_a_plan_taller_than_the_terminal_is_still_drawn(
+def test_channel_tall_plan_drawn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Height decides how much of the frame you see, and nothing else."""
@@ -800,7 +801,7 @@ def test_a_plan_taller_than_the_terminal_is_still_drawn(
     assert report(apex, apex.lineage(), interactive=None)._live is not None
 
 
-def test_a_windowed_frame_costs_the_records_nothing(
+def test_channel_window_keeps_records(
     store: DuckDBAdapter,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -816,7 +817,7 @@ def test_a_windowed_frame_costs_the_records_nothing(
     assert len(ran) == 12
 
 
-def test_progress_defaults_to_off_when_output_is_redirected(
+def test_channel_off_when_redirected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Rich decides what counts as a terminal; `force_terminal=False` is its answer."""
@@ -827,7 +828,8 @@ def test_progress_defaults_to_off_when_output_is_redirected(
     assert report(apex, apex.lineage(), interactive=None)._live is None
 
 
-def test_progress_defaults_to_on_at_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_channel_on_at_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """At a terminal, progress draws by default."""
     console = Console(file=io.StringIO(), force_terminal=True)
     monkeypatch.setattr(mlog, "console", console)
     apex, _source, _view = _plan()
@@ -835,7 +837,7 @@ def test_progress_defaults_to_on_at_a_terminal(monkeypatch: pytest.MonkeyPatch) 
     assert report(apex, apex.lineage(), interactive=None)._live is not None
 
 
-def test_a_nested_collection_is_undrawn_but_logs_its_own_tree(
+def test_channel_nested_logs_not_drawn(
     terminal: io.StringIO, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Rich allows one live display, but its positions still need a key.
@@ -859,7 +861,7 @@ def test_a_nested_collection_is_undrawn_but_logs_its_own_tree(
     assert report(apex, apex.lineage(), interactive=True)._live is not None
 
 
-def test_a_display_that_fails_to_start_borrows_nothing(
+def test_channel_failed_display_borrows_nothing(
     monkeypatch: pytest.MonkeyPatch, terminal: io.StringIO
 ) -> None:
     """A failed `__enter__` means no `__exit__`, so it has to clean up after itself.
@@ -886,9 +888,10 @@ def test_a_display_that_fails_to_start_borrows_nothing(
     assert handler.stream is terminal
 
 
-def test_an_unfinished_collection_releases_the_report(
+def test_channel_unfinished_releases(
     terminal: io.StringIO,
 ) -> None:
+    """An interrupted collection still releases its report."""
     apex, _source, _view = _plan()
 
     with (

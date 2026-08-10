@@ -54,11 +54,13 @@ def _dedupe_on(src: Source, field: str) -> Resolver:
 
 @pytest.fixture
 def by_company(source: Callable[..., Source]) -> Resolver:
+    """crn deduplicated on `company`: {a1,a2}, {a3}."""
     return _dedupe_on(source("crn"), "company").collect()
 
 
 @pytest.fixture
 def by_town(source: Callable[..., Source]) -> Resolver:
+    """crn deduplicated on `town`: {a1,a3}, {a2}."""
     return _dedupe_on(source("crn"), "town").collect()
 
 
@@ -72,15 +74,14 @@ def _leaves(resolver: Resolver) -> dict[str, int]:
 # -- merged sampling ------------------------------------------------------------------
 
 
-def test_one_resolver_samples_its_own_clusters(by_company: Resolver) -> None:
+def test_sample_one_resolver(by_company: Resolver) -> None:
+    """One resolver samples its own clusters: a pair and a singleton."""
     samples = get_samples(n=999, resolver=by_company)
 
     assert sorted(len(item.leaves) for item in samples.values()) == [1, 2]
 
 
-def test_several_resolvers_sample_their_merged_clusters(
-    by_company: Resolver, by_town: Resolver
-) -> None:
+def test_sample_merged(by_company: Resolver, by_town: Resolver) -> None:
     """The union: two records land together if *either* resolver put them there.
 
     Individually each resolver splits the source into a pair and a singleton, and
@@ -101,7 +102,7 @@ def test_several_resolvers_sample_their_merged_clusters(
     assert sorted(item.leaves) == sorted(_leaves(by_company).values())
 
 
-def test_merged_roots_are_content_addressed(
+def test_sample_merged_content_addressed(
     by_company: Resolver, by_town: Resolver
 ) -> None:
     """Two people running the same comparison key on the same IDs."""
@@ -111,7 +112,7 @@ def test_merged_roots_are_content_addressed(
     assert set(once) == set(twice)
 
 
-def test_resolvers_over_different_source_artifacts_are_rejected(
+def test_sample_rejects_mismatched_sources(
     source: Callable[..., Source],
 ) -> None:
     """Same source *name*, different data — so the clusters are not comparable.
@@ -128,7 +129,8 @@ def test_resolvers_over_different_source_artifacts_are_rejected(
         get_samples(n=999, resolver=[wide, narrow])
 
 
-def test_an_empty_sequence_is_an_error(by_company: Resolver) -> None:
+def test_sample_empty_sequence_raises(by_company: Resolver) -> None:
+    """Sampling no resolvers at all is an error, not an empty draw."""
     with pytest.raises(ValueError, match="At least one resolver"):
         get_samples(n=1, resolver=[])
 
@@ -136,16 +138,15 @@ def test_an_empty_sequence_is_an_error(by_company: Resolver) -> None:
 # -- seeding --------------------------------------------------------------------------
 
 
-def test_a_seed_fixes_which_clusters_come_back(by_company: Resolver) -> None:
+def test_seed_fixes_sample(by_company: Resolver) -> None:
     """What replaced passing a dumped sample file around."""
     first = get_samples(n=1, resolver=by_company, seed=7)
     again = get_samples(n=1, resolver=by_company, seed=7)
     assert set(first) == set(again)
 
 
-def test_a_seed_fixes_the_merged_sample_too(
-    by_company: Resolver, by_town: Resolver
-) -> None:
+def test_seed_fixes_merged(by_company: Resolver, by_town: Resolver) -> None:
+    """A seed fixes the merged sample as it fixes a single one."""
     merged = [by_company, by_town]
     assert set(get_samples(n=1, resolver=merged, seed=7)) == set(
         get_samples(n=1, resolver=merged, seed=7)
@@ -173,15 +174,14 @@ def judged(by_company: Resolver, adapter: DuckDBAdapter) -> DuckDBAdapter:
     return adapter
 
 
-def test_one_resolver_scores_to_a_pair(
-    judged: DuckDBAdapter, by_company: Resolver
-) -> None:
+def test_score_one_resolver(judged: DuckDBAdapter, by_company: Resolver) -> None:
+    """One resolver scores to a single precision/recall pair."""
     precision, recall = EvalData(judged, tag="bakeoff").precision_recall(by_company)
 
     assert (precision, recall) == (1.0, 1.0)
 
 
-def test_several_resolvers_score_to_a_list(
+def test_score_several_resolvers(
     judged: DuckDBAdapter, by_company: Resolver, by_town: Resolver
 ) -> None:
     """Ranked against one another over the same records, in the order given."""
@@ -190,9 +190,8 @@ def test_several_resolvers_score_to_a_list(
     assert scores == [(1.0, 1.0), (0.0, 0.0)]
 
 
-def test_a_label_scores_the_same_as_the_resolver_it_names(
-    judged: DuckDBAdapter, by_company: Resolver
-) -> None:
+def test_score_by_label(judged: DuckDBAdapter, by_company: Resolver) -> None:
+    """Scoring a label matches scoring the resolver it points at."""
     by_company.publish("companies")
     evaluation = EvalData(judged, tag="bakeoff")
 
@@ -201,7 +200,7 @@ def test_a_label_scores_the_same_as_the_resolver_it_names(
     )
 
 
-def test_entities_of_the_two_resolvers_really_do_differ(
+def test_fixture_guard_resolvers_differ(
     by_company: Resolver, by_town: Resolver
 ) -> None:
     """Guards the fixtures: the scores above mean nothing if these agree."""

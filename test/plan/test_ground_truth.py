@@ -42,7 +42,7 @@ def planted(n: int, warehouse: Engine) -> LinkedSources:
     ).write_to_location()
 
 
-def test_dedupe_recovers_the_true_entities(warehouse: Engine) -> None:
+def test_dedupe_recovers_entities(warehouse: Engine) -> None:
     """A perfect deduper must resolve each source's records to its true entities."""
     linked = planted(10, warehouse)
 
@@ -52,7 +52,7 @@ def test_dedupe_recovers_the_true_entities(warehouse: Engine) -> None:
     assert identical, report
 
 
-def test_link_recovers_the_true_entities(warehouse: Engine) -> None:
+def test_link_recovers_entities(warehouse: Engine) -> None:
     """A perfect linker must join one entity's records across two sources."""
     linked = planted(10, warehouse)
 
@@ -64,7 +64,7 @@ def test_link_recovers_the_true_entities(warehouse: Engine) -> None:
     assert identical, report
 
 
-def test_resolver_output_covers_every_record(warehouse: Engine) -> None:
+def test_resolver_output_complete(warehouse: Engine) -> None:
     """No record may be dropped: the resolver output is complete over the source."""
     linked = planted(6, warehouse)
 
@@ -76,7 +76,7 @@ def test_resolver_output_covers_every_record(warehouse: Engine) -> None:
     assert set(resolver_output["key"].to_list()) == expected_keys
 
 
-def test_link_through_a_dedupe_carries_it_forward(warehouse: Engine) -> None:
+def test_link_through_dedupe_merges_forward(warehouse: Engine) -> None:
     """A link built *through* an upstream resolver must preserve its grouping.
 
     This is merge-forward end to end: the apex is a link, but the dedupe's clusters
@@ -95,7 +95,7 @@ def test_link_through_a_dedupe_carries_it_forward(warehouse: Engine) -> None:
     assert identical, report
 
 
-def test_clusters_never_merge_distinct_entities(warehouse: Engine) -> None:
+def test_clusters_keep_entities_distinct(warehouse: Engine) -> None:
     """Precision: no cluster may contain records from two different true entities."""
     linked = planted(12, warehouse)
 
@@ -111,7 +111,7 @@ def test_clusters_never_merge_distinct_entities(warehouse: Engine) -> None:
         assert len(entities) == 1, f"cluster merged entities {entities}"
 
 
-def test_the_diff_reports_how_a_resolver_output_is_wrong(warehouse: Engine) -> None:
+def test_diff_reports_failure_mode(warehouse: Engine) -> None:
     """`diff_resolver_output` must classify a bad resolver output, not merely reject it.
 
     It derives both sides from the testkit, so a bug that compared something against

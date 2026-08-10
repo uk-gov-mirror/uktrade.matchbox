@@ -34,18 +34,33 @@ It answers two questions. Pick one:
 - Does the *methodology* work? Use `diff_model_edges`, with the view read mocked.
 - Does the *plan* carry grouping forward? Use `diff_resolution`, with a real `collect()`.
 
-## Name tests like headings
+## Name tests as tags, not descriptions
 
-A reader scans the `def test_*` lines to follow the story: happy path, then errors, then
-a regression. Keep the name short. Put the explanation in the docstring.
+A test name categorises a test; it does not explain it. Read a file's `def test_*` lines
+together and they should read as an index: a shared prefix names the feature under test,
+and a short suffix names the case. When a file works through a set of cases, the names
+line up into a column you can scan.
 
 ```python
-def test_reads_identifiers_once_per_source(...) -> None:
-    """Once per source, not once per model: the quadratic the resolver collapses."""
+def test_match_one_to_many(...) -> None:
+    """A record matches a target that already holds several IDs."""
+
+def test_match_one_to_none(...) -> None:
+    """A record matches a target that holds no IDs yet."""
 ```
 
-Take the nouns and verbs from `docs/glossary.md`, so a name and the concept it guards
-share a word.
+The suffix names a case you could have listed in advance — `one_to_none`,
+`with_dedupe_resolver`, `rejects_bad_schema` — not the assertion. A name that reads as a
+sentence (`test_collapses_a_pair_scored_twice_to_its_highest`) is describing, not
+tagging: find its family and its case, and move the sentence to the docstring. The name
+having stopped explaining, the docstring now carries the reason the test exists.
+
+Where a family's cases are a parametrised list, the case is the `pytest.param(..., id=)`,
+so the function name is the family alone. A lone test still takes a family prefix naming
+its feature — a family of one is fine, an invented one is not.
+
+Draw both the family and the case from `docs/glossary.md`, so a name shares a vocabulary
+with the concept it tags.
 
 ## Where a test lives
 

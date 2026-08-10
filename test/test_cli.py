@@ -61,41 +61,47 @@ def pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     return "pipeline"
 
 
-def test_version_prints_the_installed_version(capsys: pytest.CaptureFixture) -> None:
+def test_version(capsys: pytest.CaptureFixture) -> None:
+    """`matchlab version` prints the installed version."""
     main(["version"])
     assert capsys.readouterr().out.strip()
 
 
-def test_a_target_resolves_to_the_named_resolver(pipeline: str) -> None:
+def test_target_named_resolver(pipeline: str) -> None:
+    """A `module:name` target resolves to that resolver."""
     assert isinstance(_load_target(f"{pipeline}:entities"), Resolver)
 
 
-def test_a_target_may_name_a_factory(pipeline: str) -> None:
+def test_target_factory(pipeline: str) -> None:
     """So a plan needing a live connection isn't built at import time."""
     assert isinstance(_load_target(f"{pipeline}:build"), Resolver)
 
 
-def test_a_target_without_a_colon_is_explained(pipeline: str) -> None:
+def test_target_no_colon_explained(pipeline: str) -> None:
+    """A target without a colon is explained, not a traceback."""
     with pytest.raises(SystemExit, match="module:attribute"):
         _load_target(pipeline)
 
 
-def test_an_unimportable_module_is_explained() -> None:
+def test_target_unimportable_explained() -> None:
+    """An unimportable module is explained."""
     with pytest.raises(SystemExit, match="Could not import 'nope'"):
         _load_target("nope:entities")
 
 
-def test_a_missing_attribute_is_explained(pipeline: str) -> None:
+def test_target_missing_attr_explained(pipeline: str) -> None:
+    """A missing attribute is explained."""
     with pytest.raises(SystemExit, match="has no attribute 'absent'"):
         _load_target(f"{pipeline}:absent")
 
 
-def test_a_target_that_is_not_a_resolver_is_explained(pipeline: str) -> None:
+def test_target_not_resolver_explained(pipeline: str) -> None:
+    """A target that isn't a resolver is explained."""
     with pytest.raises(SystemExit, match="is a str, not a Resolver"):
         _load_target(f"{pipeline}:not_a_resolver")
 
 
-def test_review_is_launched_with_the_parsed_arguments(
+def test_review_launches_with_args(
     pipeline: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The command's job is to turn flags into a `review()` call."""
@@ -130,9 +136,7 @@ def test_review_is_launched_with_the_parsed_arguments(
     assert captured["seed"] == 7
 
 
-def test_several_targets_are_reviewed_together(
-    pipeline: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_review_several_targets(pipeline: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Naming two resolvers reviews their merged clusters: one session judges both."""
     captured: dict = {}
 
@@ -149,7 +153,7 @@ def test_several_targets_are_reviewed_together(
     assert all(isinstance(one, Resolver) for one in captured["resolver"])
 
 
-def test_logging_is_redirected_to_a_file(tmp_path: Path) -> None:
+def test_logging_to_file(tmp_path: Path) -> None:
     """A TUI and a stream handler can't share a terminal."""
     import logging  # noqa: PLC0415
 
@@ -175,7 +179,7 @@ def test_logging_is_redirected_to_a_file(tmp_path: Path) -> None:
         root.setLevel(original_level)
 
 
-def test_a_plan_built_in_the_module_is_usable(pipeline: str) -> None:
+def test_target_module_plan(pipeline: str) -> None:
     """Sanity: the target really is a live plan, clients and all."""
     resolver = _load_target(f"{pipeline}:entities")
     resolver.collect()

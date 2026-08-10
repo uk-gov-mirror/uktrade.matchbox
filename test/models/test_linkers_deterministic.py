@@ -259,7 +259,7 @@ LINKERS = [
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
 @patch.object(View, "_read_cache")
-def test_exact_match_linking(
+def test_link_exact_match(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
     """Test linking with exact matches between sources."""
@@ -323,7 +323,7 @@ def test_exact_match_linking(
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
 @patch.object(View, "_read_cache")
-def test_exact_match_with_duplicates_linking(
+def test_link_exact_with_duplicates(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
     """Test linking with exact matches between sources, where data is duplicated."""
@@ -384,7 +384,7 @@ def test_exact_match_with_duplicates_linking(
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
 @patch.object(View, "_read_cache")
-def test_partial_entity_linking(
+def test_link_partial_overlap(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
     """Test linking when one source contains only a subset of entities.
@@ -450,7 +450,7 @@ def test_partial_entity_linking(
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
 @patch.object(View, "_read_cache")
-def test_no_matching_entities_linking(
+def test_link_no_matches(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
     """Test linking when there are no matching entities between sources.

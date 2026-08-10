@@ -352,7 +352,7 @@ def test_linked_sources_entity_hierarchy() -> None:
             ), f"Cluster in {source_name} not a proper subset of any true entity"
 
 
-def test_linked_sources_entity_count_behavior(
+def test_linked_sources_entity_count(
     sqlite_in_memory_warehouse: Engine,
 ) -> None:
     """Test different n_true_entities behaviors in linked_sources_factory."""

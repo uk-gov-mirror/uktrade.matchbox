@@ -28,7 +28,7 @@ def memory_store() -> Iterator[DuckDBAdapter]:
 # -- resident vs on-disk bytes --------------------------------------------------------
 
 
-def test_a_duckdb_store_says_when_its_bytes_are_only_resident() -> None:
+def test_stats_resident_vs_on_disk() -> None:
     """The subclass hook: `4.0 KB` reads as disk, and for `:memory:` it is not."""
     resident = DuckDBStoreStats(location=":memory:", bytes=4096)
     on_disk = DuckDBStoreStats(location="/s.duckdb", bytes=4096, path=Path("/s.duckdb"))
@@ -37,7 +37,7 @@ def test_a_duckdb_store_says_when_its_bytes_are_only_resident() -> None:
     assert on_disk.describe() == "Store 4.0 KB, 0 artifacts"
 
 
-def test_an_in_memory_store_reports_a_real_size(
+def test_stats_in_memory_size(
     memory_store: DuckDBAdapter,
     fp: Fingerprints,
     extract: pl.DataFrame,
@@ -61,7 +61,7 @@ def test_an_in_memory_store_reports_a_real_size(
 # -- on-disk byte accounting ----------------------------------------------------------
 
 
-def test_stats_size_matches_what_is_on_disk(
+def test_stats_on_disk_size(
     tmp_path: Path, fp: Fingerprints, resolver_output: pl.DataFrame
 ) -> None:
     """The figure has to survive the user checking it with `du`.
@@ -86,7 +86,8 @@ def test_stats_size_matches_what_is_on_disk(
     assert sum(f.stat().st_size for f in tmp_path.iterdir()) == stats.bytes
 
 
-def test_stats_size_grows_with_what_is_stored(tmp_path: Path, fp: Fingerprints) -> None:
+def test_stats_grows_with_data(tmp_path: Path, fp: Fingerprints) -> None:
+    """Storing more data grows the reported on-disk size."""
     store = DuckDBAdapter(tmp_path / "store.duckdb")
     try:
         empty = store.stats().bytes
@@ -101,7 +102,7 @@ def test_stats_size_grows_with_what_is_stored(tmp_path: Path, fp: Fingerprints) 
 # -- trim: DuckDB file hazards --------------------------------------------------------
 
 
-def test_trim_actually_returns_space_to_the_disk(
+def test_trim_reclaims_disk_space(
     tmp_path: Path, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
 ) -> None:
     """The assertion the old `gc()` would have failed.
@@ -126,7 +127,7 @@ def test_trim_actually_returns_space_to_the_disk(
         store.close()
 
 
-def test_trimming_an_in_memory_store_does_not_empty_it(
+def test_trim_in_memory_keeps_data(
     memory_store: DuckDBAdapter,
     fp: Fingerprints,
     extract: pl.DataFrame,

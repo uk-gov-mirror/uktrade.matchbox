@@ -80,11 +80,13 @@ class Fingerprints:
 
 @pytest.fixture
 def fp() -> Fingerprints:
+    """The distinct fingerprints the round-trip tests store artifacts under."""
     return Fingerprints()
 
 
 @pytest.fixture
 def extract() -> pl.DataFrame:
+    """A source's extract: three records over two columns and a key."""
     return pl.DataFrame(
         {
             "company_name": ["acme", "acme ltd", "beta"],
@@ -96,6 +98,7 @@ def extract() -> pl.DataFrame:
 
 @pytest.fixture
 def leaves() -> pl.DataFrame:
+    """The leaf assignment for `extract`: one leaf per record."""
     return pl.DataFrame(
         {"key": ["k1", "k2", "k3"], "leaf": [1, 2, 3]},
         schema={"key": pl.Utf8, "leaf": pl.UInt64},
@@ -104,6 +107,7 @@ def leaves() -> pl.DataFrame:
 
 @pytest.fixture
 def edges() -> pl.DataFrame:
+    """A model's scored edges over the source's leaves."""
     return pl.DataFrame(
         {"left_id": [1, 3], "right_id": [2, 4], "score": [0.9, 0.8]},
         schema={"left_id": pl.UInt64, "right_id": pl.UInt64, "score": pl.Float32},

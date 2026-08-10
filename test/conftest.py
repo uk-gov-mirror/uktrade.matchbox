@@ -110,6 +110,7 @@ def pytest_configure() -> None:
 
 @pytest.fixture(scope="session")
 def test_root_dir() -> Path:
+    """The `test/` directory, for fixtures that read files alongside the tests."""
     return TEST_ROOT
 
 

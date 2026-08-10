@@ -80,9 +80,7 @@ _LOCATION_REF = {"location_class": "RelationalDBLocation", "name": "warehouse"}
 # -- the round trip -------------------------------------------------------------------
 
 
-def test_a_rebuilt_plan_fingerprints_identically(
-    plan: Resolver, warehouse: Engine
-) -> None:
+def test_rebuild_fingerprints_match(plan: Resolver, warehouse: Engine) -> None:
     """The whole point: same plan, same fingerprints, so artifacts transfer."""
     original = plan
     original.collect()
@@ -96,7 +94,7 @@ def test_a_rebuilt_plan_fingerprints_identically(
     assert all(fingerprint is not None for fingerprint in after)
 
 
-def test_a_rebuilt_plan_hits_cache_rather_than_recomputing(
+def test_rebuild_hits_cache(
     plan: Resolver, warehouse: Engine, adapter: DuckDBAdapter
 ) -> None:
     """A transferred plan must find the original's artifacts, not redo the work."""
@@ -113,9 +111,7 @@ def test_a_rebuilt_plan_hits_cache_rather_than_recomputing(
     rebuilt.collect(adapter)  # must not raise
 
 
-def test_a_different_warehouse_gives_different_fingerprints(
-    plan: Resolver, tmp_path: Path
-) -> None:
+def test_rebuild_different_warehouse(plan: Resolver, tmp_path: Path) -> None:
     """The flip side of the cache hit: a document carries no data, so data decides.
 
     A source's fingerprint folds in a content hash of what it actually read, and that
@@ -143,9 +139,8 @@ def test_a_different_warehouse_gives_different_fingerprints(
     ]
 
 
-def test_a_rebuilt_plan_produces_the_same_answer(
-    plan: Resolver, warehouse: Engine
-) -> None:
+def test_rebuild_same_answer(plan: Resolver, warehouse: Engine) -> None:
+    """A rebuilt plan collects to the same lookup as the original."""
     original = plan
     rebuilt = load(_transfer(dump(original)), clients={"warehouse": warehouse})
 
@@ -154,9 +149,7 @@ def test_a_rebuilt_plan_produces_the_same_answer(
     assert actual.equals(expected)
 
 
-def test_a_document_carries_no_labels_only_source_names(
-    plan: Resolver, warehouse: Engine
-) -> None:
+def test_document_carries_no_labels(plan: Resolver, warehouse: Engine) -> None:
     """Publishing is done to a result, so a label is not part of the plan.
 
     A source's name is not a label: it prefixes that source's columns and tags its
@@ -174,9 +167,7 @@ def test_a_document_carries_no_labels_only_source_names(
     }
 
 
-def test_structural_sharing_survives_the_round_trip(
-    plan: Resolver, warehouse: Engine
-) -> None:
+def test_document_preserves_sharing(plan: Resolver, warehouse: Engine) -> None:
     """A view feeding two models is one node referenced twice, not two nodes."""
     original = plan
     document = dump(original)
@@ -191,7 +182,7 @@ def test_structural_sharing_survives_the_round_trip(
     assert linkers[0].left is linkers[1].left
 
 
-def test_a_document_carries_no_client_or_credentials(plan: Resolver) -> None:
+def test_document_carries_no_client(plan: Resolver) -> None:
     """Locations describe where data lives; connecting is the target's business."""
     document = dump(plan)
     serialised = document.model_dump_json()
@@ -203,7 +194,7 @@ def test_a_document_carries_no_client_or_credentials(plan: Resolver) -> None:
         load(document, clients={})
 
 
-def test_location_change_same_fingerprint(plan: Resolver, warehouse: Engine) -> None:
+def test_location_rename_keeps_fingerprint(plan: Resolver, warehouse: Engine) -> None:
     """A location says how to rebuild, so it travels on the node and not in the spec.
 
     Renaming a warehouse changes no byte any source produces.
@@ -292,7 +283,7 @@ def test_location_source_only() -> None:
 # -- what the document says -----------------------------------------------------------
 
 
-def test_edges_are_positions_pointing_backwards(plan: Resolver) -> None:
+def test_edges_point_backwards(plan: Resolver) -> None:
     """Topological order is the document's ordering guarantee."""
     document = dump(plan)
 
@@ -302,7 +293,7 @@ def test_edges_are_positions_pointing_backwards(plan: Resolver) -> None:
         assert all(target < position for target in node.inputs)
 
 
-def test_a_spec_describes_settings_and_never_edges(plan: Resolver) -> None:
+def test_spec_has_settings_not_edges(plan: Resolver) -> None:
     """The split that makes a spec safe to hash and a document able to rebuild."""
     document = dump(plan)
 
@@ -317,9 +308,7 @@ def test_a_spec_describes_settings_and_never_edges(plan: Resolver) -> None:
             assert spec["name"] in {"crn", "dh"}
 
 
-def test_a_setting_that_points_at_an_input_travels_as_a_position(
-    plan: Resolver, warehouse: Engine
-) -> None:
+def test_setting_travels_as_position(plan: Resolver, warehouse: Engine) -> None:
     """Thresholds key by position, which has to survive JSON's string-only keys.
 
     A name would have been the alternative, and would have made the document depend on
@@ -336,7 +325,7 @@ def test_a_setting_that_points_at_an_input_travels_as_a_position(
     assert rebuilt.resolver_settings.thresholds == {1: 0.5}
 
 
-def test_a_document_rejects_an_edge_that_points_forwards() -> None:
+def test_document_rejects_forward_edge() -> None:
     """Inputs before consumers is an invariant, not a convention."""
     with pytest.raises(ValueError, match="not an earlier step"):
         PlanDocument.model_validate(
@@ -349,7 +338,7 @@ def test_a_document_rejects_an_edge_that_points_forwards() -> None:
         )
 
 
-def test_spec_is_parsed_by_kind_not_guessed() -> None:
+def test_spec_parsed_by_kind() -> None:
     """`ViewSpec` has no required fields, so a plain union would swallow anything."""
     document = PlanDocument.model_validate(
         {
@@ -369,9 +358,7 @@ def test_spec_is_parsed_by_kind_not_guessed() -> None:
     assert document.steps[0].spec.model_class == "NaiveDeduper"
 
 
-def test_load_rejects_a_step_wired_to_the_wrong_kind(
-    plan: Resolver, warehouse: Engine
-) -> None:
+def test_load_rejects_wrong_kind(plan: Resolver, warehouse: Engine) -> None:
     """A malformed document fails at load, not with a confusing error much later."""
     document = dump(plan)
     resolver = next(node for node in document.steps if node.kind == "resolver")
@@ -386,12 +373,13 @@ def test_load_rejects_a_step_wired_to_the_wrong_kind(
         load(broken, clients={"warehouse": warehouse})
 
 
-def test_an_empty_document_is_rejected() -> None:
+def test_document_empty_rejected() -> None:
+    """A document with no steps is rejected on load."""
     with pytest.raises(ValueError, match="at least one step"):
         load(PlanDocument(steps=()), clients={})
 
 
-def test_a_view_is_rebuilt_with_its_resolver(plan: Resolver, warehouse: Engine) -> None:
+def test_rebuild_view_with_resolver(plan: Resolver, warehouse: Engine) -> None:
     """A view's inputs are sources plus at most one resolver, told apart by kind."""
     rebuilt = load(dump(plan), clients={"warehouse": warehouse})
     views = [step for step in lineage.walk(rebuilt) if isinstance(step, View)]
