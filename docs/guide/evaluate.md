@@ -126,56 +126,6 @@ everywhere else on this page. Only pairs that appear in both the judgements and 
 resolver output are compared, so two methodologies scored against the same judgements
 are compared fairly.
 
-## Measuring against known truth
-
-When you generate data rather than judging it, you can assert against truth directly.
-The testkit builds sources whose true entities are known:
-
-```python
-from matchlab.testkit import linked_sources_factory
-
-linked = linked_sources_factory(n_true_entities=100).write_to_location()
-
-resolver_output = linked.link("crn", "cdms").model.resolve().collect().entities()
-
-identical, report = linked.diff_resolver_output(resolver_output, "crn", "cdms")
-```
-
-`linked` is the whole handle. It planted the entities, so `.dedupe()`, `.link()` and
-`.diff_resolver_output()` all know the answer without being told it. Stacking a link on
-top of a dedupe is the case where the apex has to carry an upstream grouping forward as
-well as its own. To do that, read the left side *through* the upstream resolver:
-
-```python
-dedupe = linked.dedupe("crn").model.resolve()
-apex = linked.link("crn", "cdms", through=dedupe).model.resolve()
-```
-
-`identical` is the verdict. `report` is empty on a match, and otherwise says *how* it
-differs, counting clusters that were:
-
-| | |
-|---|---|
-| `perfect` | exactly an expected entity |
-| `subset` | a fragment of one — under-matching |
-| `superset` | swallowed more than one — over-matching |
-| `wrong` | overlaps expected entities without containing or being contained by one |
-| `invalid` | contains records no expected entity claims |
-
-That breakdown is the point. "0.94 recall" tells you less than "eight clusters were
-subsets", which tells you the matcher is too strict rather than too loose.
-
-This works because a cluster is compared by the `(source, key)` records it contains,
-never by its ID. The resolver output's `root` is content-derived at collect time, and
-has no counterpart in the generated data. To measure a *methodology* rather than a whole
-plan, use `linked.diff_model_edges(edges, left=source)` instead. This compares an edge
-table without needing a warehouse.
-
-This is how matchlab tests itself, and it's the fastest way to sanity-check a
-methodology before pointing it at real data.
-
-See [`matchlab.testkit`](../api/testkit.md) for the generators.
-
 ## Comparing methodologies
 
 The plan structure makes this cheap. Build several resolvers over the same sources and
