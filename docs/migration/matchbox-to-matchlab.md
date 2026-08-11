@@ -208,8 +208,8 @@ A source is now directly matchable, so `source.query(...)` has no single success
 reshape only when you need to. `select` keeps columns, `clean` derives them with SQL,
 and `group` collapses each `id` to one row — each a serialisable
 [transformer](../guide/build-a-plan.md#reshaping-records), the same pluggable pattern
-dedupers and linkers already follow. To read a source through an earlier resolver
-output, use `resolver.read(source)`.
+dedupers and linkers already follow. To match on top of an earlier resolver output, a
+resolver is itself a frame — reshape or match on it directly (`deduped.link(dh, …)`).
 
 ### `QueryCombineType` is gone
 
@@ -240,7 +240,7 @@ for, and lets you choose per column. Because DuckDB's `any_value` skips nulls, i
 collapses a multi-source frame onto one populated row:
 
 ```python
-resolver.read(crn, dh).group(
+resolver.group(
     {
         "company": "any_value(crn_company)",
         "towns": "list(distinct coalesce(crn_town, dh_town))",

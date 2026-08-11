@@ -107,12 +107,12 @@ crn.clean({"name": f"lower({crn.f('company')})"}).select("name")
 
 #### What `id` is, and when to group
 
-Read a source directly and `id` is the record, one row each. Read it *through a
-resolver* — with `resolver.read(...)` — and `id` is the resolver's entity, so several
+Read a source directly and `id` is the record, one row each. **A resolver is itself a
+frame** — reshape it with the same verbs — and its `id` is the entity, so several
 records share one:
 
 ```python
-deduped.read(crn).clean({"name": "crn_company"}).data()
+deduped.clean({"name": "crn_company"}).data()
 
 # id | name
 # E1 | acme     <- from a1
@@ -125,7 +125,7 @@ collapses each `id` to one row**. Every expression is an aggregate, so you say h
 column combines:
 
 ```python
-deduped.read(crn).group(
+deduped.group(
     {
         "name": "any_value(crn_company)",  # they agree — that's why they grouped
         "towns": "list(distinct crn_town)",  # they differ — keep both
@@ -141,12 +141,11 @@ Any DuckDB aggregate works, `list` and `string_agg` included. A non-aggregate ge
 DuckDB's own error naming the column. There's no sensible default for how a column
 collapses, so `group` needs at least one aggregate.
 
-Grouping matters most when you read **several** sources through a resolver. Those are
-concatenated diagonally, so each row carries one source's columns and nulls for the
-rest:
+Grouping matters most for a resolver that spans **several** sources. Its rows are
+concatenated diagonally, so each carries one source's columns and nulls for the rest:
 
 ```python
-resolver.read(crn, dh).clean({"c": "crn_company", "d": "dh_company"}).data()
+resolver.clean({"c": "crn_company", "d": "dh_company"}).data()
 
 # c    | d
 # acme | null      <- from crn
@@ -158,7 +157,7 @@ A comparison on `l.d` is null on every crn row, so the entity can't be matched o
 combined evidence. Grouping puts it on one populated row. `any_value` skips nulls:
 
 ```python
-resolver.read(crn, dh).group(
+resolver.group(
     {
         "company": "any_value(crn_company)",
         "towns": "list(distinct coalesce(crn_town, dh_town))",
@@ -231,14 +230,14 @@ with no threshold will contribute every edge.
 
 ## Layering
 
-To match *on top of* an earlier resolver output, read a source through it with
-`resolver.read(...)`:
+A resolver is a frame, so to match *on top of* an earlier resolver output you match on
+the resolver directly — the same verbs, now at `id`=entity:
 
 ```python
 deduped_crn = crn.dedupe(...).resolve()
 
 entities = (
-    deduped_crn.read(crn)  # crn, as resolved by the dedupe
+    deduped_crn  # crn's records, as resolved by the dedupe
     .link(dh, model_class=..., model_settings=...)
     .resolve()
 )

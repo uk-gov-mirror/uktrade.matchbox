@@ -116,11 +116,12 @@ def _cleaning(sources: Sequence[Source]) -> dict[str, str]:
 def _frame(sources: Sequence[Source], resolver: Resolver | None = None) -> Frame:
     """A cleaned frame of these sources, optionally read through a resolver output.
 
-    Passing a resolver is the layering move: `id` becomes the entity that resolver
-    assigned rather than the record, so whatever is built on top compares entities.
-    Without one, there is a single source, read directly.
+    A resolver is itself a frame — read at `id`=entity root — so passing one is the
+    layering move: whatever is built on top compares entities. A resolver reads exactly
+    its own sources, so callers pass one whose sources are `sources`. Without it, there
+    is a single source, read directly at `id`=leaf.
     """
-    base: Frame = resolver.read(*sources) if resolver is not None else sources[0]
+    base: Frame = resolver if resolver is not None else sources[0]
     return base.clean(_cleaning(sources))
 
 
@@ -185,17 +186,19 @@ def _every_pair(frames: Sequence[Frame]) -> list[tuple[Frame, Frame]]:
 
 
 def _star(sources: Sequence[Source], pairs: Pairs) -> Resolver:
-    """Dedupe everything into one resolver output, then link the pairs `pairs` chooses.
+    """Dedupe each source into its own resolver, then link the pairs `pairs` chooses.
 
     `HUB` and `MESH` differ only in which pairs get linked, so they share everything
-    else: one dedupe per source collapsed into a single resolver output, every source
-    read back through it — each frame built once and structurally shared by every link
-    that uses it — and one apex resolver over all the links.
+    else: one dedupe-resolver per source, each read back through itself (a resolver is a
+    frame) — built once and shared by every link that uses it — and one apex resolver
+    over all the links.
     """
-    dedupes = [_dedupe(_frame([source])) for source in sources]
-    deduped = dedupes[0].resolve(*dedupes[1:])
+    resolvers = [_dedupe(_frame([source])).resolve() for source in sources]
 
-    frames = [_frame([source], resolver=deduped) for source in sources]
+    frames = [
+        _frame([source], resolver=resolver)
+        for source, resolver in zip(sources, resolvers, strict=True)
+    ]
     links = [_link(left, right) for left, right in pairs(frames)]
     return links[0].resolve(*links[1:])
 

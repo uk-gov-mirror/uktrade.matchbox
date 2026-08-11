@@ -14,7 +14,7 @@ or inputs changed.
 """
 
 from matchlab.document import PlanDocument, dump, load
-from matchlab.frames import Frame, Resolved
+from matchlab.frames import Frame
 from matchlab.locations import RelationalDBLocation
 from matchlab.models import Model
 from matchlab.resolvers import Resolver
@@ -36,7 +36,6 @@ __all__ = (
     "Model",
     "PlanDocument",
     "RelationalDBLocation",
-    "Resolved",
     "Resolver",
     "Select",
     "Source",

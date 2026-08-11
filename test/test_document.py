@@ -17,7 +17,6 @@ from sqlalchemy import Engine, create_engine, text
 
 from matchlab import PlanDocument, Source, dump, lineage, load
 from matchlab.adapters import DuckDBAdapter
-from matchlab.frames import Resolved
 from matchlab.models import Model
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
@@ -41,8 +40,8 @@ def plan(source: Callable[..., Source]) -> Resolver:
     resolved = deduped.resolve()
 
     # One frame, read by both models below — the structural sharing the document has to
-    # preserve rather than inline twice.
-    entities = resolved.read(crn).clean({"company": crn.f("company")})
+    # preserve rather than inline twice. `resolved` is itself the frame (crn, id=root).
+    entities = resolved.clean({"company": crn.f("company")})
     raw_dh = dh.clean({"company": dh.f("company")})
 
     comparison = "l.company = r.company"
@@ -266,13 +265,13 @@ def test_location_source_only() -> None:
             {"steps": [{"kind": "source", "spec": _SOURCE_SPEC, "inputs": []}]}
         )
 
-    with pytest.raises(ValueError, match="resolved step must not name a location"):
+    with pytest.raises(ValueError, match="model step must not name a location"):
         PlanDocument.model_validate(
             {
                 "steps": [
                     {
-                        "kind": "resolved",
-                        "spec": {},
+                        "kind": "model",
+                        "spec": _MODEL_SPEC,
                         "inputs": [],
                         "location": _LOCATION_REF,
                     }
@@ -326,21 +325,28 @@ def test_setting_travels_as_position(plan: Resolver, warehouse: Engine) -> None:
     assert rebuilt.resolver_settings.thresholds == {1: 0.5}
 
 
+_MODEL_SPEC = {
+    "model_type": "deduper",
+    "model_class": "NaiveDeduper",
+    "model_settings": {"unique_fields": ["company"]},
+}
+
+
 def test_document_rejects_forward_edge() -> None:
     """Inputs before consumers is an invariant, not a convention."""
     with pytest.raises(ValueError, match="not an earlier step"):
         PlanDocument.model_validate(
             {
                 "steps": [
-                    {"kind": "resolved", "spec": {}, "inputs": [1]},
-                    {"kind": "resolved", "spec": {}, "inputs": []},
+                    {"kind": "model", "spec": _MODEL_SPEC, "inputs": [1]},
+                    {"kind": "model", "spec": _MODEL_SPEC, "inputs": []},
                 ]
             }
         )
 
 
 def test_spec_parsed_by_kind() -> None:
-    """`ResolvedSpec` has no fields, so a plain union would swallow anything."""
+    """The specs are structurally close, so `kind` discriminates, not a plain union."""
     document = PlanDocument.model_validate(
         {
             "steps": [
@@ -380,14 +386,21 @@ def test_document_empty_rejected() -> None:
         load(PlanDocument(steps=()), clients={})
 
 
-def test_rebuild_resolved_read(plan: Resolver, warehouse: Engine) -> None:
-    """A resolved read's inputs are sources plus one resolver, told apart by kind."""
-    rebuilt = load(dump(plan), clients={"warehouse": warehouse})
-    reads = [step for step in lineage.walk(rebuilt) if isinstance(step, Resolved)]
+def test_rebuild_reads_resolver_as_frame(plan: Resolver, warehouse: Engine) -> None:
+    """A resolver is a frame: a rebuilt transform reads a resolver at `id`=root.
 
-    assert len(reads) == 1
-    assert isinstance(reads[0].resolver, Resolver)
-    assert [source.name for source in reads[0].sources] == ["crn"]
+    The `plan` cleans `crn`'s dedupe resolver, so a rebuilt transform must read a
+    `Resolver` as its upstream — the layering shape, preserved across the round trip.
+    """
+    rebuilt = load(dump(plan), clients={"warehouse": warehouse})
+    reading_resolver = [
+        step
+        for step in lineage.walk(rebuilt)
+        if isinstance(step, Transform) and isinstance(step.upstream[0], Resolver)
+    ]
+
+    assert len(reading_resolver) == 1
+    assert [s.name for s in reading_resolver[0].upstream[0].sources] == ["crn"]
 
 
 def test_rebuild_transform_chain(

@@ -15,9 +15,9 @@ shapes that cross this boundary):
              This is the merge-forward guarantee. It computes `merge(upstream complete
              output, own clusters)`, not just the resolver's own clusters.
 
-A `Source` and a `Resolved` read produce a frame too, but neither stores one: a source
-is fully materialised as its *extract* and derives its frame on read, and a resolved
-read is a re-derivable join over a source's extract and a resolver's output. Only a
+A `Source` and a `Resolver` produce a frame too, but neither stores one: a source is
+fully materialised as its *extract* and derives its frame on read, and a resolver read
+is a re-derivable join over a source's extract and the resolver's own output. Only a
 `Transform` stores its materialisation — the one place storage could later be partial.
 
 Plus evaluation storage (judgements + cluster expansion), publication (`publish` points
@@ -240,7 +240,7 @@ class Adapter(ABC):
         """Store a transform's materialised frame (arbitrary schema).
 
         A `Transform` is the only frame-producing step that materialises its output;
-        a `Source` and a `Resolved` read derive theirs. Called on every collect, so a
+        a `Source` and a `Resolver` derive theirs. Called on every collect, so a
         transform feeding several models is computed once and read back by each.
         """
         ...

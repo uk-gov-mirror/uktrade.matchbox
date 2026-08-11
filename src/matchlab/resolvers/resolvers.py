@@ -1,6 +1,6 @@
 """Resolver collapses model edges into clusters and materialises the resolver output."""
 
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from typing import Any, ClassVar, Self
 
 import polars as pl
 
@@ -9,16 +9,12 @@ from matchlab.core.dataframes import qualify
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.kinds import StepKind
 from matchlab.core.resolver_output import materialise_resolver_output
-from matchlab.frames import Resolved
+from matchlab.frames import Frame, IdentifierRead, build_frame
 from matchlab.models import Model
 from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 from matchlab.resolvers.components import Components
 from matchlab.sources import Source
 from matchlab.specs import ResolverSpec
-from matchlab.steps import Step
-
-if TYPE_CHECKING:
-    from matchlab.transformers import Transform, Transformer
 
 _RESOLVER_CLASSES: dict[str, type[ResolverMethod]] = {}
 
@@ -33,8 +29,15 @@ def add_resolver_class(resolver_class: type[ResolverMethod]) -> None:
 add_resolver_class(Components)
 
 
-class Resolver(Step):
-    """Clusters computed over one or more models' edges."""
+class Resolver(Frame):
+    """Clusters computed over one or more models' edges.
+
+    A resolver is a `Frame`: read as records, its rows are the sources it covers with
+    each row's `id` set to the entity root it resolved to. That is what layering matches
+    on — `deduped.link(dh, …)` reads `deduped`'s entities and links them to `dh` — and
+    is the same join a `Source` frame is, only keyed by root rather than leaf. The
+    resolver output it stores is a separate artifact; the frame is derived on read.
+    """
 
     kind: ClassVar[StepKind] = StepKind.RESOLVER
 
@@ -191,7 +194,7 @@ class Resolver(Step):
         # (the merge-forward / fall-through requirement).
 
         # Deduplicate what is read. Linking every pair of n sources gives n(n-1)
-        # (model, view) pairs, but only a handful of distinct readings between them,
+        # (model, frame) pairs, but only a handful of distinct readings between them,
         # since they share an upstream resolver and cover the same sources. Asking
         # per pair would otherwise repeat the same query a quadratic number of times.
         # `dict.fromkeys` dedupes while keeping lineage order, so the frame is built
@@ -390,32 +393,21 @@ class Resolver(Step):
             target: keys_in(target) for target in to_sources
         }
 
-    # -- verbs ------------------------------------------------------------------------
+    # -- Frame contract ---------------------------------------------------------------
 
-    def read(self, *sources: Source) -> Resolved:
-        """Read sources *through* this resolver, so `id` is the entity root.
+    def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
+        """Derive the frame — this resolver's sources, `id` set to the entity root.
 
-        Defaults to every source this resolver covers. This is the layered shape: match
-        on top of an earlier resolver output by reading its sources back through it.
+        A re-derivable join over artifacts already stored (the source extracts and this
+        resolver's output), so nothing is materialised for it. `select`/`clean`/`group`,
+        inherited from `Frame`, reshape it; `dedupe`/`link` match on top of it.
         """
-        return Resolved(*(sources or self.sources), resolver=self)
+        if self._fp is None:  # collect orders upstream first
+            raise RuntimeError(
+                "This resolver has not been collected. Call collect() first."
+            )
+        return build_frame(adapter, self.sources, self)
 
-    def transform(
-        self,
-        transformer: "Transformer | type[Transformer] | str",
-        transformer_settings: dict | None = None,
-    ) -> "Transform":
-        """Read every source through this resolver, then reshape with a transformer."""
-        return self.read().transform(transformer, transformer_settings)
-
-    def select(self, *columns: str) -> "Transform":
-        """Read every source through this resolver, then keep only the named columns."""
-        return self.read().select(*columns)
-
-    def clean(self, cleaning: dict[str, str]) -> "Transform":
-        """Read every source through this resolver, then derive columns with SQL."""
-        return self.read().clean(cleaning)
-
-    def group(self, aggregates: dict[str, str]) -> "Transform":
-        """Read all sources through this resolver, then collapse each `id` to a row."""
-        return self.read().group(aggregates)
+    @property
+    def _identifier_reads(self) -> tuple[IdentifierRead, ...]:
+        return tuple((source._fp, source.name, self._fp) for source in self.sources)

@@ -70,11 +70,12 @@ fingerprint, which is what makes a store [content-addressed](#content-addressed)
 
 ## Frame
 
-The records a [model](#model) matches over: a table carrying an `id`. A [source](#source)
-read on its own is a frame (`id` is the record's [leaf](#leaf)); reading sources through
-a [resolver](#resolver) with `resolver.read(...)` is a frame (`id` is the entity root);
-and a [transform](#transform) reshapes one frame into another. Every frame chains the
-same verbs — `select`, `clean`, `group`, `transform`, `dedupe`, `link`.
+The records a [model](#model) matches over: a table carrying an `id`. Three steps are
+frames — a [source](#source) (`id` is the record's [leaf](#leaf)), a
+[transform](#transform) (a reshaped frame), and a [resolver](#resolver) (`id` is the
+entity root, so matching on it is layering). Every frame chains the same verbs —
+`select`, `clean`, `group`, `transform`, `dedupe`, `link`. A [model](#model) is the one
+step that is not a frame: it yields edges, not records.
 
 ## Judgement
 

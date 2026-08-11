@@ -16,7 +16,7 @@ class DeduperSettings(BaseModel):
 
 
 class Deduper(BaseModel, ABC):
-    """A methodology that finds candidate duplicate pairs within one view.
+    """A methodology that finds candidate duplicate pairs within one frame.
 
     A `Model` step calls `prepare()` once, then `dedupe()`, each time it collects. Put
     one-off setup in `prepare()` instead, for example fitting a model over the whole

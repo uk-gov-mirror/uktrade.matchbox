@@ -84,19 +84,6 @@ class SourceSpec(BaseModel):
     )
 
 
-class ResolvedSpec(BaseModel):
-    """Specification of a through-resolver read: sources seen as a resolver's entities.
-
-    Field-less on purpose. Everything a `Resolved` read depends on is *which* sources it
-    reads and *through which resolver*, and both of those are edges: they live on
-    `Step.upstream` and in `PlanDocument`, and `_fingerprint` already folds in the
-    parents' fingerprints in order. One read is told apart from another by its inputs,
-    never by anything recorded here.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-
 class TransformSpec(BaseModel):
     """Specification of a transform: which transformer reshapes the frame, and how."""
 

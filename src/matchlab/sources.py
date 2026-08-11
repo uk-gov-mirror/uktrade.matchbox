@@ -41,8 +41,8 @@ class Source(Frame):
 
     A source is a `Frame`: read on its own, its records are its extract with each row's
     content-addressed leaf as `id`, so a model can match over it directly with no
-    intervening step. Read *through* a resolver instead, `id` becomes the entity root;
-    that is a `Resolved` read, built with `resolver.read(source)`.
+    intervening step. A `Resolver` is a frame too, read at `id`=entity root; matching on
+    top of one (`deduped.link(dh, …)`) is how you layer.
     """
 
     kind: ClassVar[StepKind] = StepKind.SOURCE
@@ -113,7 +113,7 @@ class Source(Frame):
 
     # -- column naming ----------------------------------------------------------------
     #
-    # A view built over several sources qualifies every column with the source it came
+    # A frame built over several sources qualifies every column with the source it came
     # from, so `company` from `crn` becomes `crn_company`. These say what a column will
     # be called once that has happened, which is how you refer to it in a cleaning
     # expression or a model's settings, before anything has been collected.

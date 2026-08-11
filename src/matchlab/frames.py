@@ -1,13 +1,14 @@
 """Frame — the records a model matches over, and the verbs that build a plan.
 
 A `Frame` is any step whose artifact is a table of records carrying an `id`: a `Source`
-read on its own (`id` is the record's leaf), a `Resolved` read of sources through a
-resolver (`id` is the entity root), or a `Transform` that reshapes one of those. A
-`Model` matches over a `Frame`, and every `Frame` chains the same verbs — `select`,
-`clean`, `group`, `transform`, `dedupe`, `link` — so a source, a resolved read and a
-transform all read the same.
+read on its own (`id` is the record's leaf), a `Resolver` read through its clusters
+(`id` is the entity root), or a `Transform` that reshapes one of those. A `Model` reads
+a `Frame`, and every `Frame` chains the same verbs — `select`, `clean`, `group`,
+`transform`, `dedupe`, `link` — so a source, a resolver and a transform all read alike.
+That split is the whole taxonomy: a `Frame` yields records, a `Model` yields edges, and
+a `Model` is simply the one step that is not a `Frame`.
 
-`Frame` is not user-facing. Users hold a `Source`, a `Resolved` or a `Transform` and
+`Frame` is not user-facing. Users hold a `Source`, a `Resolver` or a `Transform` and
 call verbs on it. `Frame` is where those verbs and the shared `identifiers()`/`data()`
 live, so each concrete kind only supplies how it materialises (`_read_cache`) and which
 source rows it stands for (`_identifier_reads`).
@@ -19,7 +20,7 @@ upstream resolver output, both already stored.
 """
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
@@ -30,9 +31,6 @@ from matchlab.core.dataframes import (
     qualify,
     to_dataframe,
 )
-from matchlab.core.kinds import StepKind
-from matchlab.lineage import StepStatus
-from matchlab.specs import ResolvedSpec
 from matchlab.steps import Step
 
 if TYPE_CHECKING:
@@ -59,7 +57,7 @@ def build_frame(
     and joined to its identifiers, so each row gains the `id` it belongs to: the
     record's leaf when read directly, the entity root when read through `resolver`.
     Several sources are concatenated diagonally, each row carrying its own source's
-    columns and nulls for the rest. This is what both `Source` and `Resolved` read.
+    columns and nulls for the rest. This is what both `Source` and `Resolver` read.
     """
     resolver_fp = resolver._fp if resolver is not None else None
     identifiers = pl.concat(
@@ -180,70 +178,3 @@ class Frame(Step):
             model_class=model_class,
             model_settings=model_settings,
         )
-
-
-class Resolved(Frame):
-    """Sources read *through* a resolver, so `id` is the entity root, not the leaf."""
-
-    kind: ClassVar[StepKind] = StepKind.RESOLVED
-
-    def __init__(self, *sources: "Source", resolver: "Resolver") -> None:
-        """Define a through-resolver read.
-
-        Args:
-            *sources: The sources to read. At least one.
-            resolver: The resolver to read them through, so records that resolved to one
-                entity share an `id`.
-
-        Raises:
-            ValueError: If no sources are given.
-        """
-        if not sources:
-            raise ValueError("A resolved read needs at least one source")
-
-        self._sources = sources
-        self.resolver = resolver
-        super().__init__(upstream=(*sources, resolver))
-
-    # -- Step contract ----------------------------------------------------------------
-
-    @property
-    def sources(self) -> "tuple[Source, ...]":
-        """The sources this reads, in the order given."""
-        return self._sources
-
-    @property
-    def spec(self) -> ResolvedSpec:
-        """The serialisable spec. Field-less: its inputs are its identity."""
-        return ResolvedSpec()
-
-    def _ensure(self, adapter: Adapter) -> StepStatus:
-        """A resolved read stores nothing, so it is satisfied the moment its inputs are.
-
-        Its frame is a re-derivable join over artifacts already stored — the source
-        extracts and the resolver output — so there is nothing to materialise here and
-        nothing to cache. It is computed on read instead (`_read_cache`), the same way a
-        `Source` derives its own frame. That keeps materialised storage to `Transform`
-        alone, where it can later be made partial.
-        """
-        self._adapter = adapter
-        self._fp = self._fingerprint()
-        return StepStatus.CACHED
-
-    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
-        """Never called: a resolved read has no artifact to store (see `_ensure`)."""
-
-    # -- Frame contract ---------------------------------------------------------------
-
-    def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
-        """Derive the frame from the stored source extracts and resolver output."""
-        if self._fp is None:  # collect orders upstream first
-            raise RuntimeError(
-                "This resolved read has not been collected. Call collect() first."
-            )
-        return build_frame(adapter, self._sources, self.resolver)
-
-    @property
-    def _identifier_reads(self) -> tuple[IdentifierRead, ...]:
-        resolver_fp = self.resolver._fp
-        return tuple((source._fp, source.name, resolver_fp) for source in self._sources)

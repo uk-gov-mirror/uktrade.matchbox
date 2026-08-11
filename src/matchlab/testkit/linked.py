@@ -240,11 +240,7 @@ class LinkedSources(BaseModel):
             true_entities=(
                 self.true_entities if true_entities is None else true_entities
             ),
-            left=(
-                through.read(left_testkit.source)
-                if through is not None
-                else left_testkit.source
-            ),
+            left=(through if through is not None else left_testkit.source),
             right=right_testkit.source,
             score_range=score_range,
             seed=seed,

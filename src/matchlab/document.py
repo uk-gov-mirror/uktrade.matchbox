@@ -6,7 +6,7 @@ plan. It is dumped, transferred and loaded, never hand-authored. That is why nod
 refer to each other by position rather than by any human-facing name.
 
 Nodes come out in `lineage.walk` order, so every input index is smaller than the index
-of the step that consumes it. Positions also preserve structural sharing. A view
+of the step that consumes it. Positions also preserve structural sharing. A frame
 feeding two models is one node referenced twice. Nesting each step's inputs inside it
 would have inlined the whole subtree twice over instead.
 
@@ -47,7 +47,7 @@ from typing import Any, TypeVar, cast
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from matchlab.core.kinds import StepKind
-from matchlab.frames import Frame, Resolved
+from matchlab.frames import Frame
 from matchlab.lineage import walk
 from matchlab.locations import build_location
 from matchlab.models import Model
@@ -55,7 +55,6 @@ from matchlab.resolvers import Resolver
 from matchlab.sources import Source
 from matchlab.specs import (
     ModelSpec,
-    ResolvedSpec,
     ResolverSpec,
     SourceSpec,
     TransformSpec,
@@ -63,14 +62,13 @@ from matchlab.specs import (
 from matchlab.steps import Step
 from matchlab.transformers import Transform
 
-StepSpec = SourceSpec | ResolvedSpec | TransformSpec | ModelSpec | ResolverSpec
+StepSpec = SourceSpec | TransformSpec | ModelSpec | ResolverSpec
 
 SpecT = TypeVar("SpecT", bound=BaseModel)
 StepT = TypeVar("StepT", bound=Step)
 
 _SPEC_TYPES: dict[StepKind, type[BaseModel]] = {
     StepKind.SOURCE: SourceSpec,
-    StepKind.RESOLVED: ResolvedSpec,
     StepKind.TRANSFORM: TransformSpec,
     StepKind.MODEL: ModelSpec,
     StepKind.RESOLVER: ResolverSpec,
@@ -130,9 +128,9 @@ class StepNode(BaseModel):
     def _spec_from_kind(cls, data: Any) -> Any:  # noqa: ANN401 - raw pydantic input
         """Parse `spec` as the type `kind` names, rather than guessing.
 
-        The specs are structurally close enough that a plain union mis-assigns:
-        `ResolvedSpec` has no fields, so an empty object matches it and several others.
-        `kind` is the discriminator the document already carries.
+        The specs are structurally close enough that a plain union mis-assigns: a
+        `TransformSpec` and a `ModelSpec` overlap once optional settings default, so a
+        union could bind the wrong one. `kind` is the discriminator the document holds.
         """
         if not isinstance(data, dict):
             return data
@@ -263,17 +261,6 @@ def _rebuild(
                 extract_transform=spec.extract_transform,
                 key_field=spec.key_field,
             )
-
-        case StepKind.RESOLVED:
-            _expect(node, position, ResolvedSpec)
-            sources = tuple(step for step in inputs if isinstance(step, Source))
-            resolvers = [step for step in inputs if isinstance(step, Resolver)]
-            if len(sources) + len(resolvers) != len(inputs) or len(resolvers) != 1:
-                raise ValueError(
-                    f"Step {position} (resolved) must read one resolver and one or "
-                    f"more sources, got {[step.kind for step in inputs]}."
-                )
-            return Resolved(*sources, resolver=resolvers[0])
 
         case StepKind.TRANSFORM:
             spec = _expect(node, position, TransformSpec)

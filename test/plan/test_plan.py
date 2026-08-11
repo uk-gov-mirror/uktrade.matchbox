@@ -45,17 +45,11 @@ def _apex(source: Callable[..., Source]) -> tuple[Resolver, Source, Source]:
     crn = source("crn")
     dh = source("dh")
     r_crn = _dedupe_crn(crn)
-    apex = (
-        r_crn.read(crn)
-        .link(
-            dh,
-            model_class=DeterministicLinker,
-            model_settings={
-                "comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"
-            },
-        )
-        .resolve()
-    )
+    apex = r_crn.link(
+        dh,
+        model_class=DeterministicLinker,
+        model_settings={"comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"},
+    ).resolve()
     return apex, crn, dh
 
 
@@ -161,17 +155,11 @@ def test_collect_only_new_steps(
 
     # A brand-new downstream branch over already-collected inputs.
     dh = source("dh")
-    apex = (
-        deduped.read(crn)
-        .link(
-            dh,
-            model_class=DeterministicLinker,
-            model_settings={
-                "comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"
-            },
-        )
-        .resolve()
-    )
+    apex = deduped.link(
+        dh,
+        model_class=DeterministicLinker,
+        model_settings={"comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"},
+    ).resolve()
     apex.collect()  # only dh + the new read/model/resolver run
 
     assert apex.get_lookup().height > 0
@@ -670,6 +658,36 @@ def test_trim_to_plan_keeps_cache(
 # -- reading through a resolver, and grouping -----------------------------------------
 
 
+def test_resolver_is_a_frame(source: Callable[..., Source]) -> None:
+    """A resolver is a frame: read at `id`=root, and matchable on top of directly.
+
+    Reading it returns its records regrouped by entity. Linking it to a source with no
+    transform between (a bare resolver as a model input) still carries the dedupe
+    grouping forward — merge-forward through a resolver frame.
+    """
+    crn = source("crn")
+    dh = source("dh")
+    deduped = _dedupe_crn(crn)
+
+    # Read as a frame: crn's records at `id`=root, so a1/a2 share one id.
+    records = deduped.data()
+    assert records.height == 3
+    assert records["id"].n_unique() == 2
+
+    # Matched on top of directly — no `.read()`, no transform between.
+    apex = deduped.link(
+        dh,
+        model_class=DeterministicLinker,
+        model_settings={"comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"},
+    ).resolve()
+    lookup = apex.collect().get_lookup()
+    crn_ids = _ids_by_key(lookup, "crn_pk")
+    dh_ids = _ids_by_key(lookup, "dh_pk")
+
+    assert crn_ids["a1"] == crn_ids["a2"] == dh_ids["b1"]  # dedupe survived the link
+    assert crn_ids["a3"] != crn_ids["a1"]  # fall-through singleton
+
+
 def test_resolver_read_repeats_per_record(
     source: Callable[..., Source],
 ) -> None:
@@ -678,7 +696,7 @@ def test_resolver_read_repeats_per_record(
     deduped = _dedupe_crn(crn)
     deduped.collect()
 
-    frame = deduped.read(crn).clean({"name": "crn_company"})
+    frame = deduped.clean({"name": "crn_company"})
     frame.collect()
     data = frame.data()
 
@@ -693,7 +711,7 @@ def test_group_one_row_per_entity(source: Callable[..., Source]) -> None:
     deduped = _dedupe_crn(crn)
     deduped.collect()
 
-    frame = deduped.read(crn).group(
+    frame = deduped.group(
         {
             "name": "any_value(crn_company)",
             "towns": "list(distinct crn_town)",
@@ -719,8 +737,7 @@ def test_group_merges_forward(source: Callable[..., Source]) -> None:
     deduped = _dedupe_crn(crn)
 
     apex = (
-        deduped.read(crn)
-        .group({"name": "any_value(crn_company)"})
+        deduped.group({"name": "any_value(crn_company)"})
         .link(
             dh,
             model_class=DeterministicLinker,
@@ -757,13 +774,13 @@ def test_group_multi_source(
     ).resolve()
     linked.collect()
 
-    ungrouped = linked.read(crn, dh).clean({"c": "crn_company", "d": "dh_company"})
+    ungrouped = linked.clean({"c": "crn_company", "d": "dh_company"})
     ungrouped.collect()
     acme = ungrouped.data().filter(pl.col("c") == "acme")
     # Every crn row for the acme entity has a null dh column.
     assert acme["d"].null_count() == acme.height
 
-    grouped = linked.read(crn, dh).group(
+    grouped = linked.group(
         {
             "company": "any_value(crn_company)",
             "towns": "list(distinct coalesce(crn_town, dh_town))",
@@ -800,7 +817,7 @@ def test_spec_serialisable(source: Callable[..., Source]) -> None:
         assert step._spec_key() == step._spec_key()
         kinds.add(step.kind)
 
-    assert kinds == {"source", "resolved", "model", "resolver"}
+    assert kinds == {"source", "model", "resolver"}
 
 
 def test_spec_no_upstream_settings(source: Callable[..., Source]) -> None:
@@ -819,20 +836,19 @@ def test_read_direct_and_through_resolver_distinct(
 ) -> None:
     """Reading a source directly and through a resolver are different frames.
 
-    A source read directly is a leaf; read through a resolver it is a `Resolved` node.
-    The edge is what distinguishes them: it is on `upstream`, and folded into the
-    fingerprint in order.
+    Read directly, a source is a leaf frame (`id`=leaf). A resolver is itself a frame
+    (`id`=root), so matching on it reads the same records regrouped by entity. The two
+    are different objects with different fingerprints, so a second pass isn't the first.
     """
     crn = source("crn")
     settings = {"unique_fields": [crn.f("company")]}
 
     first = crn.dedupe(model_class=NaiveDeduper, model_settings=settings)
-    deduped = first.resolve()
-    through = deduped.read(crn)
-    second = through.dedupe(model_class=NaiveDeduper, model_settings=settings)
+    deduped = first.resolve()  # a resolver, and a frame reading crn at id=root
+    second = deduped.dedupe(model_class=NaiveDeduper, model_settings=settings)
 
-    assert through.upstream == (crn, deduped)
     assert crn.upstream == ()  # a source read directly is a leaf
+    assert second.left is deduped  # the model reads the resolver directly, no wrapper
 
     second.resolve().collect()
     assert first._fp != second._fp  # a second pass is not the first one

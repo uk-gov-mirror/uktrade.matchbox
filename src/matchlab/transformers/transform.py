@@ -2,7 +2,7 @@
 
 `Transform` is to `Transformer` what `Model` is to a `Deduper`/`Linker`: the lazy plan
 node that wraps a serialisable methodology, folds its configuration into a cache key,
-and runs it on collect. Its single input is a `Frame` — a `Source`, a `Resolved`, or a
+and runs it on collect. Its single input is a `Frame` — a `Source`, a `Resolver`, or a
 `Transform` — so transforms chain, each its own cached artifact.
 """
 

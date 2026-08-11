@@ -68,8 +68,7 @@ def apex(source: Callable[..., Source]) -> Resolver:
         model_settings={"unique_fields": [crn.f("company")]},
     ).resolve()
     return (
-        deduped.read(crn)
-        .link(
+        deduped.link(
             dh,
             model_class=DeterministicLinker,
             model_settings={
