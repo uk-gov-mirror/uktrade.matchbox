@@ -4,6 +4,20 @@ Entity resolution has no single right answer. The same data supports many method
 
 matchlab treats that as a first-class job rather than something you bolt on afterwards.
 
+## How evaluation works
+
+A resolver groups records into clusters. Each cluster claims that its records are one entity. Evaluation checks that claim against a human judgement, and reports how well the two agree.
+
+The loop has three steps:
+
+1. **Sample** a handful of a resolver's clusters, few enough for a person to check by hand.
+2. **Review** each cluster. A person decides which records actually belong together, sorting them into groups. That decision is a judgement, stored under a tag.
+3. **Score** the resolver against the stored judgements. The result is a precision and a recall.
+
+Run the same loop for two resolvers built with different methodologies, and score them against the same judgements. That's a fair comparison, not a guess.
+
+The rest of this page works through each step, then compares methodologies directly.
+
 ## Sample clusters to judge
 
 ```python

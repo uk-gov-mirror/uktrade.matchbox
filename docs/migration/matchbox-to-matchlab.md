@@ -76,9 +76,9 @@ A step is identified by its position in the plan, the order `collect` runs it in
 
 ```python
 cleaned = crn.clean({...})
-strict = cleaned.dedupe(NaiveDeduper, {"unique_fields": ["name", "town"]})
-loose = cleaned.dedupe(NaiveDeduper, {"unique_fields": ["name"]})
-entities = strict.resolve(loose).collect().publish("entities")
+deduper_1 = cleaned.dedupe(NaiveDeduper, {"unique_fields": ["trading_name"]})
+deduper_2 = cleaned.dedupe(NaiveDeduper, {"unique_fields": ["registered_name"]})
+entities = deduper_1.resolve(deduper_2).collect().publish("entities")
 ```
 
 Logs quote the position:
