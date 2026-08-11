@@ -31,6 +31,7 @@ from matchlab.core.dataframes import (
     to_dataframe,
 )
 from matchlab.core.kinds import StepKind
+from matchlab.lineage import StepStatus
 from matchlab.specs import ResolvedSpec
 from matchlab.steps import Step
 
@@ -216,19 +217,31 @@ class Resolved(Frame):
         """The serialisable spec. Field-less: its inputs are its identity."""
         return ResolvedSpec()
 
+    def _ensure(self, adapter: Adapter) -> StepStatus:
+        """A resolved read stores nothing, so it is satisfied the moment its inputs are.
+
+        Its frame is a re-derivable join over artifacts already stored — the source
+        extracts and the resolver output — so there is nothing to materialise here and
+        nothing to cache. It is computed on read instead (`_read_cache`), the same way a
+        `Source` derives its own frame. That keeps materialised storage to `Transform`
+        alone, where it can later be made partial.
+        """
+        self._adapter = adapter
+        self._fp = self._fingerprint()
+        return StepStatus.CACHED
+
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
-        adapter.store_frame(
-            fp, self.kind, build_frame(adapter, self._sources, self.resolver)
-        )
+        """Never called: a resolved read has no artifact to store (see `_ensure`)."""
 
     # -- Frame contract ---------------------------------------------------------------
 
     def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
+        """Derive the frame from the stored source extracts and resolver output."""
         if self._fp is None:  # collect orders upstream first
             raise RuntimeError(
                 "This resolved read has not been collected. Call collect() first."
             )
-        return adapter.read_frame(self._fp)
+        return build_frame(adapter, self._sources, self.resolver)
 
     @property
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:

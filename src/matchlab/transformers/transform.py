@@ -83,7 +83,7 @@ class Transform(Frame):
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         reshaped = self.transformer.apply(self._input._read_cache(adapter))
-        adapter.store_frame(fp, self.kind, reshaped)
+        adapter.store_transform(fp, reshaped)
 
     # -- Frame contract ---------------------------------------------------------------
 
@@ -92,7 +92,7 @@ class Transform(Frame):
             raise RuntimeError(
                 "This transform has not been collected. Call collect() first."
             )
-        return adapter.read_frame(self._fp)
+        return adapter.read_transform(self._fp)
 
     @property
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:

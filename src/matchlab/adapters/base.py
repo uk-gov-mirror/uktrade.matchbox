@@ -9,12 +9,16 @@ Artifacts, by step kind (schemas in `matchlab.core.schemas`, which holds exactly
 shapes that cross this boundary):
 
 * Source   → warehouse extract (arbitrary schema) + leaf assignment `(key, leaf)`.
-* Resolved → a frame of sources read through a resolver (arbitrary schema).
-* Transform→ a reshaped frame (arbitrary schema).
+* Transform→ the reshaped frame it materialises (arbitrary schema).
 * Model    → edge list, `SCHEMA_MODEL_EDGES` `(left_id, right_id, score)`.
 * Resolver → complete flat output, `SCHEMA_RESOLVER_OUTPUT` `(root, leaf, key, src)`.
              This is the merge-forward guarantee. It computes `merge(upstream complete
              output, own clusters)`, not just the resolver's own clusters.
+
+A `Source` and a `Resolved` read produce a frame too, but neither stores one: a source
+is fully materialised as its *extract* and derives its frame on read, and a resolved
+read is a re-derivable join over a source's extract and a resolver's output. Only a
+`Transform` stores its materialisation — the one place storage could later be partial.
 
 Plus evaluation storage (judgements + cluster expansion), publication (`publish` points
 a label at a resolver's output) and `close`.
@@ -229,21 +233,21 @@ class Adapter(ABC):
         """Return a stored model's edge list."""
         ...
 
-    # -- frames -----------------------------------------------------------------------
+    # -- transforms -------------------------------------------------------------------
 
     @abstractmethod
-    def store_frame(self, fp: Fingerprint, kind: StepKind, table: pl.DataFrame) -> None:
-        """Store a materialised frame (arbitrary schema), tagged with its step kind.
+    def store_transform(self, fp: Fingerprint, table: pl.DataFrame) -> None:
+        """Store a transform's materialised frame (arbitrary schema).
 
-        Both a `Resolved` read and a `Transform` store a frame; `kind` records which, so
-        `stats()` counts them apart. Called on every collect, so a frame feeding several
-        models is computed once and read back by each of them.
+        A `Transform` is the only frame-producing step that materialises its output;
+        a `Source` and a `Resolved` read derive theirs. Called on every collect, so a
+        transform feeding several models is computed once and read back by each.
         """
         ...
 
     @abstractmethod
-    def read_frame(self, fp: Fingerprint) -> pl.DataFrame:
-        """Return a stored frame (a `Resolved` read or a `Transform`)."""
+    def read_transform(self, fp: Fingerprint) -> pl.DataFrame:
+        """Return a stored transform's frame."""
         ...
 
     # -- resolvers --------------------------------------------------------------------

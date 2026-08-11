@@ -52,8 +52,8 @@ class StoringStep(Step):
 
     Carries a `label` purely so these tests can tell nodes apart, as `FakeStep` in
     `test_lineage` does. Real steps have no such thing — they are drawn by kind and
-    identified by position. It stores through `store_frame`, so `TRANSFORM` is the kind
-    that matches what it actually writes.
+    identified by position. It stores through `store_transform`, so `TRANSFORM` is the
+    kind that matches what it actually writes.
     """
 
     kind: ClassVar[StepKind] = StepKind.TRANSFORM
@@ -75,7 +75,7 @@ class StoringStep(Step):
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         self.executions += 1
-        adapter.store_frame(fp, self.kind, pl.DataFrame({"x": [1]}))
+        adapter.store_transform(fp, pl.DataFrame({"x": [1]}))
 
 
 class FailingStep(StoringStep):

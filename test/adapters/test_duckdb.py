@@ -13,7 +13,6 @@ import polars as pl
 import pytest
 
 from matchlab.adapters import DuckDBAdapter, DuckDBStoreStats
-from matchlab.core.kinds import StepKind
 
 from .conftest import Fingerprints
 
@@ -92,9 +91,8 @@ def test_stats_grows_with_data(tmp_path: Path, fp: Fingerprints) -> None:
     store = DuckDBAdapter(tmp_path / "store.duckdb")
     try:
         empty = store.stats().bytes
-        store.store_frame(
+        store.store_transform(
             fp.frame,
-            StepKind.TRANSFORM,
             pl.DataFrame({"id": range(50_000), "name": ["x"] * 50_000}),
         )
         assert store.stats().bytes > empty
@@ -116,9 +114,8 @@ def test_trim_reclaims_disk_space(
     store = DuckDBAdapter(tmp_path / "store.duckdb")
     try:
         store.store_source(fp.src, "key", extract, leaves)
-        store.store_frame(
+        store.store_transform(
             fp.frame,
-            StepKind.TRANSFORM,
             pl.DataFrame({"id": range(200_000), "name": ["padding"] * 200_000}),
         )
         before = store.stats().bytes
