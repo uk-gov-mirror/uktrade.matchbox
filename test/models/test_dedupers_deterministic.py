@@ -15,10 +15,10 @@ import pytest
 from matchlab.models import Model
 from matchlab.models.dedupers.base import Deduper
 from matchlab.models.dedupers.naive import NaiveDeduper, NaiveSettings
+from matchlab.sources import Source
 from matchlab.testkit.features import FeatureConfig, SourceParameters
 from matchlab.testkit.linked import linked_sources_factory
 from matchlab.testkit.sources import GeneratedSource
-from matchlab.views import View
 
 DeduperConfigurator = Callable[[GeneratedSource], dict[str, Any]]
 
@@ -45,7 +45,7 @@ DEDUPERS = [
         pytest.param(2, id="exact-duplicates"),
     ],
 )
-@patch.object(View, "_read_cache")
+@patch.object(Source, "_read_cache")
 def test_recovers_planted(
     mock_read_cache: Mock,
     repetition: int,
@@ -74,13 +74,13 @@ def test_recovers_planted(
         testkit.write_to_location()
     source = linked.sources["source_exact"]
 
-    # Mock the view read so the deduper scores the generated rows directly.
+    # Mock the frame read so the deduper scores the generated rows directly.
     mock_read_cache.return_value = pl.from_arrow(source.data)
 
     deduper = Model(
         model_class=Deduper,
         model_settings=configure_deduper(source),
-        left=source.source.view(),
+        left=source.source,
     )
     results = deduper.collect().edges()
 

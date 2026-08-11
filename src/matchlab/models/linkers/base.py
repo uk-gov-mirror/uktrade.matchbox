@@ -19,7 +19,7 @@ class LinkerSettings(BaseModel):
 
 
 class Linker(BaseModel, ABC):
-    """A methodology that finds candidate matches between two views.
+    """A methodology that finds candidate matches between two frames.
 
     A `Model` step calls `prepare()` once, then `link()`, each time it collects. Put
     one-off setup in `prepare()` instead, for example fitting a model over both

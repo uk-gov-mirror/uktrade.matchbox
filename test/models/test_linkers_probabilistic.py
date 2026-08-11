@@ -21,6 +21,7 @@ from matchlab.models.linkers.weighteddeterministic import (
     WeightedDeterministicLinker,
     WeightedDeterministicSettings,
 )
+from matchlab.sources import Source
 from matchlab.testkit.features import (
     FeatureConfig,
     ReplaceRule,
@@ -29,7 +30,6 @@ from matchlab.testkit.features import (
 )
 from matchlab.testkit.linked import linked_sources_factory
 from matchlab.testkit.sources import GeneratedSource
-from matchlab.views import View
 
 LinkerConfigurator = Callable[[GeneratedSource, GeneratedSource], dict[str, Any]]
 
@@ -160,7 +160,7 @@ SCORED_LINKERS = [
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), SCORED_LINKERS)
-@patch.object(View, "_read_cache")
+@patch.object(Source, "_read_cache")
 def test_probabilistic_scores_vary(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -207,8 +207,8 @@ def test_probabilistic_scores_vary(
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.source.view(),
-        right=right_source.source.view(),
+        left=left_source.source,
+        right=right_source.source,
     )
 
     results = linker.collect().edges()

@@ -28,10 +28,10 @@ from matchlab.models.linkers.weighteddeterministic import (
     WeightedDeterministicLinker,
     WeightedDeterministicSettings,
 )
+from matchlab.sources import Source
 from matchlab.testkit.features import FeatureConfig, SourceParameters
 from matchlab.testkit.linked import linked_sources_factory
 from matchlab.testkit.sources import GeneratedSource, source_factory
-from matchlab.views import View
 
 LinkerConfigurator = Callable[[GeneratedSource, GeneratedSource], dict[str, Any]]
 
@@ -223,7 +223,7 @@ LINKERS = [
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(View, "_read_cache")
+@patch.object(Source, "_read_cache")
 def test_link_exact_match(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -271,8 +271,8 @@ def test_link_exact_match(
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.source.view(),
-        right=right_source.source.view(),
+        left=left_source.source,
+        right=right_source.source,
     )
     results = linker.collect().edges()
 
@@ -284,7 +284,7 @@ def test_link_exact_match(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(View, "_read_cache")
+@patch.object(Source, "_read_cache")
 def test_link_exact_with_duplicates(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -329,8 +329,8 @@ def test_link_exact_with_duplicates(
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.source.view(),
-        right=right_source.source.view(),
+        left=left_source.source,
+        right=right_source.source,
     )
     results = linker.collect().edges()
 
@@ -342,7 +342,7 @@ def test_link_exact_with_duplicates(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(View, "_read_cache")
+@patch.object(Source, "_read_cache")
 def test_link_partial_overlap(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -390,8 +390,8 @@ def test_link_partial_overlap(
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.source.view(),
-        right=right_source.source.view(),
+        left=left_source.source,
+        right=right_source.source,
     )
     results = linker.collect().edges()
 
@@ -403,7 +403,7 @@ def test_link_partial_overlap(
 
 
 @pytest.mark.parametrize(("Linker", "configure_linker"), LINKERS)
-@patch.object(View, "_read_cache")
+@patch.object(Source, "_read_cache")
 def test_link_no_matches(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
@@ -443,8 +443,8 @@ def test_link_no_matches(
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
-        left=left_source.source.view(),
-        right=right_source.source.view(),
+        left=left_source.source,
+        right=right_source.source,
     )
     results = linker.collect().edges()
 

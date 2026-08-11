@@ -15,7 +15,7 @@ want pinned is a `cast` in the SELECT.
 import tempfile
 from collections.abc import Callable, Generator, Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import ClassVar
 
 import polars as pl
 import pyarrow.parquet as pq
@@ -31,19 +31,18 @@ from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
 from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.resolver_output import leaf_id
+from matchlab.frames import Frame, IdentifierRead, build_frame
 from matchlab.locations import Location
 from matchlab.specs import SourceSpec
-from matchlab.steps import Step
-from matchlab.views import View
-
-if TYPE_CHECKING:
-    # `matchlab.models` reaches this module through `matchlab.views`, so `Model` can
-    # only ever be a type-time name here; annotations that use it are quoted.
-    from matchlab.models import Model
 
 
-class Source(Step):
-    """A warehouse table, extracted and content-addressed."""
+class Source(Frame):
+    """A warehouse table, extracted and content-addressed.
+
+    A source is a `Frame`. Read directly, its records are its extract, with `id` set
+    to each row's content-addressed leaf, so a model can match over it with no
+    intervening step.
+    """
 
     kind: ClassVar[StepKind] = StepKind.SOURCE
 
@@ -113,7 +112,7 @@ class Source(Step):
 
     # -- column naming ----------------------------------------------------------------
     #
-    # A view built over several sources qualifies every column with the source it came
+    # A frame built over several sources qualifies every column with the source it came
     # from, so `company` from `crn` becomes `crn_company`. These say what a column will
     # be called once that has happened, which is how you refer to it in a cleaning
     # expression or a model's settings, before anything has been collected.
@@ -260,7 +259,7 @@ class Source(Step):
         column therefore moves the fingerprint. This was not true while a separate list
         of index fields could be narrower than the extract. A column outside it changed
         the stored extract without touching the fingerprint, so the source cache-hit,
-        never re-stored, and downstream views kept reading the stale value.
+        never re-stored, and downstream frames kept reading the stale value.
         """
         _, hashes = self._read_warehouse()
         return super()._spec_key() + hash_arrow_table(hashes.to_arrow())
@@ -274,42 +273,18 @@ class Source(Step):
             leaves=self.leaves(),
         )
 
-    # -- verbs ------------------------------------------------------------------------
+    # -- Frame contract ---------------------------------------------------------------
 
-    def view(self, *, cleaning: dict[str, str] | None = None, **kwargs: Any) -> View:
-        """Return a view of this source's records.
+    def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
+        """Return this source's records with each row's leaf as `id`.
 
-        `cleaning` is keyword-only so that this reads the same as
-        `Resolver.view(source, cleaning=...)`, where the positional slot is taken by
-        the sources being read.
+        Derived from the extract and leaves stored by `_execute`, a cheap join rather
+        than a separately cached artifact. Reading a source on its own means `id` is
+        the leaf, so there is no resolver in the read.
         """
-        return View(self, cleaning=cleaning, **kwargs)
+        return build_frame(adapter, (self,), None)
 
-    def dedupe(
-        self,
-        model_class: Any,  # noqa: ANN401 - a Deduper subclass
-        model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-    ) -> "Model":
-        """Deduplicate this source's records.
-
-        Shorthand for `self.view().dedupe(...)`. A view is only worth building
-        explicitly when you want to clean, group, or read through a resolver.
-        """
-        return self.view().dedupe(
-            model_class=model_class, model_settings=model_settings
-        )
-
-    def link(
-        self,
-        other: "Source | View",
-        model_class: Any,  # noqa: ANN401 - a Linker subclass
-        model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-    ) -> "Model":
-        """Link this source to another source or view.
-
-        Shorthand for `self.view().link(...)`. `other` is viewed too if it is a
-        source, so neither side needs one.
-        """
-        return self.view().link(
-            other, model_class=model_class, model_settings=model_settings
-        )
+    @property
+    def _identifier_reads(self) -> tuple[IdentifierRead, ...]:
+        """Read directly, so `id` is the leaf and no resolver enters the read."""
+        return ((self._fp, self.name, None),)

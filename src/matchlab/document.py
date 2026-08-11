@@ -6,7 +6,7 @@ plan. It is dumped, transferred and loaded, never hand-authored. That is why nod
 refer to each other by position rather than by any human-facing name.
 
 Nodes come out in `lineage.walk` order, so every input index is smaller than the index
-of the step that consumes it. Positions also preserve structural sharing. A view
+of the step that consumes it. Positions also preserve structural sharing. A frame
 feeding two models is one node referenced twice. Nesting each step's inputs inside it
 would have inlined the whole subtree twice over instead.
 
@@ -47,6 +47,7 @@ from typing import Any, TypeVar, cast
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from matchlab.core.kinds import StepKind
+from matchlab.frames import Frame
 from matchlab.lineage import walk
 from matchlab.locations import build_location
 from matchlab.models import Model
@@ -56,19 +57,19 @@ from matchlab.specs import (
     ModelSpec,
     ResolverSpec,
     SourceSpec,
-    ViewSpec,
+    TransformSpec,
 )
 from matchlab.steps import Step
-from matchlab.views import View
+from matchlab.transformers import Transform
 
-StepSpec = SourceSpec | ViewSpec | ModelSpec | ResolverSpec
+StepSpec = SourceSpec | TransformSpec | ModelSpec | ResolverSpec
 
 SpecT = TypeVar("SpecT", bound=BaseModel)
 StepT = TypeVar("StepT", bound=Step)
 
 _SPEC_TYPES: dict[StepKind, type[BaseModel]] = {
     StepKind.SOURCE: SourceSpec,
-    StepKind.VIEW: ViewSpec,
+    StepKind.TRANSFORM: TransformSpec,
     StepKind.MODEL: ModelSpec,
     StepKind.RESOLVER: ResolverSpec,
 }
@@ -127,9 +128,9 @@ class StepNode(BaseModel):
     def _spec_from_kind(cls, data: Any) -> Any:  # noqa: ANN401 - raw pydantic input
         """Parse `spec` as the type `kind` names, rather than guessing.
 
-        The four specs are structurally close enough that a plain union mis-assigns:
-        `ViewSpec` has no required fields, so an empty object matches it and several
-        others. `kind` is the discriminator the document already carries.
+        The specs are structurally close enough that a plain union mis-assigns. A
+        `TransformSpec` and a `ModelSpec` overlap once optional settings default, so a
+        union could bind the wrong one. `kind` is the discriminator the document holds.
         """
         if not isinstance(data, dict):
             return data
@@ -261,33 +262,31 @@ def _rebuild(
                 key_field=spec.key_field,
             )
 
-        case StepKind.VIEW:
-            spec = _expect(node, position, ViewSpec)
-            sources = tuple(step for step in inputs if isinstance(step, Source))
-            resolvers = [step for step in inputs if isinstance(step, Resolver)]
-            if len(sources) + len(resolvers) != len(inputs) or len(resolvers) > 1:
+        case StepKind.TRANSFORM:
+            spec = _expect(node, position, TransformSpec)
+            frames = _all_of(node, position, inputs, Frame)
+            if len(frames) != 1:
                 raise ValueError(
-                    f"Step {position} (view) must read sources and at most one "
-                    f"resolver, got {[step.kind for step in inputs]}."
+                    f"Step {position} (transform) reads {len(frames)} frames; a "
+                    "transform reshapes exactly one."
                 )
-            return View(
-                *sources,
-                resolver=resolvers[0] if resolvers else None,
-                cleaning=spec.cleaning,
-                group=spec.group,
+            return Transform(
+                frames[0],
+                transformer=spec.transformer_class,
+                transformer_settings=spec.transformer_settings,
             )
 
         case StepKind.MODEL:
             spec = _expect(node, position, ModelSpec)
-            views = _all_of(node, position, inputs, View)
-            if not 1 <= len(views) <= 2:
+            frames = _all_of(node, position, inputs, Frame)
+            if not 1 <= len(frames) <= 2:
                 raise ValueError(
-                    f"Step {position} (model) reads {len(views)} views; a deduper "
+                    f"Step {position} (model) reads {len(frames)} frames; a deduper "
                     "reads one and a linker two."
                 )
             return Model(
-                left=views[0],
-                right=views[1] if len(views) > 1 else None,
+                left=frames[0],
+                right=frames[1] if len(frames) > 1 else None,
                 model_class=spec.model_class,
                 model_settings=spec.model_settings,
             )

@@ -16,7 +16,7 @@ companies = Source(
 )
 
 entities = (
-    companies.view(cleaning={"name": "lower(crn_company)"})
+    companies.clean({"name": "lower(crn_company)"})
     .dedupe(model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]})
     .resolve()
     .collect()

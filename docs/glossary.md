@@ -14,7 +14,7 @@ A [testkit's](#testkit) map from a generated row's own values to the [true entit
 
 ## Artifact
 
-The stored output of one [step](#step), such as a source's [extract](#extract) and leaf assignment, a view's materialised table, a model's edge list, or a [resolver](#resolver)'s complete, merge-forward output. A [store](#store) keeps every artifact it is given until something explicitly [trims](#trim) it.
+The stored output of one [step](#step), such as a source's [extract](#extract) and leaf assignment, a [transform](#transform)'s materialised frame, a model's edge list, or a [resolver](#resolver)'s complete, merge-forward output. A [store](#store) keeps every artifact it is given until something explicitly [trims](#trim) it.
 
 ## Cluster
 
@@ -30,6 +30,10 @@ Run a plan. `collect()` walks a plan upstream-first and runs only the steps that
 
 Identified by what it is, not by when or how it was built. A step's [fingerprint](#fingerprint) comes from its own configuration and its inputs' fingerprints, so the same plan always keys the same artifact. Collecting it twice reads the cached one back rather than recomputing it.
 
+## Deduper
+
+A [methodology](#methodology) that finds candidate duplicate pairs within one [frame](#frame), run by `.dedupe()`. `NaiveDeduper` is the built-in. A custom one subclasses `Deduper` and registers with `add_model_class`, the same pattern [transformers](#transform) plug in with.
+
 ## Entity
 
 The real-world thing several records refer to. A [resolver](#resolver) groups records under one [root](#root) ID when it decides they describe the same entity.
@@ -42,6 +46,10 @@ The rows a [source](#source)'s query returns, cached exactly as read so they can
 
 The 32-byte SHA-256 digest that keys a step's stored [artifact](#artifact). Two steps with identical configuration and identical input fingerprints hash to the same fingerprint, which is what makes a store [content-addressed](#content-addressed).
 
+## Frame
+
+A table with an `id` column, the records a [model](#model) matches over. A [source](#source), a [transform](#transform), and a [resolver](#resolver) are the three kinds. On a source, `id` is the leaf. On a resolver, `id` is the entity root, which is what makes layering possible. Every frame chains the same verbs (`select`, `clean`, `group`, `transform`, `dedupe`, `link`). A [model](#model) is the one step that is not a frame, since it yields edges rather than records.
+
 ## Judgement
 
 A person's decision that one reviewed cluster's records do, or do not, describe the same [entity](#entity), recorded by matchlab's evaluation tools and scored against a [resolver](#resolver)'s clusters. A judgement is anchored to the content a reviewer was shown, not to any record's key, which is why a [leaf](#leaf) ID, a hash of content, rather than a key, is what a judgement endorses or rejects.
@@ -52,7 +60,11 @@ A pointer from a name someone chose to a [resolver](#resolver)'s [fingerprint](#
 
 ## Leaf
 
-The stable ID of one record, a hash of its content rather than its key. Identity coming from content rather than key is why a leaf ID changes only when the underlying data does, which is the basis matchlab anchors evaluation judgements to. Reading a source or view directly, without going through a resolver, exposes the leaf as the `id` column.
+The stable ID of one record, a hash of its content rather than its key. Identity coming from content rather than key is why a leaf ID changes only when the underlying data does, which is the basis matchlab anchors evaluation judgements to. Reading a source or frame directly, without going through a resolver, exposes the leaf as the `id` column.
+
+## Linker
+
+A [methodology](#methodology) that finds candidate matches between two [frames](#frame), run by `.link()`. `DeterministicLinker`, `WeightedDeterministicLinker`, and `SplinkLinker` are the built-ins. A custom one subclasses `Linker` and registers with `add_model_class`.
 
 ## Location
 
@@ -70,11 +82,11 @@ The guarantee that a [resolver](#resolver)'s stored output carries forward every
 
 ## Methodology
 
-The matching algorithm a [model](#model) or [resolver](#resolver) step runs. Models run `NaiveDeduper`, `DeterministicLinker`, `SplinkLinker`, or `WeightedDeterministicLinker`. Resolvers run connected components. A model wraps one methodology, chosen by `model_class`, using a **Deduper** to match within one view or a **Linker** to match between two. Swapping the methodology only means changing `model_class` (or `resolver_class`), never restructuring the plan around it.
+The matching algorithm a [model](#model) or [resolver](#resolver) step runs. Models run `NaiveDeduper`, `DeterministicLinker`, `SplinkLinker`, or `WeightedDeterministicLinker`. Resolvers run connected components. A model wraps one methodology, chosen by `model_class`, using a [deduper](#deduper) to match within one frame or a [linker](#linker) to match between two. Swapping the methodology only means changing `model_class` (or `resolver_class`), never restructuring the plan around it.
 
 ## Model
 
-A step that scores candidate matches by running one [methodology](#methodology), either `.dedupe()` within one view or `.link()` between two. A model produces edges, not clusters. Turning edges into entities is a [resolver's](#resolver) job.
+A step that scores candidate matches by running one [methodology](#methodology). A [deduper](#deduper) matches within one [frame](#frame) via `.dedupe()`, and a [linker](#linker) matches between two via `.link()`. A model produces edges, not clusters. Turning edges into entities is a [resolver's](#resolver) job.
 
 ## Plan
 
@@ -106,7 +118,7 @@ Call this a **Resolver**, or its **merge-forwarded Resolver output** if you mean
 
 ## Root
 
-The ID of a cluster a resolver produces, a hash of the sorted set of [leaf](#leaf) IDs it contains. Two runs that produce the same clustering produce the same root ID, whatever order the underlying algorithm found its clusters in. Reading a view through a resolver exposes the root as the `id` column, so several records can share one `id`.
+The ID of a cluster a resolver produces, a hash of the sorted set of [leaf](#leaf) IDs it contains. Two runs that produce the same clustering produce the same root ID, whatever order the underlying algorithm found its clusters in. Reading a [frame](#frame) through a resolver exposes the root as the `id` column, so several records can share one `id`.
 
 ## Source
 
@@ -114,7 +126,7 @@ The warehouse query a plan starts from, plus the column that keys it. Every colu
 
 ## Step
 
-One node in a [plan](#plan). Steps are sources, views, models, or resolvers. A step's kind decides what it produces, and what [artifact](#artifact) a store keeps for it.
+One node in a [plan](#plan). Steps are sources, transforms, models, or resolvers. A step's kind decides what it produces, and what [artifact](#artifact) a store keeps for it.
 
 ## Store
 
@@ -130,6 +142,10 @@ A testkit is what makes the oracle testing pattern possible here. Assert against
 
 The package checks a plan's answer two ways, because matchlab derives a record's real ID by content-hashing at collect time, so no ID is knowable when a fixture is built. One check scores a [methodology](#methodology) directly, against the testkit's own synthetic IDs, without collecting anything. The other scores a collected plan, keyed by row values instead, through an [answer key](#answer-key). See `matchlab.testkit`'s module docstring for which to use.
 
+## Transform
+
+A step that reshapes a [frame](#frame) with a pluggable, serialisable **transformer**. `select` keeps only the named columns, `clean` derives new ones with DuckDB SQL while keeping the rest, and `group` collapses each `id` to one row. `transform()` is the general verb they desugar to (`.clean(...)` is `.transform(Clean(...))`). `Transformer` is the base class. `Select`, `Clean`, and `Group` are the built-ins, and a custom one registers with `add_transformer_class`, the same pattern [dedupers](#deduper) and [linkers](#linker) plug in with. Its configuration is part of the plan and its [fingerprint](#fingerprint), like any [methodology](#methodology)'s settings.
+
 ## Trim
 
 Delete every artifact except the ones named or [published](#publish), and reclaim the space that frees. A file-backed store's trim rewrites the file itself, because deleting rows inside it does not return space to the operating system.
@@ -139,8 +155,3 @@ Delete every artifact except the ones named or [published](#publish), and reclai
 🧪 Testkits
 
 The planted answer a [testkit](#testkit) generated data from. It is one real-world thing, identified by the values it was generated from, spanning every source it landed in. Project it onto the sources under test to get a [cluster](#cluster), the only form that is comparable with an actual result. `TrueEntity` is the class.
-
-## View
-
-A step that says which records a model matches over, and what shape they're in. Only the columns named in its cleaning survive, plus `id`, the grouping the model matches on.
-

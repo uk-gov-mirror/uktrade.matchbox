@@ -84,30 +84,16 @@ class SourceSpec(BaseModel):
     )
 
 
-class ViewSpec(BaseModel):
-    """Specification of a view: the shape it gives the records a model matches over.
-
-    *Which* records it reads is not here. That is an edge, and edges live on
-    `Step.upstream` and in `PlanDocument`. A view over one source and a view over
-    another are told apart by their inputs' fingerprints, which `_fingerprint` already
-    folds in, in order.
-    """
+class TransformSpec(BaseModel):
+    """Specification of a transform, naming which transformer reshapes the frame."""
 
     model_config = ConfigDict(frozen=True)
 
-    cleaning: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "Output column to SQL expression. `None` passes every column through. "
-            "An empty dict projects to `id` only."
-        ),
+    transformer_class: str = Field(
+        description="The registered name of the Transformer subclass."
     )
-    group: bool = Field(
-        default=False,
-        description=(
-            "Collapse each `id` to one row, so the cleaning expressions run as "
-            "aggregates. Changes the grain of what a model sees."
-        ),
+    transformer_settings: dict[str, Any] = Field(
+        description="That transformer's configuration, dumped to JSON."
     )
 
 
