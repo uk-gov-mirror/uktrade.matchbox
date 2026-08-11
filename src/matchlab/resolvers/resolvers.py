@@ -333,10 +333,8 @@ class Resolver(Frame):
         rows: list[pl.DataFrame] = []
         key_columns: list[str] = []
         for source in self.sources:
-            keys = resolver_output.filter(pl.col("source") == source.name)[
-                "key"
-            ].to_list()
-            if not keys:
+            keys = resolver_output.filter(pl.col("source") == source.name)["key"]
+            if keys.len() == 0:
                 continue
 
             records, qualified_key = adapter.read_source_records(

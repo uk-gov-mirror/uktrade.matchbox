@@ -344,7 +344,7 @@ def get_samples(
 
         samples_by_source = samples.filter(pl.col("source") == source_step)
         rows, qualified_key = source_store.read_source_records(
-            source_fp, source_step, samples_by_source["key"].to_list()
+            source_fp, source_step, samples_by_source["key"]
         )
         values = [column for column in rows.columns if column != qualified_key]
 

@@ -145,8 +145,8 @@ Grouping changes what the *model* sees. It never changes the resolver output. Re
 `select`, `clean` and `group` are the built-in transformers. `transform` takes any transformer object, so you can pass one explicitly. A custom transformer plugs in the same way a custom deduper does. Subclass `Transformer` and register it with `add_transformer_class`. It can then be named in a plan and a document:
 
 ```python
-source.transform(Clean(cleaning={...}))   # the explicit form
-source.transform(MyTransformer(...))       # your own, once registered
+source.transform(Clean(cleaning={...}))  # the explicit form
+source.transform(MyTransformer(...))  # your own, once registered
 ```
 
 ### Deduplicating and linking
@@ -196,11 +196,9 @@ A resolver is a frame. To match **on top of** an earlier resolver output, match 
 ```python
 deduped_crn = crn.dedupe(...).resolve()
 
-entities = (
-    deduped_crn  # crn's records, as resolved by the dedupe
-    .link(dh, model_class=..., model_settings=...)
-    .resolve()
-)
+entities = deduped_crn.link(  # crn's records, as resolved by the dedupe
+    dh, model_class=..., model_settings=...
+).resolve()
 ```
 
 The link now sees crn's deduplicated clusters rather than its raw rows. Records the link never matches keep their upstream grouping. A resolver always carries its inputs' resolver outputs forward, so nothing silently reverts to singletons.

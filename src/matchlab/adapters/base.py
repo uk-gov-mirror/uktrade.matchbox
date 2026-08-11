@@ -307,7 +307,7 @@ class Adapter(ABC):
         ...
 
     def read_source_records(
-        self, source_fp: Fingerprint, source_name: str, keys: Iterable[str]
+        self, source_fp: Fingerprint, source_name: str, keys: pl.Series
     ) -> tuple[pl.DataFrame, str]:
         """Return a source's stored rows for `keys`, every column qualified by name.
 
@@ -333,7 +333,7 @@ class Adapter(ABC):
         qualified = extract.select(pl.all().name.prefix(qualify(source_name)))
         qualified_key = qualify(source_name, key_field)
         rows = qualified.with_columns(pl.col(qualified_key).cast(pl.Utf8)).filter(
-            pl.col(qualified_key).is_in(list(keys))
+            pl.col(qualified_key).is_in(keys.implode())
         )
         return rows, qualified_key
 
