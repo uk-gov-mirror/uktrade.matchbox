@@ -33,7 +33,6 @@ Read the [full documentation](https://uktrade.github.io/matchlab/).
 * **Content-addressed caching.** Re-collecting an unchanged plan does no work. Adding a step runs only that step.
 * **Materialised resolver output.** A collected resolver writes a complete `(root, leaf, key, source)` table, so lookups are reads, not re-derivations.
 * **Measurement as a first-class job.** Sample clusters, record judgements, score precision and recall, and compare methodologies on equal terms.
-* **Your data stays put.** matchlab indexes what's in your warehouse; it doesn't copy it.
 
 ## What it doesn't do
 
