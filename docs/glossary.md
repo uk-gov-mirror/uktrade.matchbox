@@ -14,7 +14,7 @@ A [testkit's](#testkit) map from a generated row's own values to the [true entit
 
 ## Artifact
 
-The stored output of one [step](#step), such as a source's [extract](#extract) and leaf assignment, a [transform](#transform)'s materialised frame, a model's edge list, or a [resolver](#resolver)'s complete, merge-forward output. A [store](#store) keeps every artifact it is given until something explicitly [trims](#trim) it.
+The stored output of one [step](#step), such as a source's [extract](#extract) and leaf assignment, a [transform](#transform)'s materialised frame, a model's edge list, or a [resolver](#resolver)'s complete, merge-forward output. A [store](#store) keeps every artifact it is given until something explicitly [prunes](#prune) it.
 
 ## Cluster
 
@@ -100,6 +100,10 @@ A step's place in `collect()`'s run order is one sense. `draw()` shows it in bra
 
 A setting that must point at one of a step's own inputs uses the other sense. It names that input by its index among the step's own inputs, not by that input's place in the whole plan. `ComponentsSettings.thresholds` keys a per-model threshold this way. A model can sit at plan position 5 while still being resolver-input position 0.
 
+## Prune
+
+Delete every artifact except the ones named or [published](#publish), and reclaim the space that frees. A file-backed store's prune rewrites the file itself, because deleting rows inside it does not return space to the operating system.
+
 ## Publish
 
 Point a [label](#label) at a [resolver](#resolver)'s output, so it can be found without the plan that built it. Publishing is an act, not a property of the plan. Nothing exists to point at until the resolver has been [collected](#collect), so publishing always happens after collection, never before or instead of it.
@@ -130,7 +134,7 @@ One node in a [plan](#plan). Steps are sources, transforms, models, or resolvers
 
 ## Store
 
-Where a plan's artifacts live once collected. The reference implementation is a DuckDB database. A store keeps everything given to it until something explicitly [trims](#trim) it or the file is deleted.
+Where a plan's artifacts live once collected. The reference implementation is a DuckDB database. A store keeps everything given to it until something explicitly [prunes](#prune) it or the file is deleted.
 
 ## Testkit
 
@@ -145,10 +149,6 @@ The package checks a plan's answer two ways, because matchlab derives a record's
 ## Transform
 
 A step that reshapes a [frame](#frame) with a pluggable, serialisable **transformer**. `select` keeps only the named columns, `clean` derives new ones with DuckDB SQL while keeping the rest, and `group` collapses each `id` to one row. `transform()` is the general verb they desugar to (`.clean(...)` is `.transform(Clean(...))`). `Transformer` is the base class. `Select`, `Clean`, and `Group` are the built-ins, and a custom one registers with `add_transformer_class`, the same pattern [dedupers](#deduper) and [linkers](#linker) plug in with. Its configuration is part of the plan and its [fingerprint](#fingerprint), like any [methodology](#methodology)'s settings.
-
-## Trim
-
-Delete every artifact except the ones named or [published](#publish), and reclaim the space that frees. A file-backed store's trim rewrites the file itself, because deleting rows inside it does not return space to the operating system.
 
 ## True entity
 

@@ -7,8 +7,8 @@ not an engine that resolves on demand. `DuckDBAdapter` is the reference implemen
 from matchlab.adapters.base import (
     Adapter,
     Fingerprint,
+    PruneResult,
     StoreStats,
-    TrimResult,
     format_bytes,
 )
 from matchlab.adapters.duckdb import DuckDBAdapter, DuckDBStoreStats
@@ -18,7 +18,7 @@ __all__ = (
     "DuckDBAdapter",
     "DuckDBStoreStats",
     "Fingerprint",
+    "PruneResult",
     "StoreStats",
-    "TrimResult",
     "format_bytes",
 )

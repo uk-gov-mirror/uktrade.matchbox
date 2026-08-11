@@ -13,7 +13,7 @@ from pathlib import Path
 import duckdb
 import polars as pl
 
-from matchlab.adapters.base import Adapter, Fingerprint, StoreStats, TrimResult
+from matchlab.adapters.base import Adapter, Fingerprint, PruneResult, StoreStats
 from matchlab.core.kinds import StepKind
 from matchlab.core.resolver_output import root_id_of
 from matchlab.core.schemas import (
@@ -376,7 +376,7 @@ class DuckDBAdapter(Adapter):
     # -- maintenance ------------------------------------------------------------------
 
     def _keep_set(self, keep: Iterable[Fingerprint | str]) -> set[Fingerprint]:
-        """Every fingerprint that must survive a trim.
+        """Every fingerprint that must survive a prune.
 
         Labels go in whether or not they were named. A label also drags in the sources
         its resolver output needs. Reading a published resolver output without a plan
@@ -402,7 +402,7 @@ class DuckDBAdapter(Adapter):
             )
         return {fp, *self.resolver_output_sources(fp).values()}
 
-    def trim(self, keep: Iterable[Fingerprint | str] = ()) -> TrimResult:
+    def prune(self, keep: Iterable[Fingerprint | str] = ()) -> PruneResult:
         """Delete every artifact except the ones named, and reclaim what that frees.
 
         Deleting is only half of it. DuckDB marks freed blocks for reuse but never
@@ -433,7 +433,7 @@ class DuckDBAdapter(Adapter):
 
         if not kept and stored:
             raise ValueError(
-                "Trimming with nothing to keep would empty the store. Name a plan or a "
+                "Pruning with nothing to keep would empty the store. Name a plan or a "
                 "label, or delete the file instead if that is what you meant."
             )
 
@@ -444,7 +444,7 @@ class DuckDBAdapter(Adapter):
         if self.path != ":memory:":
             self._rewrite()
 
-        return TrimResult(
+        return PruneResult(
             removed=len(doomed),
             kept=len(stored) - len(doomed),
             reclaimed=max(before - self.stats().bytes, 0),
@@ -457,7 +457,7 @@ class DuckDBAdapter(Adapter):
         swap is a rename within one filesystem and therefore atomic.
         """
         path = Path(self.path).resolve()
-        temporary = path.with_name(f"{path.name}.trim-tmp")
+        temporary = path.with_name(f"{path.name}.prune-tmp")
         temporary.unlink(missing_ok=True)
 
         database = self.conn.execute(
@@ -467,9 +467,9 @@ class DuckDBAdapter(Adapter):
             return
 
         self.conn.execute("CHECKPOINT")
-        self.conn.execute(f"ATTACH '{temporary}' AS trimmed")
-        self.conn.execute(f'COPY FROM DATABASE "{database[0]}" TO trimmed')
-        self.conn.execute("DETACH trimmed")
+        self.conn.execute(f"ATTACH '{temporary}' AS pruned")
+        self.conn.execute(f'COPY FROM DATABASE "{database[0]}" TO pruned')
+        self.conn.execute("DETACH pruned")
         self.conn.close()
 
         os.replace(temporary, path)

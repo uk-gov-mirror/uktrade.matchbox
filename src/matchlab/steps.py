@@ -248,7 +248,7 @@ class Step(ABC):
         """Address every artifact this plan is made of, its own and its inputs'.
 
         Which artifacts belong to a plan is the plan's own business, so this is where
-        a store gets told: `adapter.trim(keep=plan.fingerprints())` hands storage a set
+        a store gets told: `adapter.prune(keep=plan.fingerprints())` hands storage a set
         of addresses it already understands, rather than a graph it would have to learn
         to walk.
 

@@ -8,7 +8,7 @@ same move `DEDUPERS` makes for models, and the `warehouse` dispatch makes for wa
 clients.
 
 DuckDB is the only backend today. Some behaviour only a real DuckDB *file* can show:
-reclaiming space, resident-vs-on-disk bytes, the in-memory-trim hazard. That behaviour
+reclaiming space, resident-vs-on-disk bytes, the in-memory-prune hazard. That behaviour
 is engine-specific, so it lives in `test_duckdb.py`, which builds its stores directly.
 """
 

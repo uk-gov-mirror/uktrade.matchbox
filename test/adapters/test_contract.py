@@ -1,7 +1,7 @@
 """The storage contract every `Adapter` must honour, over each backend.
 
 These assert behaviour, not DuckDB: round-trips, `has` before store, schema rejection,
-idempotence, `read_identifiers`, sampling, the evaluation round-trip, trimming, and
+idempotence, `read_identifiers`, sampling, the evaluation round-trip, pruning, and
 movable labels. A test taking the `store` fixture runs over every backend. A test
 taking `durable_store` runs only over backends that survive a reopen. See
 `conftest.py` for how the backends are wired in.
@@ -304,7 +304,7 @@ def test_label_survives_restore(
     assert store.read_resolver(fp.resolver).height == resolver_output.height
 
 
-# -- trim -----------------------------------------------------------------------------
+# -- prune ---------------------------------------------------------------------------
 
 
 def _publish_over_one_source(
@@ -322,18 +322,18 @@ def _publish_over_one_source(
     store.publish("entities", fp.resolver)
 
 
-def test_trim_keeps_named(
+def test_prune_keeps_named(
     store: Adapter,
     fp: Fingerprints,
     extract: pl.DataFrame,
     leaves: pl.DataFrame,
     edges: pl.DataFrame,
 ) -> None:
-    """Trim keeps the fingerprints it was given and drops the rest."""
+    """Prune keeps the fingerprints it was given and drops the rest."""
     store.store_source(fp.src, "key", extract, leaves)
     store.store_model(fp.model, edges)
 
-    result = store.trim(keep=[fp.src])
+    result = store.prune(keep=[fp.src])
 
     assert result.removed == 1
     assert result.kept == 1
@@ -343,7 +343,7 @@ def test_trim_keeps_named(
     assert store.read_source_extract(fp.src).height == extract.height
 
 
-def test_trim_keeps_label_and_sources(
+def test_prune_keeps_label_and_sources(
     store: Adapter,
     fp: Fingerprints,
     extract: pl.DataFrame,
@@ -351,7 +351,7 @@ def test_trim_keeps_label_and_sources(
     edges: pl.DataFrame,
     resolver_output: pl.DataFrame,
 ) -> None:
-    """A publication survives a trim that never mentioned it, and stays *usable*.
+    """A publication survives a prune that never mentioned it, and stays *usable*.
 
     Keeping the label row alone is not enough. Reading a published resolver output
     without a plan goes through `resolver_output_sources` to each source's extract. A
@@ -360,7 +360,7 @@ def test_trim_keeps_label_and_sources(
     """
     _publish_over_one_source(store, fp, extract, leaves, edges, resolver_output)
 
-    result = store.trim(keep=[])  # names nothing at all
+    result = store.prune(keep=[])  # names nothing at all
 
     assert result.removed == 1  # the model, and only the model
     assert store.labels() == ["entities"]
@@ -372,7 +372,7 @@ def test_trim_keeps_label_and_sources(
     assert store.source_key_field(fp.src) == "key"
 
 
-def test_trim_keeps_judgements(
+def test_prune_keeps_judgements(
     store: Adapter,
     fp: Fingerprints,
     extract: pl.DataFrame,
@@ -384,21 +384,21 @@ def test_trim_keeps_judgements(
     _publish_over_one_source(store, fp, extract, leaves, edges, resolver_output)
     store.store_judgement(Judgement(shown=[1, 2, 3, 4], endorsed=[[1, 2], [3, 4]]))
 
-    store.trim(keep=[])
+    store.prune(keep=[])
 
     judgements, expansion = store.read_eval_data()
     assert judgements.height == 2
     assert expansion.height > 0
 
 
-def test_trim_refuses_to_empty(
+def test_prune_refuses_to_empty(
     store: Adapter, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
 ) -> None:
     """An accidentally-empty list should not be how a store gets emptied."""
     store.store_source(fp.src, "key", extract, leaves)
 
     with pytest.raises(ValueError, match="would empty the store"):
-        store.trim(keep=[])
+        store.prune(keep=[])
 
     assert store.has(fp.src)
 

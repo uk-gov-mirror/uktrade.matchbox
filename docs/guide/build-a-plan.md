@@ -379,14 +379,14 @@ Watch the artifact count rather than the size to see this happen. Edit a cleanin
 
 Each adapter reports what only it can measure. A `DuckDBAdapter` hands back a `DuckDBStoreStats`, with a `path` you can pass to `unlink()`, and a `free_bytes` for space already freed inside the file.
 
-### Trimming
+### Pruning
 
-`trim()` keeps what you name and deletes the rest:
+`prune()` keeps what you name and deletes the rest:
 
 ```python
 entities = build_plan().collect()
 
-result = default_adapter().trim(keep=entities.fingerprints())
+result = default_adapter().prune(keep=entities.fingerprints())
 print(result.describe())
 # 'Removed 80 artifacts, kept 24, reclaimed 416.2 MB'
 ```
@@ -394,14 +394,14 @@ print(result.describe())
 `plan.fingerprints()` names every artifact a plan is made of, its own and its inputs'. Which artifacts those are is the plan's business, not the store's, so the plan is what answers. `keep` also takes the name of a published label, which keeps that resolver output and the sources it reads through:
 
 ```python
-default_adapter().trim(keep=[*entities.fingerprints(), "production"])
+default_adapter().prune(keep=[*entities.fingerprints(), "production"])
 ```
 
-**Published labels are kept whether or not you list them**, because publishing is the strongest way this library has of saying "keep this". Losing one to a forgotten argument would be indefensible. Trimming with nothing to keep and nothing published raises, rather than emptying the store.
+**Published labels are kept whether or not you list them**, because publishing is the strongest way this library has of saying "keep this". Losing one to a forgotten argument would be indefensible. Pruning with nothing to keep and nothing published raises, rather than emptying the store.
 
 Nothing is inferred about what you are still using. matchlab does not watch which objects your program is holding and treat the rest as rubbish. A store outlives the process that wrote it, so what some interpreter happens to have in scope says nothing about what is worth keeping. You say what to keep.
 
-Trimming rewrites the store, which reopens its connection. Any session setting applied through `adapter.conn` (see [Keeping memory bounded](#keeping-memory-bounded)) has to be applied again afterwards.
+Pruning rewrites the store, which reopens its connection. Any session setting applied through `adapter.conn` (see [Keeping memory bounded](#keeping-memory-bounded)) has to be applied again afterwards.
 
 ### Starting from cold
 
@@ -423,9 +423,9 @@ The default store lives in your user cache directory. `default_adapter().stats()
     after DROP + CHECKPOINT:   149.7 MB
     ```
 
-    This is why `trim()` **rewrites** the store rather than deleting inside it. Purging artifacts alone would buy reuse headroom while your disk usage stayed exactly the same. On a real 575 MB store, deleting 77% of its artifacts freed nothing at all. Copying what survives into a fresh file and swapping it in recovered 437 MB of that store, in half a second. It is the manual "collect what you want into a new store and delete the old one", done for you and without the re-collect.
+    This is why `prune()` **rewrites** the store rather than deleting inside it. Purging artifacts alone would buy reuse headroom while your disk usage stayed exactly the same. On a real 575 MB store, deleting 77% of its artifacts freed nothing at all. Copying what survives into a fresh file and swapping it in recovered 437 MB of that store, in half a second. It is the manual "collect what you want into a new store and delete the old one", done for you and without the re-collect.
 
-    A trim reports what it actually recovered, measured before and after. It never reports what it deleted. Those are different numbers, and only one of them is on your disk.
+    A prune reports what it actually recovered, measured before and after. It never reports what it deleted. Those are different numbers, and only one of them is on your disk.
 
 ### Keeping memory bounded
 

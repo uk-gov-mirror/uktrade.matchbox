@@ -95,7 +95,7 @@ New plan steps subclass [`Step`](api/steps.md). A step must:
 
 New storage backends subclass [`Adapter`](api/adapters.md). Beyond reading and writing, `stats()` must report the store's size and contents. Every collect calls it, and a store nobody can measure is one that quietly fills a disk.
 
-`trim()` is the other half. Be careful with it, since it deletes. It must hold to three rules:
+`prune()` is the other half. Be careful with it, since it deletes. It must hold to three rules:
 
 * **Keep what the caller named, and never work out the rest for yourself.**
 * **Keep every published label, listed or not**, along with whatever its resolver output needs to stay readable. Never touch stored judgements. They are the one thing in a store that cannot be recomputed.

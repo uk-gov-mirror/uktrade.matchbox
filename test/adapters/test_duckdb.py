@@ -2,7 +2,7 @@
 
 The backend-agnostic storage contract lives in `test_contract.py`. What stays here is
 DuckDB's own file semantics: reclaiming space to disk, the difference between resident
-and on-disk bytes, the high-water mark, and the `:memory:` trim hazard. None of that
+and on-disk bytes, the high-water mark, and the `:memory:` prune hazard. None of that
 fits in a contract written against the `Adapter` ABC.
 """
 
@@ -101,10 +101,10 @@ def test_stats_grows_with_data(tmp_path: Path, fp: Fingerprints) -> None:
         store.close()
 
 
-# -- trim: DuckDB file hazards --------------------------------------------------------
+# -- prune: DuckDB file hazards -------------------------------------------------------
 
 
-def test_trim_reclaims_disk_space(
+def test_prune_reclaims_disk_space(
     tmp_path: Path, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
 ) -> None:
     """The assertion the old `gc()` would have failed.
@@ -121,7 +121,7 @@ def test_trim_reclaims_disk_space(
         )
         before = store.stats().bytes
 
-        result = store.trim(keep=[fp.src])
+        result = store.prune(keep=[fp.src])
 
         assert store.stats().bytes < before
         assert result.reclaimed > 0
@@ -129,7 +129,7 @@ def test_trim_reclaims_disk_space(
         store.close()
 
 
-def test_trim_in_memory_keeps_data(
+def test_prune_in_memory_keeps_data(
     memory_store: DuckDBAdapter,
     fp: Fingerprints,
     extract: pl.DataFrame,
@@ -145,7 +145,7 @@ def test_trim_in_memory_keeps_data(
     memory_store.store_source(fp.src, "key", extract, leaves)
     memory_store.store_model(fp.model, edges)
 
-    result = memory_store.trim(keep=[fp.src])
+    result = memory_store.prune(keep=[fp.src])
 
     assert result.removed == 1
     assert memory_store.has(fp.src)

@@ -24,7 +24,7 @@ Plus evaluation storage (judgements + cluster expansion), publication (`publish`
 a label at a resolver's output) and `close`.
 
 **Nothing here deletes an artifact on the store's own initiative.** A store keeps what
-it is given until the owner disposes of it. `trim` is that disposal. It deletes only
+it is given until the owner disposes of it. `prune` is that disposal. It deletes only
 what the caller has said it may, and never a published resolver output. See the guide's
 "Reclaiming storage".
 """
@@ -95,8 +95,8 @@ class StoreStats(BaseModel):
         return f"Store {self.size}{growth}, {count} artifact{'' if count == 1 else 's'}"
 
 
-class TrimResult(BaseModel):
-    """What a trim removed, and what that actually recovered.
+class PruneResult(BaseModel):
+    """What a prune removed, and what that actually recovered.
 
     Adapters subclass this where they have more to say.
 
@@ -396,7 +396,7 @@ class Adapter(ABC):
     # -- maintenance ------------------------------------------------------------------
 
     @abstractmethod
-    def trim(self, keep: Iterable[Fingerprint | str] = ()) -> TrimResult:
+    def prune(self, keep: Iterable[Fingerprint | str] = ()) -> PruneResult:
         """Delete every artifact except the ones named, and reclaim what that frees.
 
         **You say what to keep. Nothing is inferred.** This is deliberately not the
@@ -434,7 +434,7 @@ class Adapter(ABC):
             What was removed and what that recovered.
 
         Raises:
-            ValueError: If nothing would survive the trim, because `keep` was empty
+            ValueError: If nothing would survive the prune, because `keep` was empty
                 and nothing is published. Deleting everything is the same as deleting
                 the file, and should not be what an accidentally-empty list does.
         """

@@ -259,7 +259,7 @@ Everything else was an HTTP status carrier and went with the server.
 
 **A resolver output is materialised, not queried.** A resolver writes a complete `(root, leaf, key, source)` table when it collects. Queries are reads against that table, which is why `lookup_key` and `entities` are now fast and offline.
 
-**Storage is local and kept until you say otherwise.** Artifacts live in a DuckDB store in your user cache directory by default, and every collect reports what it costs. Nothing is removed on the library's initiative: either delete the store file, or call `trim(keep=...)` and name what to preserve. A DuckDB file does not shrink when rows are deleted, so trimming rewrites the store to give the space back. See the guide's "Reclaiming storage".
+**Storage is local and kept until you say otherwise.** Artifacts live in a DuckDB store in your user cache directory by default, and every collect reports what it costs. Nothing is removed on the library's initiative: either delete the store file, or call `prune(keep=...)` and name what to preserve. A DuckDB file does not shrink when rows are deleted, so pruning rewrites the store to give the space back. See the guide's "Reclaiming storage".
 
 ## What didn't change
 

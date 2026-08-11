@@ -609,15 +609,15 @@ def test_fingerprints_uncollected_raises(source: Callable[..., Source]) -> None:
         plan.fingerprints()
 
 
-def test_trim_to_plan_keeps_cache(
+def test_prune_to_plan_keeps_cache(
     source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
-    """The property a trim has to have: it removes only what was superseded.
+    """The property a prune has to have: it removes only what was superseded.
 
     Editing a cleaning expression strands the whole subtree below it. That is what
-    fills a store. Trimming to the plan you kept should take exactly those, and leave a
+    fills a store. Pruning to the plan you kept should take exactly those, and leave a
     store the same plan still hits cache on. If it took one artifact too many the next
-    collect quietly recomputes, and the trim has cost work rather than saved space.
+    collect quietly recomputes, and the prune has cost work rather than saved space.
     """
 
     def build(cleaning: str) -> Resolver:
@@ -641,14 +641,14 @@ def test_trim_to_plan_keeps_cache(
     stranded = superseded - live
     assert stranded, "the edit should have stranded something"
 
-    result = adapter.trim(keep=plan.fingerprints())
+    result = adapter.prune(keep=plan.fingerprints())
 
     assert result.removed == len(stranded)
     assert all(adapter.has(fp) for fp in live)
     assert not any(adapter.has(fp) for fp in stranded)
 
-    # The real assertion: rebuild the same plan over the trimmed store and let it run.
-    # Nothing may execute here. If the trim took one artifact too many, this raises.
+    # The real assertion: rebuild the same plan over the pruned store and let it run.
+    # Nothing may execute here. If the prune took one artifact too many, this raises.
     rebuilt = build("upper(crn_company)")
     for step in rebuilt.lineage():
         _sabotage(step)
