@@ -27,6 +27,7 @@ from matchlab.core.exceptions import StepNotFound
 from matchlab.locations import RelationalDBLocation
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
+from matchlab.transformers import Explode
 
 # `warehouse`, `adapter` and the `source` factory come from `test/conftest.py`. The
 # module-level `_apex`/`_fan_out_plan` builders take that factory, so this file holds no
@@ -799,6 +800,32 @@ def test_group_without_aggregates_raises(source: Callable[..., Source]) -> None:
     crn = source("crn")
     with pytest.raises(ValueError, match="aggregate expressions"):
         crn.group({})
+
+
+def test_explode_cross_source_combinations(source: Callable[..., Source]) -> None:
+    """`Explode` gives the cross product across sources, the case `group` skips.
+
+    `group` collapses this diagonally-concatenated frame to one populated row (see
+    `test_group_multi_source`). `Explode` instead gives one row per combination of
+    each source's populated values.
+    """
+    crn = source("crn")
+    dh = source("dh")
+    linked = crn.link(
+        dh,
+        model_class=DeterministicLinker,
+        model_settings={"comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"},
+    ).resolve()
+    linked.collect()
+
+    exploded = linked.transform(Explode())
+    exploded.collect()
+    acme = exploded.data().filter(pl.col("dh_company") == "acme")
+
+    # crn's two towns cross dh's one, both sources' values present on every row.
+    assert acme.height == 2
+    assert set(acme["crn_town"].to_list()) == {"london", "leeds"}
+    assert acme["dh_town"].unique().to_list() == ["bristol"]
 
 
 # -- specs ----------------------------------------------------------------------------

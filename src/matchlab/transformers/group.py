@@ -2,9 +2,11 @@
 
 import polars as pl
 from pydantic import Field, field_validator
+from sqlglot import expressions, parse_one
+from sqlglot import select as sqlglot_select
 
 from matchlab.core.sql import SQLExpression
-from matchlab.transformers.base import Transformer, apply_group
+from matchlab.transformers.base import Transformer, run_sql
 
 
 class Group(Transformer):
@@ -37,5 +39,18 @@ class Group(Transformer):
         return aggregates
 
     def apply(self, data: pl.DataFrame) -> pl.DataFrame:
-        """Collapse each `id` to one row using the aggregate expressions."""
-        return apply_group(data, self.aggregates)
+        """Collapse each `id` to one row using the aggregate expressions.
+
+        A non-aggregate expression raises DuckDB's own error, naming the column.
+        """
+        identifier = expressions.alias_(expressions.column("id"), "id")
+        projection: list[expressions.Expression] = [identifier]
+        for alias, sql in self.aggregates.items():
+            projection.append(
+                expressions.alias_(parse_one(sql, dialect="duckdb"), alias)
+            )
+
+        query = (
+            sqlglot_select(*projection, dialect="duckdb").from_("data").group_by("id")
+        )
+        return run_sql(query.sql(dialect="duckdb"), data)

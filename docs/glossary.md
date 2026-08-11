@@ -148,7 +148,7 @@ The package checks a plan's answer two ways, because matchlab derives a record's
 
 ## Transform
 
-A step that reshapes a [frame](#frame) with a pluggable, serialisable **transformer**. `select` keeps only the named columns, `clean` derives new ones with DuckDB SQL while keeping the rest, and `group` collapses each `id` to one row. `transform()` is the general verb they desugar to (`.clean(...)` is `.transform(Clean(...))`). `Transformer` is the base class. `Select`, `Clean`, and `Group` are the built-ins, and a custom one registers with `add_transformer_class`, the same pattern [dedupers](#deduper) and [linkers](#linker) plug in with. Its configuration is part of the plan and its [fingerprint](#fingerprint), like any [methodology](#methodology)'s settings.
+A step that reshapes a [frame](#frame) with a pluggable, serialisable **transformer**. `select` keeps only the named columns, `clean` derives new ones with DuckDB SQL while keeping the rest, `group` collapses each `id` to one row, and `Explode` gives one row per combination of each column's non-null values. `transform()` is the general verb they desugar to (`.clean(...)` is `.transform(Clean(...))`). `Explode` has no verb of its own, so it is reached only that way. `Transformer` is the base class. `Select`, `Clean`, `Group`, and `Explode` are the built-ins, and a custom one registers with `add_transformer_class`, the same pattern [dedupers](#deduper) and [linkers](#linker) plug in with. Its configuration is part of the plan and its [fingerprint](#fingerprint), like any [methodology](#methodology)'s settings.
 
 ## True entity
 

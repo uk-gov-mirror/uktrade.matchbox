@@ -187,7 +187,7 @@ A resolver is itself a frame, so matching on top of an earlier resolver output n
 
 Since every list held one entry per row, that round-tripped straight back to the input. `explode` was therefore `concat` plus a `unique()` and a reordering. It was a broken feature, not a redundant one.
 
-**Use `group`** with aggregate expressions instead. It does what `explode` was reaching for, and lets you choose per column. Because DuckDB's `any_value` skips nulls, it collapses a multi-source frame onto one populated row:
+**Use `group`** with aggregate expressions when you want one populated row per entity. Because DuckDB's `any_value` skips nulls, it collapses a multi-source frame onto one row:
 
 ```python
 resolver.group(
@@ -198,7 +198,13 @@ resolver.group(
 )
 ```
 
-One thing is genuinely unavailable: a true cross product, N left rows × M right rows. `group` gives one row per entity. That is the right unit for a linker, since a cross product multiplies a single entity's evidence rather than combining it. Nothing offers a true cross product, if you need one anyway.
+**Use `Explode`** when you want the true cross product `explode` was reaching for. It gives one row per combination of each column's non-null values, deduplicated first, rather than one aggregated row.
+
+```python
+resolver.transform(Explode())
+```
+
+`group` is still the right default for most matchers, since a cross product multiplies a single entity's evidence rather than combining it. `Explode` is there for the cases that genuinely want every combination.
 
 ## Removed without replacement
 

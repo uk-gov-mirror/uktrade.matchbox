@@ -61,6 +61,8 @@ Both sides of a link are covered. Reach for the reshaping verbs (`select`, `clea
 
 A **frame** is a table with an `id` column, the records a model matches over. A `Source`, a resolver, and the output of a reshape step are all frames, one shared type. That's why `Frame` is what you see in a signature or a hover tooltip wherever one of these is expected. `select`, `clean` and `group` each reshape a frame into a new frame. `transform` is the general verb they desugar to. `source.clean(...)` is shorthand for `source.transform(Clean(...))`.
 
+Not every registered transformer has a dedicated verb. The [API reference](../api/transformers.md) lists all of them, including ones you reach only through `transform(...)`, such as `Explode`.
+
 **`select` keeps only the columns you name**, plus `id`:
 
 ```python

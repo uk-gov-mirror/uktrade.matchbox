@@ -2,9 +2,11 @@
 
 import polars as pl
 from pydantic import Field, field_validator
+from sqlglot import expressions, parse_one
+from sqlglot import select as sqlglot_select
 
 from matchlab.core.sql import SQLExpression
-from matchlab.transformers.base import Transformer, apply_derive
+from matchlab.transformers.base import Transformer, run_sql
 
 
 class Clean(Transformer):
@@ -29,5 +31,17 @@ class Clean(Transformer):
         return cleaning
 
     def apply(self, data: pl.DataFrame) -> pl.DataFrame:
-        """Add or replace the named columns, keeping the rest."""
-        return apply_derive(data, self.cleaning)
+        """Add or replace the named columns, keeping the rest.
+
+        Invalid SQL raises at build time, naming the expression.
+        """
+        collisions = [alias for alias in self.cleaning if alias in data.columns]
+        star = expressions.Star(except_=[expressions.column(a) for a in collisions])
+        projection: list[expressions.Expression] = [star]
+        for alias, sql in self.cleaning.items():
+            projection.append(
+                expressions.alias_(parse_one(sql, dialect="duckdb"), alias)
+            )
+
+        query = sqlglot_select(*projection, dialect="duckdb").from_("data")
+        return run_sql(query.sql(dialect="duckdb"), data)

@@ -16,6 +16,7 @@ from matchlab.frames import Frame, IdentifierRead
 from matchlab.specs import TransformSpec
 from matchlab.transformers.base import Transformer
 from matchlab.transformers.clean import Clean
+from matchlab.transformers.explode import Explode
 from matchlab.transformers.group import Group
 from matchlab.transformers.select import Select
 
@@ -29,7 +30,7 @@ def add_transformer_class(transformer_class: type[Transformer]) -> None:
     _TRANSFORMER_CLASSES[transformer_class.__name__] = transformer_class
 
 
-for _builtin in (Select, Clean, Group):
+for _builtin in (Select, Clean, Group, Explode):
     add_transformer_class(_builtin)
 
 
