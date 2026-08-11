@@ -77,12 +77,12 @@ fingerprint, which is what makes a store [content-addressed](#content-addressed)
 
 ## Frame
 
-The records a [model](#model) matches over, a table carrying an `id`. A
-[source](#source) (`id` is the leaf), a [transform](#transform), and a
-[resolver](#resolver) (`id` is the entity root, which is what makes layering possible)
-are the three kinds. Every frame chains the same verbs (`select`, `clean`, `group`,
-`transform`, `dedupe`, `link`). A [model](#model) is the one step that is not a frame,
-since it yields edges rather than records.
+A table with an `id` column, the records a [model](#model) matches over. A
+[source](#source), a [transform](#transform), and a [resolver](#resolver) are the
+three kinds. On a source, `id` is the leaf. On a resolver, `id` is the entity root,
+which is what makes layering possible. Every frame chains the same verbs (`select`,
+`clean`, `group`, `transform`, `dedupe`, `link`). A [model](#model) is the one step
+that is not a frame, since it yields edges rather than records.
 
 ## Judgement
 

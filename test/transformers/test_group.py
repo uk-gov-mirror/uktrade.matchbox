@@ -1,7 +1,4 @@
-"""Tests for `Group`, one row per `id`, each column an aggregate.
-
-Ported from the pre-transformer `group=True` cases in `test_views.py`.
-"""
+"""Tests for `Group`, one row per `id`, each column an aggregate."""
 
 import duckdb
 import polars as pl

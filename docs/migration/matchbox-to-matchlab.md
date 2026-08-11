@@ -206,10 +206,13 @@ Nouns became verbs, and each one is a step in the plan:
 
 A source is now directly matchable, so `source.query(...)` has no single successor.
 Reshape only when you need to. `select` keeps columns, `clean` derives them with SQL,
-and `group` collapses each `id` to one row, each a serialisable
-[transformer](../guide/build-a-plan.md#reshaping-records), the same pluggable pattern
-dedupers and linkers already follow. To match on top of an earlier resolver output, a
-resolver is itself a frame, reshaped or matched on directly (`deduped.link(dh, …)`).
+and `group` collapses each `id` to one row. All three are
+[transformers](../guide/build-a-plan.md#reshaping-records), the same pluggable pattern
+dedupers and linkers already follow, and each is serialisable as part of the plan.
+
+A resolver is itself a frame, so matching on top of an earlier resolver output needs no
+separate step. Reshape it or match on it directly, the same as any other frame
+(`deduped.link(dh, ...)`).
 
 ### `QueryCombineType` is gone
 

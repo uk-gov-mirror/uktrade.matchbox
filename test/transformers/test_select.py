@@ -1,7 +1,6 @@
 """Tests for `Select`, projection semantics.
 
-Ported from the pre-transformer cleaning cases that tested *dropping*: that job now
-belongs to `Select`, not `Clean`.
+Dropping columns is `Select`'s job. `Clean` only derives and keeps.
 """
 
 import polars as pl

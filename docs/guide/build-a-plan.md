@@ -78,12 +78,12 @@ so they chain, and each does one job.
 
 ### Reshaping records
 
-The records a model matches over are a **frame**, a table carrying an `id`. A `Source`,
-a resolver, and the step a reshape produces are all frames, the same shared type,
-which is why `Frame` is what you'll see in a signature or a hover tooltip wherever one
-is expected. `select`, `clean` and `group` each reshape a frame into a new one, and
-`transform` is the general verb they desugar to (`source.clean(...)` is
-`source.transform(Clean(...))`).
+A **frame** is a table with an `id` column, the records a model matches over. A
+`Source`, a resolver, and the output of a reshape step are all frames, one shared type.
+That's why `Frame` is what you see in a signature or a hover tooltip wherever one of
+these is expected. `select`, `clean` and `group` each reshape a frame into a new frame.
+`transform` is the general verb they desugar to. `source.clean(...)` is shorthand for
+`source.transform(Clean(...))`.
 
 **`select` keeps only the columns you name**, plus `id`:
 
@@ -111,7 +111,7 @@ crn.clean({"name": f"lower({crn.f('company')})"}).select("name")
 #### What `id` is, and when to group
 
 Read a source directly and `id` is the record, one row each. **A resolver is itself a
-frame**, reshaped with the same verbs, and its `id` is the entity, so several records
+frame**, reshaped with the same verbs. Its `id` is the entity, so several records can
 share one:
 
 ```python
@@ -178,9 +178,9 @@ record forward.
 #### Custom transformers
 
 `select`, `clean` and `group` are the built-in transformers. `transform` takes any
-transformer object, so an advanced user can pass one explicitly, and a custom one plugs
-in the same way a custom deduper does. Subclass `Transformer`, register it with
-`add_transformer_class`, and it can be named in a plan and a document:
+transformer object, so you can pass one explicitly. A custom transformer plugs in the
+same way a custom deduper does. Subclass `Transformer` and register it with
+`add_transformer_class`. It can then be named in a plan and a document:
 
 ```python
 source.transform(Clean(cleaning={...}))   # the explicit form
@@ -233,8 +233,8 @@ with no threshold will contribute every edge.
 
 ## Layering
 
-A resolver is a frame, so to match *on top of* an earlier resolver output you match on
-the resolver directly, the same verbs, now at `id`=entity:
+A resolver is a frame. To match **on top of** an earlier resolver output, match on the
+resolver directly with the same verbs. Now `id` means entity, not record:
 
 ```python
 deduped_crn = crn.dedupe(...).resolve()

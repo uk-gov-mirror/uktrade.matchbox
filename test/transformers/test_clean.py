@@ -1,8 +1,7 @@
 """Tests for `Clean`, keep-all derivation with DuckDB SQL.
 
 `Clean` derives the named columns *without dropping* the rest, which is the invariant
-that distinguishes it from the old cleaning dict. Ported from the pre-transformer
-`test_views.py` cases, re-pointed at what each now guards.
+that distinguishes it from `Select`.
 """
 
 import polars as pl

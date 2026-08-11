@@ -93,9 +93,9 @@ def declare(path: Path, names: Sequence[str]) -> list[Source]:
 
 
 def _cleaning(sources: Sequence[Source]) -> dict[str, str]:
-    """Cleaning expressions that work across however many sources a view reads.
+    """Cleaning expressions that work across however many sources a frame reads.
 
-    A multi-source view concatenates the extracts diagonally, so each source's columns
+    A multi-source frame concatenates the extracts diagonally, so each source's columns
     are null on every other source's rows. `coalesce` over the qualified names is what
     folds them back into one column per field. With a single source it degenerates to
     `coalesce(crn_name)`, which costs nothing and keeps one code path.
@@ -118,8 +118,9 @@ def _frame(sources: Sequence[Source], resolver: Resolver | None = None) -> Frame
 
     A resolver is itself a frame, read at `id`=entity root, so passing one is the
     layering move. Whatever is built on top then compares entities. A resolver reads
-    exactly its own sources, so callers pass one whose sources are `sources`. Without
-    it, there is a single source, read directly at `id`=leaf.
+    exactly its own sources, so `sources` must match the resolver's own sources when
+    one is given. Without a resolver, there is a single source, read directly at
+    `id`=leaf.
     """
     base: Frame = resolver if resolver is not None else sources[0]
     return base.clean(_cleaning(sources))
@@ -130,9 +131,8 @@ def _through(resolver: Resolver, source: Source) -> Frame:
 
     The resolver frame carries every source's rows diagonally, so this source's columns
     are null on the other sources' rows. `any_value` skips those, collapsing each entity
-    to one row of this source's cleaned values. Reading a single source through a shared
-    resolver is now entity-grained, the grain for matching on top of a resolver, with no
-    dedicated node.
+    to one row of this source's cleaned values. That's the entity-grained shape matching
+    on top of a resolver needs. `group` builds it directly, with no separate plan step.
     """
     name, postcode = cast("str", source.f("name")), cast("str", source.f("postcode"))
     return resolver.group(
@@ -207,9 +207,9 @@ def _star(sources: Sequence[Source], pairs: Pairs) -> Resolver:
     """Dedupe everything into one resolver output, then link the pairs `pairs` chooses.
 
     `HUB` and `MESH` differ only in which pairs get linked, so they share everything
-    else. One dedupe per source collapses into a single resolver output, and each
-    source reads back out of it with `group` (a resolver is a frame), built once and
-    shared by every link that uses it, before one apex resolver covers all the links.
+    else. One dedupe per source collapses into a single resolver output. Each source
+    then reads back out of it with `group` (a resolver is a frame), built once and
+    shared by every link that uses it. One apex resolver covers all the links.
     """
     dedupes = [_dedupe(_frame([source])) for source in sources]
     deduped = dedupes[0].resolve(*dedupes[1:])

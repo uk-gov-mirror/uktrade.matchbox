@@ -170,9 +170,9 @@ def test_source_column_change_invalidates(
 ) -> None:
     """Identity is the whole extract, so any selected column moves the fingerprint.
 
-    There is no narrower list of indexed fields for a column to fall outside of, which
-    is what used to let a change go unnoticed: the source cache-hit, never re-stored,
-    and downstream frames kept serving the old value.
+    Without that rule, a column outside identity could change in the warehouse
+    without moving the source's fingerprint. The source would cache-hit instead of
+    re-storing, and downstream frames would keep reading the stale value.
     """
     et = "select pk, company, town from crn"
 
@@ -377,8 +377,8 @@ def test_frame_reused_across_plans(
 
     The second plan is fresh objects, as a new process would build, with the linker
     retuned so the models genuinely re-run. Their inputs are unchanged, so the transform
-    hits cache and the frame comes off disk. Recomputing here was the old behaviour,
-    since a rebuilt frame had no way to know its table was already stored.
+    still fingerprints the same and hits cache, reading the frame off disk rather than
+    recomputing it.
     """
     dh = source("dh")
     apex, _frame = _shared_frame_plan(source)
@@ -661,9 +661,9 @@ def test_trim_to_plan_keeps_cache(
 def test_resolver_is_a_frame(source: Callable[..., Source]) -> None:
     """A resolver is a frame, read at `id`=root and matchable on top of directly.
 
-    Reading it returns its records regrouped by entity. Linking it to a source with no
-    transform between (a bare resolver as a model input) still carries the dedupe
-    grouping forward, the merge-forward guarantee working through a resolver frame.
+    Reading it returns its records regrouped by entity. Linking it directly to a
+    source, with no transform in between, still carries the dedupe grouping forward.
+    That's the merge-forward guarantee working through a resolver frame.
     """
     crn = source("crn")
     dh = source("dh")
@@ -759,7 +759,7 @@ def test_group_merges_forward(source: Callable[..., Source]) -> None:
 def test_group_multi_source(
     source: Callable[..., Source],
 ) -> None:
-    """The case `group` exists for, several sources under one entity.
+    """Why `group` exists: several sources under one entity.
 
     Reading two sources through a resolver concatenates diagonally, so crn rows carry
     null dh columns and vice versa, and a comparison on `l.dh_company` is null on
@@ -837,8 +837,9 @@ def test_read_direct_and_through_resolver_distinct(
     """Reading a source directly and through a resolver are different frames.
 
     Read directly, a source is a leaf frame (`id`=leaf). A resolver is itself a frame
-    (`id`=root), so matching on it reads the same records regrouped by entity. The two
-    are different objects with different fingerprints, so a second pass isn't the first.
+    (`id`=root), so matching on it reads the same records regrouped by entity. Deduping
+    again over that resolver output is a genuinely different operation from the first
+    dedupe, so the two models get different fingerprints.
     """
     crn = source("crn")
     settings = {"unique_fields": [crn.f("company")]}

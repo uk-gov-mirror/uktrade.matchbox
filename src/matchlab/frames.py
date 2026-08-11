@@ -1,9 +1,10 @@
 """Frame, the records a model matches over, and the verbs that build a plan.
 
-A `Frame` is a step whose artifact is a table of records carrying an `id`. `Source`
-(`id` is the leaf), `Resolver` (`id` is the entity root) and `Transform` are the three
-kinds. Every `Frame` chains the same verbs (`select`, `clean`, `group`, `transform`,
-`dedupe`, `link`). A `Model` reads a `Frame` and yields edges, not records.
+A `Frame` is a step whose artifact is a table of records carrying an `id`. `Source`,
+`Resolver` and `Transform` are the three kinds. On a `Source`, `id` is the leaf. On a
+`Resolver`, `id` is the entity root. Every `Frame` chains the same verbs (`select`,
+`clean`, `group`, `transform`, `dedupe`, `link`). A `Model` reads a `Frame` and yields
+edges, not records.
 
 `Frame` is not user-facing. Users hold a `Source`, a `Resolver` or a `Transform` and
 call verbs on it. Each concrete kind supplies only how it materialises (`_read_cache`)

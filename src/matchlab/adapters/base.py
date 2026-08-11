@@ -17,8 +17,8 @@ shapes that cross this boundary):
 
 A `Source` and a `Resolver` produce a frame too, but neither stores one. A source is
 fully materialised as its *extract* and derives its frame on read. A resolver read is a
-re-derivable join over a source's extract and the resolver's own output. Only a
-`Transform` stores its materialisation, the one place storage could later be partial.
+re-derivable join over the source's extract and the resolver's own output. Only a
+`Transform` stores its materialisation.
 
 Plus evaluation storage (judgements + cluster expansion), publication (`publish` points
 a label at a resolver's output) and `close`.
@@ -239,9 +239,8 @@ class Adapter(ABC):
     def store_transform(self, fp: Fingerprint, table: pl.DataFrame) -> None:
         """Store a transform's materialised frame (arbitrary schema).
 
-        A `Transform` is the only frame-producing step that materialises its output. A
-        `Source` and a `Resolver` derive theirs instead. Called on every collect, so a
-        transform feeding several models is computed once and read back by each.
+        Called on every collect, so a transform feeding several models is computed
+        once and read back by each.
         """
         ...
 
