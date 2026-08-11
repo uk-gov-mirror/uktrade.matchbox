@@ -55,54 +55,64 @@ Steps chain. Each verb returns a new lazy step:
 
 | Verb | Produces | Meaning |
 |---|---|---|
-| `.view(...)` | `View` | The records a model matches over, optionally reshaped |
-| `.dedupe(...)` | `Model` | Candidate matches *within* one view |
-| `.link(other, ...)` | `Model` | Candidate matches *between* two views |
+| `.select(...)` | `Transform` | Keep only the named columns |
+| `.clean(...)` | `Transform` | Derive columns with SQL, keeping the rest |
+| `.group(...)` | `Transform` | Collapse each `id` to one row |
+| `.transform(...)` | `Transform` | Apply any transformer object (the general form) |
+| `.dedupe(...)` | `Model` | Candidate matches *within* one frame |
+| `.link(other, ...)` | `Model` | Candidate matches *between* two frames |
 | `.resolve(...)` | `Resolver` | Collapse candidate edges into clusters |
 | `.collect()` | (same step) | Run everything the step depends on |
 
-**You don't have to call `.view()`.** Every model needs one, but matchlab inserts it
-for you when you go straight from a source:
+**A source is already matchable.** You don't have to reshape it first — a model reads a
+source directly:
 
 ```python
 crn.dedupe(model_class=NaiveDeduper, model_settings={...})
 crn.link(dh, model_class=DeterministicLinker, model_settings={...})
 ```
 
-Both sides of a link are covered. Passing a `Source` where a view is expected views
-it. Reach for `.view()` when you want to do one of the three things only a view can
-do: clean columns, `group`, or read through a resolver.
+Both sides of a link are covered. Reach for the reshaping verbs — `select`, `clean`,
+`group` — only when you want to change what a model sees. They each return a new step,
+so they chain, and each does one job.
 
-### Views
+### Reshaping records
 
-A view says **which records a model matches over, and what shape they're in**. Both
-halves matter, and the first is the one that's easy to miss.
+The records a model matches over are a **frame**: a table carrying an `id`. `select`,
+`clean` and `group` each reshape a frame into a new one, and `transform` is the general
+verb they desugar to (`source.clean(...)` is `source.transform(Clean(...))`).
+
+**`select` keeps only the columns you name**, plus `id`:
 
 ```python
-cleaned = crn.view(
-    cleaning={
-        "name": f"lower({crn.f('company')})",
-        "town": crn.f("town"),
-    }
-)
+crn.select("crn_company", "crn_town")
 ```
 
-Only the columns you name survive, plus `id`, the grouping the model matches on.
 `source.f("field")` gives you the source-qualified column name (`crn_company`), which
-is how fields are named once a view is built.
+is how fields are named on a frame.
 
-!!! note
-    `view()` means "no cleaning" and passes every column through. `view(cleaning={})`
-    is a real projection that selects nothing, leaving only `id`. They are deliberately
-    different — "I didn't ask for a projection" and "I asked for an empty one".
+**`clean` derives columns with DuckDB SQL, keeping the rest**:
+
+```python
+cleaned = crn.clean({"name": f"lower({crn.f('company')})"})
+```
+
+`name` is added; `crn_company`, `crn_town` and `id` all pass through untouched.
+Dropping unrelated columns is `select`'s job, not `clean`'s — chain them when you want
+both:
+
+```python
+crn.clean({"name": f"lower({crn.f('company')})"}).select("name")
+```
 
 #### What `id` is, and when to group
 
 Read a source directly and `id` is the record, one row each. Read it *through a
-resolver* and `id` is the resolver's entity, so several records share one:
+resolver* — with `resolver.read(...)` — and `id` is the resolver's entity, so several
+records share one:
 
 ```python
-deduped.view(crn, cleaning={"name": "crn_company"}).data()
+deduped.read(crn).clean({"name": "crn_company"}).data()
 
 # id | name
 # E1 | acme     <- from a1
@@ -110,18 +120,16 @@ deduped.view(crn, cleaning={"name": "crn_company"}).data()
 # E2 | beta
 ```
 
-That's often what you want — more evidence per entity. When it isn't, `group=True`
-collapses each `id` to one row. Every expression then becomes an aggregate, so you say
-how each column combines:
+That's often what you want — more evidence per entity. When it isn't, **`group`
+collapses each `id` to one row**. Every expression is an aggregate, so you say how each
+column combines:
 
 ```python
-deduped.view(
-    crn,
-    cleaning={
+deduped.read(crn).group(
+    {
         "name": "any_value(crn_company)",  # they agree — that's why they grouped
         "towns": "list(distinct crn_town)",  # they differ — keep both
-    },
-    group=True,
+    }
 ).data()
 
 # id | name | towns
@@ -130,15 +138,15 @@ deduped.view(
 ```
 
 Any DuckDB aggregate works, `list` and `string_agg` included. A non-aggregate gets you
-DuckDB's own error naming the column. `group=True` needs cleaning expressions. There's
-no sensible default for how a column collapses.
+DuckDB's own error naming the column. There's no sensible default for how a column
+collapses, so `group` needs at least one aggregate.
 
-Grouping matters most when a view reads **several** sources through a resolver. Those
-are concatenated diagonally, so each row carries one source's columns and nulls for the
+Grouping matters most when you read **several** sources through a resolver. Those are
+concatenated diagonally, so each row carries one source's columns and nulls for the
 rest:
 
 ```python
-resolver.view(crn, dh, cleaning={"c": "crn_company", "d": "dh_company"}).data()
+resolver.read(crn, dh).clean({"c": "crn_company", "d": "dh_company"}).data()
 
 # c    | d
 # acme | null      <- from crn
@@ -150,14 +158,11 @@ A comparison on `l.d` is null on every crn row, so the entity can't be matched o
 combined evidence. Grouping puts it on one populated row. `any_value` skips nulls:
 
 ```python
-resolver.view(
-    crn,
-    dh,
-    cleaning={
+resolver.read(crn, dh).group(
+    {
         "company": "any_value(crn_company)",
         "towns": "list(distinct coalesce(crn_town, dh_town))",
-    },
-    group=True,
+    }
 ).data()
 
 # company | towns
@@ -165,8 +170,20 @@ resolver.view(
 ```
 
 Grouping changes what the *model* sees. It never changes the resolver output. Record
-identity travels separately, so a resolver below a grouped view still carries every
+identity travels separately, so a resolver below a grouped frame still carries every
 record forward.
+
+#### Custom transformers
+
+`select`, `clean` and `group` are the built-in transformers. `transform` takes any
+transformer object, so an advanced user can pass one explicitly, and a custom one plugs
+in the same way a custom deduper does — subclass `Transformer`, register it with
+`add_transformer_class`, and it can be named in a plan and a document:
+
+```python
+source.transform(Clean(cleaning={...}))   # the explicit form
+source.transform(MyTransformer(...))       # your own, once registered
+```
 
 ### Deduplicating and linking
 
@@ -179,7 +196,7 @@ deduped = cleaned.dedupe(
     model_settings={"unique_fields": ["name"]},
 )
 
-linked = crn.view().link(
+linked = crn.link(
     dh,
     model_class=DeterministicLinker,
     model_settings={"comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"},
@@ -214,13 +231,14 @@ with no threshold will contribute every edge.
 
 ## Layering
 
-To match *on top of* an earlier resolver output, read a source through it:
+To match *on top of* an earlier resolver output, read a source through it with
+`resolver.read(...)`:
 
 ```python
 deduped_crn = crn.dedupe(...).resolve()
 
 entities = (
-    deduped_crn.view(crn)  # crn, as resolved by the dedupe
+    deduped_crn.read(crn)  # crn, as resolved by the dedupe
     .link(dh, model_class=..., model_settings=...)
     .resolve()
 )
@@ -271,11 +289,11 @@ step settles. That's one frame, not one tree per step:
 ```
 ○ [6] resolver(Components)
     ├── ◐ [5] model(NaiveDeduper) running 2.6s
-    │   └── ● [3] view 0.4s
+    │   └── ● [3] transform(Clean) 0.4s
     │       └── ● [2] source 'crn' 0.3s
     └── ● [4] model(DeterministicLinker) 0.5s
-        ├── ● [3] view 0.4s ↑
-        └── ● [1] view 0.2s
+        ├── ● [3] transform(Clean) 0.4s ↑
+        └── ● [1] transform(Clean) 0.2s
             └── ● [0] source 'dh' 0.2s
 ○ waiting   ◐ running   ● ran
 ```
@@ -285,10 +303,10 @@ The number in brackets is the step's **position**. It's the same number everywhe
 [document](../api/steps.md). Steps have no names, so that cross-reference is how
 you know which node a line is about. That's why every mode puts the tree somewhere.
 
-Next to it is what the step *is*. A model and a resolver name the class implementing
-them in parentheses, so `[5]` reads as the naive dedupe rather than as another
-anonymous `model` line. A source names itself in quotes, since a source is the one
-step with a name. A view is just a view.
+Next to it is what the step *is*. A model, a resolver and a transform name the class
+implementing them in parentheses, so `[5]` reads as the naive dedupe and `[3]` as the
+clean rather than as another anonymous line. A source names itself in quotes, since a
+source is the one step with a name.
 
 The legend lists only what's on screen. A node feeding two branches is still one
 node. It's drawn in full where you first meet it, and marked `↑` after. `[3]` above
@@ -306,11 +324,11 @@ Where nothing is drawn (a scheduler, CI, a redirected stream), the same tree is 
 INFO  Collecting 7 steps:
 ○ [6] resolver(Components)
     ├── ○ [5] model(NaiveDeduper)
-    │   └── ○ [3] view
+    │   └── ○ [3] transform(Clean)
     │       └── ○ [2] source 'crn'
     └── ○ [4] model(DeterministicLinker)
-        ├── ○ [3] view ↑
-        └── ○ [1] view
+        ├── ○ [3] transform(Clean) ↑
+        └── ○ [1] transform(Clean)
             └── ○ [0] source 'dh'
 INFO  [step 0] Reading from the warehouse
 INFO  [step 0] Ran in 0.160s
@@ -361,10 +379,10 @@ run down the tree. The last frame is the whole thing.
 ⋮ 4 more above · 27 more below
     │   │   └── ○ [12] resolver(Components)
     │   │       ├── ○ [11] model(NaiveDeduper)
-    │   │       │   └── ○ [10] view
+    │   │       │   └── ○ [10] transform(Clean)
     │   │       │       └── ○ [9] source 'crn' ↑
     │   │       ├── ◐ [8] model(NaiveDeduper) running 0.4s
-    │   │       │   └── ◍ [7] view cached
+    │   │       │   └── ◍ [7] transform(Clean) cached
     │   │       │       └── ◍ [6] source 'dh' cached
     │   │       ├── ◍ [5] model(NaiveDeduper) cached
 ○ waiting   ◐ running   ◍ cached
@@ -390,7 +408,7 @@ however much is built above it.
 There's no lookup-by-name. To hold on to a step, hold on to the variable.
 
 ```python
-cleaned = crn.view(cleaning={"name": f"lower({crn.f('company')})"})
+cleaned = crn.clean({"name": f"lower({crn.f('company')})"})
 entities = cleaned.dedupe(...).resolve().collect()
 
 cleaned.data()  # still yours to inspect
@@ -427,10 +445,10 @@ print(entities.draw())
 ```
 ● [6] resolver(Components)
     ├── ● [5] model(NaiveDeduper)
-    │   └── ● [4] view
+    │   └── ● [4] transform(Clean)
     │       └── ● [3] source 'crn'
     └── ● [2] model(NaiveDeduper)
-        └── ● [1] view
+        └── ● [1] transform(Clean)
             └── ● [0] source 'dh'
 ```
 
@@ -453,7 +471,7 @@ from matchlab import default_adapter
 stats = default_adapter().stats()
 print(stats.location)  # where the default store actually is
 print(stats.bytes)  # what it costs, in bytes
-print(stats.artifacts)  # {'source': 8, 'view': 40, 'model': 32, 'resolver': 24}
+print(stats.artifacts)  # {'source': 8, 'transform': 40, 'model': 32, 'resolver': 24}
 print(stats.describe())  # 'Store 1.2 GB, 104 artifacts'
 ```
 

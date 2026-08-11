@@ -68,6 +68,14 @@ The 32-byte SHA-256 digest that keys a step's stored [artifact](#artifact). Two 
 with identical configuration and identical input fingerprints hash to the same
 fingerprint, which is what makes a store [content-addressed](#content-addressed).
 
+## Frame
+
+The records a [model](#model) matches over: a table carrying an `id`. A [source](#source)
+read on its own is a frame (`id` is the record's [leaf](#leaf)); reading sources through
+a [resolver](#resolver) with `resolver.read(...)` is a frame (`id` is the entity root);
+and a [transform](#transform) reshapes one frame into another. Every frame chains the
+same verbs — `select`, `clean`, `group`, `transform`, `dedupe`, `link`.
+
 ## Judgement
 
 A person's decision that one reviewed cluster's records do, or do not, describe the
@@ -243,9 +251,17 @@ thing, identified by the values it was generated from, spanning every source it 
 in. Project it onto the sources under test to get a [cluster](#cluster), the only form
 that is comparable with an actual result. `TrueEntity` is the class.
 
-## View
+## Transform
 
-A step that says which records a model matches over, and what shape they're in. Only
-the columns named in its cleaning survive, plus `id`, the grouping the model matches
-on.
+A step that reshapes a [frame](#frame). `select` keeps only the named columns, `clean`
+derives new ones with DuckDB SQL while keeping the rest, and `group` collapses each `id`
+to one row. Each is a [transformer](#transformer); `transform()` is the general verb they
+desugar to.
+
+## Transformer
+
+A pluggable, serialisable reshaping of a frame: `Select`, `Clean`, `Group`, or a custom
+one registered with `add_transformer_class`. Its configuration is part of the plan and
+its cache key, the same way a [model](#model)'s settings are — the same pattern every
+methodology in matchlab follows.
 

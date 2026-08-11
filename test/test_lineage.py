@@ -29,7 +29,7 @@ class FakeStep(Step):
     `lineage` reads it, and `Step.kind` admits only real ones.
     """
 
-    kind: ClassVar[StepKind] = StepKind.VIEW
+    kind: ClassVar[StepKind] = StepKind.TRANSFORM
 
     def __init__(self, label: str = "fake", upstream: tuple[Step, ...] = ()) -> None:
         """Create a fake step with the given label and upstream steps."""

@@ -9,7 +9,8 @@ Artifacts, by step kind (schemas in `matchlab.core.schemas`, which holds exactly
 shapes that cross this boundary):
 
 * Source   → warehouse extract (arbitrary schema) + leaf assignment `(key, leaf)`.
-* View     → the cleaned view (arbitrary schema).
+* Resolved → a frame of sources read through a resolver (arbitrary schema).
+* Transform→ a reshaped frame (arbitrary schema).
 * Model    → edge list, `SCHEMA_MODEL_EDGES` `(left_id, right_id, score)`.
 * Resolver → complete flat output, `SCHEMA_RESOLVER_OUTPUT` `(root, leaf, key, src)`.
              This is the merge-forward guarantee. It computes `merge(upstream complete
@@ -203,9 +204,9 @@ class Adapter(ABC):
 
         A query rather than an artifact. Nothing here is computed. Both readings are
         projections of tables this store already holds, `source_leaves` and
-        `resolver_output`. There is nothing to cache, and caching it under a view's
+        `resolver_output`. There is nothing to cache, and caching it under a frame's
         fingerprint would be wrong anyway. The result depends only on the source and
-        resolver read, not on how a view cleans the data.
+        resolver read, not on how a frame reshapes the data.
 
         Args:
             source_fp: Fingerprint of the stored source whose records are wanted.
@@ -228,20 +229,21 @@ class Adapter(ABC):
         """Return a stored model's edge list."""
         ...
 
-    # -- views ------------------------------------------------------------------------
+    # -- frames -----------------------------------------------------------------------
 
     @abstractmethod
-    def store_view(self, fp: Fingerprint, table: pl.DataFrame) -> None:
-        """Store a cleaned view (arbitrary schema).
+    def store_frame(self, fp: Fingerprint, kind: StepKind, table: pl.DataFrame) -> None:
+        """Store a materialised frame (arbitrary schema), tagged with its step kind.
 
-        Called on every collect, so a view feeding several models is computed once and
-        read back by each of them.
+        Both a `Resolved` read and a `Transform` store a frame; `kind` records which, so
+        `stats()` counts them apart. Called on every collect, so a frame feeding several
+        models is computed once and read back by each of them.
         """
         ...
 
     @abstractmethod
-    def read_view(self, fp: Fingerprint) -> pl.DataFrame:
-        """Return a stored view."""
+    def read_frame(self, fp: Fingerprint) -> pl.DataFrame:
+        """Return a stored frame (a `Resolved` read or a `Transform`)."""
         ...
 
     # -- resolvers --------------------------------------------------------------------

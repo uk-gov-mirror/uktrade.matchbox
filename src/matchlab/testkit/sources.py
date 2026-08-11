@@ -61,7 +61,7 @@ class GeneratedSource(BaseModel):
 
     This exposes what it knows about the *fixture*: the rows, the features they were
     generated from, and the partition they imply. Anything you do to the *plan* goes
-    through `.source`, which is the node itself: `source.source.view()`,
+    through `.source`, which is the node itself: `source.source.clean(...)`,
     `source.source.name`, `source.source.spec`. There is deliberately no shortcut. A
     testkit that forwarded those would be indistinguishable from the node it wraps, and
     knowing which one you are holding is the whole point.

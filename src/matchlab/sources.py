@@ -15,7 +15,7 @@ want pinned is a `cast` in the SELECT.
 import tempfile
 from collections.abc import Callable, Generator, Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import ClassVar
 
 import polars as pl
 import pyarrow.parquet as pq
@@ -31,19 +31,19 @@ from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
 from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.resolver_output import leaf_id
+from matchlab.frames import Frame, IdentifierRead, build_frame
 from matchlab.locations import Location
 from matchlab.specs import SourceSpec
-from matchlab.steps import Step
-from matchlab.views import View
-
-if TYPE_CHECKING:
-    # `matchlab.models` reaches this module through `matchlab.views`, so `Model` can
-    # only ever be a type-time name here; annotations that use it are quoted.
-    from matchlab.models import Model
 
 
-class Source(Step):
-    """A warehouse table, extracted and content-addressed."""
+class Source(Frame):
+    """A warehouse table, extracted and content-addressed.
+
+    A source is a `Frame`: read on its own, its records are its extract with each row's
+    content-addressed leaf as `id`, so a model can match over it directly with no
+    intervening step. Read *through* a resolver instead, `id` becomes the entity root;
+    that is a `Resolved` read, built with `resolver.read(source)`.
+    """
 
     kind: ClassVar[StepKind] = StepKind.SOURCE
 
@@ -274,42 +274,18 @@ class Source(Step):
             leaves=self.leaves(),
         )
 
-    # -- verbs ------------------------------------------------------------------------
+    # -- Frame contract ---------------------------------------------------------------
 
-    def view(self, *, cleaning: dict[str, str] | None = None, **kwargs: Any) -> View:
-        """Return a view of this source's records.
+    def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
+        """Return this source's records with each row's leaf as `id`.
 
-        `cleaning` is keyword-only so that this reads the same as
-        `Resolver.view(source, cleaning=...)`, where the positional slot is taken by
-        the sources being read.
+        Derived from the extract and leaves stored by `_execute` — a cheap join, not a
+        separately cached artifact. Reading a source on its own means `id` is the leaf,
+        so there is no resolver in the read.
         """
-        return View(self, cleaning=cleaning, **kwargs)
+        return build_frame(adapter, (self,), None)
 
-    def dedupe(
-        self,
-        model_class: Any,  # noqa: ANN401 - a Deduper subclass
-        model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-    ) -> "Model":
-        """Deduplicate this source's records.
-
-        Shorthand for `self.view().dedupe(...)`. A view is only worth building
-        explicitly when you want to clean, group, or read through a resolver.
-        """
-        return self.view().dedupe(
-            model_class=model_class, model_settings=model_settings
-        )
-
-    def link(
-        self,
-        other: "Source | View",
-        model_class: Any,  # noqa: ANN401 - a Linker subclass
-        model_settings: Any,  # noqa: ANN401 - its settings model or a dict
-    ) -> "Model":
-        """Link this source to another source or view.
-
-        Shorthand for `self.view().link(...)`. `other` is viewed too if it is a
-        source, so neither side needs one.
-        """
-        return self.view().link(
-            other, model_class=model_class, model_settings=model_settings
-        )
+    @property
+    def _identifier_reads(self) -> tuple[IdentifierRead, ...]:
+        """Read directly, so `id` is the leaf: no resolver in the identifier read."""
+        return ((self._fp, self.name, None),)

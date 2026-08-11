@@ -17,32 +17,33 @@ from sqlalchemy import Engine, create_engine, text
 
 from matchlab import PlanDocument, Source, dump, lineage, load
 from matchlab.adapters import DuckDBAdapter
+from matchlab.frames import Resolved
 from matchlab.models import Model
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
 from matchlab.resolvers import Resolver
 from matchlab.steps import Step
-from matchlab.views import View
+from matchlab.transformers import Transform
 
 # `warehouse`, `adapter` and `source` come from `test/conftest.py`.
 
 
 @pytest.fixture
 def plan(source: Callable[..., Source]) -> Resolver:
-    """A dedupe feeding a cross-source link, with one view read by two models."""
+    """A dedupe feeding a cross-source link, with one frame read by two models."""
     crn = source("crn")
     dh = source("dh")
 
-    deduped = crn.view(cleaning={"company": crn.f("company")}).dedupe(
+    deduped = crn.clean({"company": crn.f("company")}).dedupe(
         model_class=NaiveDeduper,
         model_settings={"unique_fields": ["company"]},
     )
     resolved = deduped.resolve()
 
-    # One view, read by both models below — the structural sharing the document has to
+    # One frame, read by both models below — the structural sharing the document has to
     # preserve rather than inline twice.
-    entities = resolved.view(crn, cleaning={"company": crn.f("company")})
-    raw_dh = dh.view(cleaning={"company": dh.f("company")})
+    entities = resolved.read(crn).clean({"company": crn.f("company")})
+    raw_dh = dh.clean({"company": dh.f("company")})
 
     comparison = "l.company = r.company"
     linked = entities.link(
@@ -265,12 +266,12 @@ def test_location_source_only() -> None:
             {"steps": [{"kind": "source", "spec": _SOURCE_SPEC, "inputs": []}]}
         )
 
-    with pytest.raises(ValueError, match="view step must not name a location"):
+    with pytest.raises(ValueError, match="resolved step must not name a location"):
         PlanDocument.model_validate(
             {
                 "steps": [
                     {
-                        "kind": "view",
+                        "kind": "resolved",
                         "spec": {},
                         "inputs": [],
                         "location": _LOCATION_REF,
@@ -331,15 +332,15 @@ def test_document_rejects_forward_edge() -> None:
         PlanDocument.model_validate(
             {
                 "steps": [
-                    {"kind": "view", "spec": {}, "inputs": [1]},
-                    {"kind": "view", "spec": {}, "inputs": []},
+                    {"kind": "resolved", "spec": {}, "inputs": [1]},
+                    {"kind": "resolved", "spec": {}, "inputs": []},
                 ]
             }
         )
 
 
 def test_spec_parsed_by_kind() -> None:
-    """`ViewSpec` has no required fields, so a plain union would swallow anything."""
+    """`ResolvedSpec` has no fields, so a plain union would swallow anything."""
     document = PlanDocument.model_validate(
         {
             "steps": [
@@ -379,12 +380,36 @@ def test_document_empty_rejected() -> None:
         load(PlanDocument(steps=()), clients={})
 
 
-def test_rebuild_view_with_resolver(plan: Resolver, warehouse: Engine) -> None:
-    """A view's inputs are sources plus at most one resolver, told apart by kind."""
+def test_rebuild_resolved_read(plan: Resolver, warehouse: Engine) -> None:
+    """A resolved read's inputs are sources plus one resolver, told apart by kind."""
     rebuilt = load(dump(plan), clients={"warehouse": warehouse})
-    views = [step for step in lineage.walk(rebuilt) if isinstance(step, View)]
+    reads = [step for step in lineage.walk(rebuilt) if isinstance(step, Resolved)]
 
-    through = [view for view in views if view.resolver is not None]
-    assert len(through) == 1
-    assert isinstance(through[0].resolver, Resolver)
-    assert [source.name for source in through[0].sources] == ["crn"]
+    assert len(reads) == 1
+    assert isinstance(reads[0].resolver, Resolver)
+    assert [source.name for source in reads[0].sources] == ["crn"]
+
+
+def test_rebuild_transform_chain(
+    source: Callable[..., Source], warehouse: Engine
+) -> None:
+    """A select → clean chain rebuilds with the transformer settings intact.
+
+    Transformers carry their configuration by name, so a document names the class and
+    dumps its fields; the rebuilt transform must reconstruct both, in chain order.
+    """
+    crn = source("crn")
+    plan = (
+        crn.select("crn_company", "crn_town")
+        .clean({"name": "lower(crn_company)"})
+        .dedupe(NaiveDeduper, {"unique_fields": ["name"]})
+        .resolve()
+    )
+
+    rebuilt = load(_transfer(dump(plan)), clients={"warehouse": warehouse})
+    transforms = [step for step in lineage.walk(rebuilt) if isinstance(step, Transform)]
+
+    assert [t.transformer_class.__name__ for t in transforms] == ["Select", "Clean"]
+    plan.collect()
+    rebuilt.collect(adapter=DuckDBAdapter(":memory:"))
+    assert plan.fingerprints() == rebuilt.fingerprints()

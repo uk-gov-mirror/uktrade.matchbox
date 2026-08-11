@@ -30,7 +30,9 @@ def test_format_bytes(count: int, signed: bool, expected: str) -> None:
 
 def test_describe_populated() -> None:
     """A store's size, its growth over a baseline, and its artifact count."""
-    stats = StoreStats(location="somewhere", bytes=2048, artifacts={StepKind.VIEW: 3})
+    stats = StoreStats(
+        location="somewhere", bytes=2048, artifacts={StepKind.TRANSFORM: 3}
+    )
 
     assert stats.describe() == "Store 2.0 KB, 3 artifacts"
     assert (

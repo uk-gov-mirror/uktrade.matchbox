@@ -9,12 +9,12 @@ from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.schemas import SCHEMA_MODEL_EDGES
+from matchlab.frames import Frame
 from matchlab.models import dedupers, linkers
 from matchlab.models.dedupers.base import Deduper, DeduperSettings
 from matchlab.models.linkers.base import Linker, LinkerSettings
 from matchlab.specs import ModelSpec, ModelType
 from matchlab.steps import Step
-from matchlab.views import View
 
 if TYPE_CHECKING:
     # `matchlab.resolvers` imports this module
@@ -91,21 +91,21 @@ def normalise_model_scores(scores: pl.DataFrame) -> pl.DataFrame:
 
 
 class Model(Step):
-    """A step that runs one methodology (a Deduper or a Linker) over cleaned views."""
+    """A step that runs one methodology (a Deduper or a Linker) over frames."""
 
     kind: ClassVar[StepKind] = StepKind.MODEL
 
     def __init__(
         self,
-        left: View,
+        left: Frame,
         model_class: type[Deduper] | type[Linker] | str,
         model_settings: DeduperSettings | LinkerSettings | dict,
-        right: View | None = None,
+        right: Frame | None = None,
     ) -> None:
         """Define a model.
 
         Args:
-            left: The view to deduplicate, or the left side of a link.
+            left: The frame to deduplicate, or the left side of a link.
             model_class: A `Deduper`/`Linker` subclass, or its registered name.
             model_settings: The settings object for that class, or a dict.
             right: The right side of a link. Omit for a deduper.
@@ -175,8 +175,8 @@ class Model(Step):
         return adapter.read_model(fp)
 
     @property
-    def inputs(self) -> tuple[View, ...]:
-        """The cleaned views this model reads."""
+    def inputs(self) -> tuple[Frame, ...]:
+        """The frames this model reads."""
         return (self.left,) if self.right is None else (self.left, self.right)
 
     # -- verbs ------------------------------------------------------------------------

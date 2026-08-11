@@ -7,6 +7,7 @@ class StepKind(StrEnum):
     """Enumeration of the kinds of step a plan is made of."""
 
     SOURCE = "source"
-    VIEW = "view"
+    RESOLVED = "resolved"
+    TRANSFORM = "transform"
     MODEL = "model"
     RESOLVER = "resolver"

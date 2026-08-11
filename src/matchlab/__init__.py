@@ -5,7 +5,7 @@ Build a plan from a `Source`, chain verbs, then `collect()`:
 ```python
 from matchlab import Source
 
-deduped = source.view(...).dedupe(...).resolve()
+deduped = source.clean(...).dedupe(...).resolve()
 lookup = deduped.collect().get_lookup()
 ```
 
@@ -14,21 +14,36 @@ or inputs changed.
 """
 
 from matchlab.document import PlanDocument, dump, load
+from matchlab.frames import Frame, Resolved
 from matchlab.locations import RelationalDBLocation
 from matchlab.models import Model
 from matchlab.resolvers import Resolver
 from matchlab.sources import Source
 from matchlab.steps import Step, default_adapter, set_default_adapter
-from matchlab.views import View
+from matchlab.transformers import (
+    Clean,
+    Group,
+    Select,
+    Transform,
+    Transformer,
+    add_transformer_class,
+)
 
 __all__ = (
+    "Clean",
+    "Frame",
+    "Group",
     "Model",
     "PlanDocument",
     "RelationalDBLocation",
+    "Resolved",
     "Resolver",
+    "Select",
     "Source",
     "Step",
-    "View",
+    "Transform",
+    "Transformer",
+    "add_transformer_class",
     "default_adapter",
     "dump",
     "load",

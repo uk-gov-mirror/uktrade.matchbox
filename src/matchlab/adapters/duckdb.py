@@ -188,9 +188,9 @@ class DuckDBAdapter(Adapter):
         return f"extract_{fp.hex()}"
 
     @staticmethod
-    def _view_table(fp: Fingerprint) -> str:
-        """Name of the per-view materialised table (arbitrary-schema, so its own)."""
-        return f"view_{fp.hex()}"
+    def _frame_table(fp: Fingerprint) -> str:
+        """Name of a per-frame materialised table (arbitrary-schema, so its own)."""
+        return f"frame_{fp.hex()}"
 
     def _register(self, name: str, df: pl.DataFrame) -> None:
         self.conn.register(name, df.to_arrow())
@@ -222,8 +222,8 @@ class DuckDBAdapter(Adapter):
             self.conn.execute(f'DROP TABLE IF EXISTS "{self._extract_table(fp)}"')
             self.conn.execute("DELETE FROM source_leaves WHERE fp = ?", [fp])
             self.conn.execute("DELETE FROM source_meta WHERE fp = ?", [fp])
-        elif kind is StepKind.VIEW:
-            self.conn.execute(f'DROP TABLE IF EXISTS "{self._view_table(fp)}"')
+        elif kind in (StepKind.RESOLVED, StepKind.TRANSFORM):
+            self.conn.execute(f'DROP TABLE IF EXISTS "{self._frame_table(fp)}"')
         elif kind is StepKind.MODEL:
             self.conn.execute("DELETE FROM model_edges WHERE fp = ?", [fp])
         elif kind is StepKind.RESOLVER:
@@ -502,22 +502,22 @@ class DuckDBAdapter(Adapter):
             "SELECT left_id, right_id, score FROM model_edges WHERE fp = ?", [fp]
         ).pl()
 
-    # -- views ------------------------------------------------------------------------
+    # -- frames -----------------------------------------------------------------------
 
-    def store_view(self, fp: Fingerprint, table: pl.DataFrame) -> None:
+    def store_frame(self, fp: Fingerprint, kind: StepKind, table: pl.DataFrame) -> None:
         self._purge(fp)
-        self._register("_reg_view", table)
+        self._register("_reg_frame", table)
         self.conn.execute(
-            f'CREATE OR REPLACE TABLE "{self._view_table(fp)}" '
-            "AS SELECT * FROM _reg_view"
+            f'CREATE OR REPLACE TABLE "{self._frame_table(fp)}" '
+            "AS SELECT * FROM _reg_frame"
         )
-        self.conn.unregister("_reg_view")
-        self._register_artifact(fp, StepKind.VIEW)
+        self.conn.unregister("_reg_frame")
+        self._register_artifact(fp, kind)
 
-    def read_view(self, fp: Fingerprint) -> pl.DataFrame:
-        if self._kind(fp) is not StepKind.VIEW:
-            raise KeyError(f"No stored view for fingerprint {fp.hex()}")
-        return self.conn.execute(f'SELECT * FROM "{self._view_table(fp)}"').pl()
+    def read_frame(self, fp: Fingerprint) -> pl.DataFrame:
+        if self._kind(fp) not in (StepKind.RESOLVED, StepKind.TRANSFORM):
+            raise KeyError(f"No stored frame for fingerprint {fp.hex()}")
+        return self.conn.execute(f'SELECT * FROM "{self._frame_table(fp)}"').pl()
 
     # -- resolvers --------------------------------------------------------------------
 

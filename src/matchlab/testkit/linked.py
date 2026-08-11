@@ -21,6 +21,7 @@ from sqlalchemy import Engine, create_engine
 from sqlglot import cast, select
 from sqlglot.expressions import column
 
+from matchlab.frames import Frame
 from matchlab.locations import RelationalDBLocation
 from matchlab.models.models import Model
 from matchlab.resolvers import Resolver
@@ -42,7 +43,6 @@ from matchlab.testkit.matchers import (
 )
 from matchlab.testkit.models import GeneratedModel, generate_entity_scores
 from matchlab.testkit.sources import GeneratedSource
-from matchlab.views import View
 
 
 class LinkedSources(BaseModel):
@@ -204,7 +204,7 @@ class LinkedSources(BaseModel):
             true_entities=(
                 self.true_entities if true_entities is None else true_entities
             ),
-            left=left.source.view(),
+            left=left.source,
             right=None,
             score_range=score_range,
             seed=seed,
@@ -241,11 +241,11 @@ class LinkedSources(BaseModel):
                 self.true_entities if true_entities is None else true_entities
             ),
             left=(
-                through.view(left_testkit.source)
+                through.read(left_testkit.source)
                 if through is not None
-                else left_testkit.source.view()
+                else left_testkit.source
             ),
-            right=right_testkit.source.view(),
+            right=right_testkit.source,
             score_range=score_range,
             seed=seed,
         )
@@ -256,16 +256,16 @@ def _build_model(
     left_testkit: GeneratedSource,
     right_testkit: GeneratedSource | None,
     true_entities: Iterable[TrueEntity],
-    left: View,
-    right: View | None,
+    left: Frame,
+    right: Frame | None,
     score_range: tuple[float, float] = (0.8, 1.0),
     seed: int = 42,
 ) -> GeneratedModel:
     """Wire a scripted model onto generated sources, building both expectations.
 
     You usually want `LinkedSources.dedupe` or `.link` instead. They know the truth and
-    the views, so they take a source name rather than seven arguments. This is the
-    shared implementation behind them, and is private because building the views
+    the frames, so they take a source name rather than seven arguments. This is the
+    shared implementation behind them, and is private because building the frames
     correctly is the part that needs the testkit.
 
     Args:
@@ -273,8 +273,8 @@ def _build_model(
             derived from it, so it cannot be a bare `Source`.
         right_testkit: The right source's testkit, for a linker. `None` deduplicates.
         true_entities: The planted entities the model should recover.
-        left: The view the model reads as its left input.
-        right: The view the model reads as its right input, for a linker.
+        left: The frame the model reads as its left input.
+        right: The frame the model reads as its right input, for a linker.
         score_range: Range the emitted scores fall in.
         seed: Random seed for the generated scores.
 

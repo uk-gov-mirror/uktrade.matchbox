@@ -1,6 +1,6 @@
 """Resolver collapses model edges into clusters and materialises the resolver output."""
 
-from typing import Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 import polars as pl
 
@@ -9,13 +9,16 @@ from matchlab.core.dataframes import qualify
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.kinds import StepKind
 from matchlab.core.resolver_output import materialise_resolver_output
+from matchlab.frames import Resolved
 from matchlab.models import Model
 from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 from matchlab.resolvers.components import Components
 from matchlab.sources import Source
 from matchlab.specs import ResolverSpec
 from matchlab.steps import Step
-from matchlab.views import View
+
+if TYPE_CHECKING:
+    from matchlab.transformers import Transform, Transformer
 
 _RESOLVER_CLASSES: dict[str, type[ResolverMethod]] = {}
 
@@ -196,8 +199,8 @@ class Resolver(Step):
         reads = dict.fromkeys(
             read
             for model in self.inputs
-            for view in model.inputs
-            for read in view._identifier_reads
+            for frame in model.inputs
+            for read in frame._identifier_reads
         )
         upstream = pl.concat(
             [adapter.read_identifiers(*read) for read in reads],
@@ -389,13 +392,30 @@ class Resolver(Step):
 
     # -- verbs ------------------------------------------------------------------------
 
-    def view(
+    def read(self, *sources: Source) -> Resolved:
+        """Read sources *through* this resolver, so `id` is the entity root.
+
+        Defaults to every source this resolver covers. This is the layered shape: match
+        on top of an earlier resolver output by reading its sources back through it.
+        """
+        return Resolved(*(sources or self.sources), resolver=self)
+
+    def transform(
         self,
-        *sources: Source,
-        cleaning: dict[str, str] | None = None,
-        **kwargs: Any,
-    ) -> View:
-        """Return a cleaned view of sources resolved *through* this resolver."""
-        return View(
-            *(sources or self.sources), resolver=self, cleaning=cleaning, **kwargs
-        )
+        transformer: "Transformer | type[Transformer] | str",
+        transformer_settings: dict | None = None,
+    ) -> "Transform":
+        """Read every source through this resolver, then reshape with a transformer."""
+        return self.read().transform(transformer, transformer_settings)
+
+    def select(self, *columns: str) -> "Transform":
+        """Read every source through this resolver, then keep only the named columns."""
+        return self.read().select(*columns)
+
+    def clean(self, cleaning: dict[str, str]) -> "Transform":
+        """Read every source through this resolver, then derive columns with SQL."""
+        return self.read().clean(cleaning)
+
+    def group(self, aggregates: dict[str, str]) -> "Transform":
+        """Read all sources through this resolver, then collapse each `id` to a row."""
+        return self.read().group(aggregates)

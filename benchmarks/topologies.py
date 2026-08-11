@@ -29,7 +29,7 @@ from typing import cast
 
 from sqlalchemy import create_engine
 
-from matchlab import Model, RelationalDBLocation, Resolver, Source, View
+from matchlab import Frame, Model, RelationalDBLocation, Resolver, Source
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
 
@@ -113,24 +113,26 @@ def _cleaning(sources: Sequence[Source]) -> dict[str, str]:
     }
 
 
-def _view(sources: Sequence[Source], resolver: Resolver | None = None) -> View:
-    """A cleaned view of these sources, optionally read through a resolver output.
+def _frame(sources: Sequence[Source], resolver: Resolver | None = None) -> Frame:
+    """A cleaned frame of these sources, optionally read through a resolver output.
 
     Passing a resolver is the layering move: `id` becomes the entity that resolver
     assigned rather than the record, so whatever is built on top compares entities.
+    Without one, there is a single source, read directly.
     """
-    return View(*sources, resolver=resolver, cleaning=_cleaning(sources))
+    base: Frame = resolver.read(*sources) if resolver is not None else sources[0]
+    return base.clean(_cleaning(sources))
 
 
-def _dedupe(view: View) -> Model:
-    """Deduplicate a cleaned view: same cleaned name and postcode is one entity."""
-    return view.dedupe(
+def _dedupe(frame: Frame) -> Model:
+    """Deduplicate a cleaned frame: same cleaned name and postcode is one entity."""
+    return frame.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": UNIQUE_FIELDS}
     )
 
 
-def _link(left: View, right: View) -> Model:
-    """Link two cleaned views, on the same rule the deduper uses."""
+def _link(left: Frame, right: Frame) -> Model:
+    """Link two cleaned frames, on the same rule the deduper uses."""
     return left.link(
         right,
         model_class=DeterministicLinker,
@@ -159,7 +161,7 @@ def build(topology: Topology, sources: Sequence[Source]) -> Resolver:
 
     match topology:
         case Topology.DEDUPE:
-            return _dedupe(_view(sources[:1])).resolve()
+            return _dedupe(_frame(sources[:1])).resolve()
         case Topology.HUB:
             return _star(sources, pairs=_spokes)
         case Topology.MESH:
@@ -168,18 +170,18 @@ def build(topology: Topology, sources: Sequence[Source]) -> Resolver:
             return _chain(sources)
 
 
-# Which links a star-shaped plan builds, given its views.
-Pairs = Callable[[Sequence[View]], list[tuple[View, View]]]
+# Which links a star-shaped plan builds, given its frames.
+Pairs = Callable[[Sequence[Frame]], list[tuple[Frame, Frame]]]
 
 
-def _spokes(views: Sequence[View]) -> list[tuple[View, View]]:
+def _spokes(frames: Sequence[Frame]) -> list[tuple[Frame, Frame]]:
     """Every (hub, spoke) pair. `n-1` links, and the hub in all of them."""
-    return [(views[0], spoke) for spoke in views[1:]]
+    return [(frames[0], spoke) for spoke in frames[1:]]
 
 
-def _every_pair(views: Sequence[View]) -> list[tuple[View, View]]:
-    """Every pair of views. `n(n-1)/2` links, and no view privileged."""
-    return list(combinations(views, 2))
+def _every_pair(frames: Sequence[Frame]) -> list[tuple[Frame, Frame]]:
+    """Every pair of frames. `n(n-1)/2` links, and no frame privileged."""
+    return list(combinations(frames, 2))
 
 
 def _star(sources: Sequence[Source], pairs: Pairs) -> Resolver:
@@ -187,14 +189,14 @@ def _star(sources: Sequence[Source], pairs: Pairs) -> Resolver:
 
     `HUB` and `MESH` differ only in which pairs get linked, so they share everything
     else: one dedupe per source collapsed into a single resolver output, every source
-    read back through it — each view built once and structurally shared by every link
+    read back through it — each frame built once and structurally shared by every link
     that uses it — and one apex resolver over all the links.
     """
-    dedupes = [_dedupe(_view([source])) for source in sources]
+    dedupes = [_dedupe(_frame([source])) for source in sources]
     deduped = dedupes[0].resolve(*dedupes[1:])
 
-    views = [_view([source], resolver=deduped) for source in sources]
-    links = [_link(left, right) for left, right in pairs(views)]
+    frames = [_frame([source], resolver=deduped) for source in sources]
+    links = [_link(left, right) for left, right in pairs(frames)]
     return links[0].resolve(*links[1:])
 
 
@@ -207,13 +209,13 @@ def _chain(sources: Sequence[Source]) -> Resolver:
     link joining it to everything already resolved — so every source is still
     deduplicated exactly once and the shapes stay comparable.
     """
-    resolved = _dedupe(_view(sources[:1])).resolve()
+    resolved = _dedupe(_frame(sources[:1])).resolve()
 
     for position, source in enumerate(sources[1:], start=1):
-        # One view of the new source, shared by both models below: the dedupe that
+        # One frame of the new source, shared by both models below: the dedupe that
         # collapses its own duplicates, and the link that attaches it to the rest.
-        arriving = _view([source])
-        accumulated = _view(sources[:position], resolver=resolved)
+        arriving = _frame([source])
+        accumulated = _frame(sources[:position], resolver=resolved)
         resolved = _link(accumulated, arriving).resolve(_dedupe(arriving))
 
     return resolved

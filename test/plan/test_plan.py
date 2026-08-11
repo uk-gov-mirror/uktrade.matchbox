@@ -1,7 +1,7 @@
 """End-to-end tests for the plan API, over a real SQLite warehouse.
 
 Covers the whole plan surface: building a plan with no DAG, laziness, collect with
-plan-fingerprint caching, `View` storage, lineage navigation, GC, and the terminal
+plan-fingerprint caching, frame storage, lineage navigation, GC, and the terminal
 reads (`get_lookup`, `lookup_key`).
 
 Scenario — a dedupe feeding a cross-source link:
@@ -21,7 +21,7 @@ import polars as pl
 import pytest
 from sqlalchemy import Engine, text
 
-from matchlab import Model, Resolver, Source, View, lineage
+from matchlab import Model, Resolver, Source, Transform, lineage
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import StepNotFound
 from matchlab.locations import RelationalDBLocation
@@ -46,7 +46,7 @@ def _apex(source: Callable[..., Source]) -> tuple[Resolver, Source, Source]:
     dh = source("dh")
     r_crn = _dedupe_crn(crn)
     apex = (
-        r_crn.view(crn)
+        r_crn.read(crn)
         .link(
             dh,
             model_class=DeterministicLinker,
@@ -162,7 +162,7 @@ def test_collect_only_new_steps(
     # A brand-new downstream branch over already-collected inputs.
     dh = source("dh")
     apex = (
-        deduped.view(crn)
+        deduped.read(crn)
         .link(
             dh,
             model_class=DeterministicLinker,
@@ -172,7 +172,7 @@ def test_collect_only_new_steps(
         )
         .resolve()
     )
-    apex.collect()  # only dh + the new view/model/resolver run
+    apex.collect()  # only dh + the new read/model/resolver run
 
     assert apex.get_lookup().height > 0
 
@@ -184,18 +184,18 @@ def test_source_column_change_invalidates(
 
     There is no narrower list of indexed fields for a column to fall outside of, which
     is what used to let a change go unnoticed: the source cache-hit, never re-stored,
-    and downstream views kept serving the old value.
+    and downstream frames kept serving the old value.
     """
     et = "select pk, company, town from crn"
 
-    view = source("crn", et).view(cleaning={"town": "crn_town"})
-    view.collect()
-    assert sorted(view.data()["town"].to_list()) == ["hull", "leeds", "london"]
+    cleaned = source("crn", et).clean({"town": "crn_town"})
+    cleaned.collect()
+    assert sorted(cleaned.data()["town"].to_list()) == ["hull", "leeds", "london"]
 
     with warehouse.begin() as conn:
         conn.execute(text("UPDATE crn SET town = 'oxford' WHERE pk = 'a1'"))
 
-    refreshed = source("crn", et).view(cleaning={"town": "crn_town"})
+    refreshed = source("crn", et).clean({"town": "crn_town"})
     refreshed.collect()
     assert sorted(refreshed.data()["town"].to_list()) == ["hull", "leeds", "oxford"]
 
@@ -222,8 +222,8 @@ def test_source_identity_is_every_column(source: Callable[..., Source]) -> None:
 def test_source_name_must_prefix(warehouse: Engine, name: str) -> None:
     """Caught at construction, not as a SQL error three steps later.
 
-    A source's name qualifies every column it contributes, and those land in cleaning
-    SQL. `crn-x_company` parses as subtraction, `crn.x_company` as table.column.
+    A source's name qualifies every column it contributes, and those land in clean and
+    select SQL. `crn-x_company` parses as subtraction, `crn.x_company` as table.column.
     """
     location = RelationalDBLocation(name="warehouse", client=warehouse)
     with pytest.raises(ValueError, match="can't prefix a column name"):
@@ -244,9 +244,9 @@ def test_source_name_reserved_word(warehouse: Engine) -> None:
         extract_transform="select pk, company from crn",
         key_field="pk",
     )
-    view = source.view(cleaning={"name": f"lower({source.f('company')})"})
-    view.collect()
-    assert sorted(view.data()["name"].to_list()) == ["acme", "acme", "beta"]
+    cleaned = source.clean({"name": f"lower({source.f('company')})"})
+    cleaned.collect()
+    assert sorted(cleaned.data()["name"].to_list()) == ["acme", "acme", "beta"]
 
 
 def test_source_key_only_rejected(source: Callable[..., Source]) -> None:
@@ -299,20 +299,20 @@ def test_source_memoises_read(warehouse: Engine, source: Callable[..., Source]) 
     crn.collect()  # memoised fingerprint short-circuits
 
 
-# -- View storage ---------------------------------------------------------------------
+# -- Frame storage --------------------------------------------------------------------
 
 
 @pytest.fixture
 def computes(monkeypatch: pytest.MonkeyPatch) -> dict[int, int]:
-    """Count `View._compute` calls per view, keyed by `id(view)`."""
+    """Count `Transform._execute` calls per transform, keyed by `id`."""
     counts: dict[int, int] = {}
-    original = View._compute
+    original = Transform._execute
 
-    def counting(self: View, adapter: DuckDBAdapter) -> pl.DataFrame:
+    def counting(self: Transform, adapter: DuckDBAdapter, fp: bytes) -> None:
         counts[id(self)] = counts.get(id(self), 0) + 1
-        return original(self, adapter)
+        return original(self, adapter, fp)
 
-    monkeypatch.setattr(View, "_compute", counting)
+    monkeypatch.setattr(Transform, "_execute", counting)
     return counts
 
 
@@ -330,97 +330,97 @@ def model_runs(monkeypatch: pytest.MonkeyPatch) -> list[Model]:
     return ran
 
 
-def _shared_view_plan(
+def _shared_frame_plan(
     source: Callable[..., Source], comparison: str | None = None
-) -> tuple[Resolver, View]:
-    """One cleaned view feeding both a dedupe and a link, joined by a resolver.
+) -> tuple[Resolver, Transform]:
+    """One cleaned frame feeding both a dedupe and a link, joined by a resolver.
 
-    `comparison` retunes the linker without touching the view, so a second plan can
-    invalidate the models while every view's fingerprint still hits.
+    `comparison` retunes the linker without touching the frame, so a second plan can
+    invalidate the models while the transform's fingerprint still hits.
     """
     crn = source("crn")
     dh = source("dh")
-    view = crn.view(cleaning={"name": "crn_company"})
-    deduped = view.dedupe(
+    frame = crn.clean({"name": "crn_company"})
+    deduped = frame.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
     )
-    linked = view.link(
+    linked = frame.link(
         dh,
         model_class=DeterministicLinker,
         model_settings={"comparisons": comparison or f"l.name = r.{dh.f('company')}"},
     )
-    return deduped.resolve(linked), view
+    return deduped.resolve(linked), frame
 
 
-def test_view_stored_with_consumer(
+def test_frame_stored_with_consumer(
     source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
-    """Collecting a view's consumer stores the view too."""
+    """Collecting a transform's consumer stores the transform too."""
     crn = source("crn")
-    view = crn.view(cleaning={"name": "crn_company"})
-    deduped = view.dedupe(
+    frame = crn.clean({"name": "crn_company"})
+    deduped = frame.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
     ).resolve()
     deduped.collect()
 
-    assert view.is_collected
-    assert adapter.has(view._fp)
+    assert frame.is_collected
+    assert adapter.has(frame._fp)
 
 
-def test_view_shared_computed_once(
+def test_frame_shared_computed_once(
     source: Callable[..., Source], adapter: DuckDBAdapter, computes: dict[int, int]
 ) -> None:
     """The point of storing: fan-out costs one computation, not one per consumer."""
-    apex, view = _shared_view_plan(source)
+    apex, frame = _shared_frame_plan(source)
 
     apex.collect()
 
-    assert computes[id(view)] == 1
-    assert adapter.has(view._fp)
+    assert computes[id(frame)] == 1
+    assert adapter.has(frame._fp)
 
 
-def test_view_reused_across_plans(
+def test_frame_reused_across_plans(
     source: Callable[..., Source],
     adapter: DuckDBAdapter,
     computes: dict[int, int],
     model_runs: list[Model],
 ) -> None:
-    """Cross-session reuse: a stored view is read back, not recomputed.
+    """Cross-session reuse: a stored frame is read back, not recomputed.
 
     The second plan is fresh objects, as a new process would build, with the linker
-    retuned so the models genuinely re-run. Their inputs are unchanged, so the views
-    hit cache and the frame comes off disk. Recomputing here was the old behaviour:
-    a rebuilt view had no way to know its table was already stored.
+    retuned so the models genuinely re-run. Their inputs are unchanged, so the transform
+    hits cache and the frame comes off disk. Recomputing here was the old behaviour:
+    a rebuilt frame had no way to know its table was already stored.
     """
     dh = source("dh")
-    apex, _view = _shared_view_plan(source)
+    apex, _frame = _shared_frame_plan(source)
     apex.collect()
     computes.clear()
     model_runs.clear()
 
-    retuned, view = _shared_view_plan(
+    retuned, frame = _shared_frame_plan(
         source, comparison=f"r.{dh.f('company')} = l.name"
     )
     retuned.collect()
 
-    assert computes == {}, "a stored view was recomputed"
-    assert adapter.has(view._fp)
+    assert computes == {}, "a stored frame was recomputed"
+    assert adapter.has(frame._fp)
     # The linker really did re-run, so something genuinely asked for the frame —
     # without this the assertion above would hold trivially.
     assert [model.model_class for model in model_runs] == [DeterministicLinker]
 
 
-def test_view_collected_directly(
+def test_frame_collected_directly(
     source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
-    """A view collected on its own materialises its table."""
+    """A frame collected on its own materialises its table."""
     crn = source("crn")
-    view = crn.view(cleaning={"name": "crn_company"})
+    frame = crn.clean({"name": "crn_company"})
 
-    frame = view.collect().data()
-    assert adapter.has(view._fp)
-    assert set(frame.columns) == {"id", "name"}
-    assert frame.height == 3
+    data = frame.collect().data()
+    assert adapter.has(frame._fp)
+    assert "name" in data.columns
+    assert data.height == 3
 
 
 # -- identifiers ----------------------------------------------------------------------
@@ -446,25 +446,25 @@ def identifier_reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, bytes |
 
 
 def _fan_out_plan(source: Callable[..., Source]) -> tuple[Resolver, list[Model]]:
-    """Three models over one shared view, so the resolver sees repeated readings.
+    """Three models over one shared frame, so the resolver sees repeated readings.
 
-    `Resolver._execute` walks `(model, view)` pairs — four of them here. Only two
+    `Resolver._execute` walks `(model, frame)` pairs — four of them here. Only two
     distinct readings exist between them, which is what it must collapse to. Linking
     every pair of n sources makes that ratio quadratic.
     """
     crn = source("crn")
     dh = source("dh")
-    view = crn.view(cleaning={"name": "crn_company"})
+    frame = crn.clean({"name": "crn_company"})
     models = [
-        view.dedupe(
+        frame.dedupe(
             model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
         ),
-        view.link(
+        frame.link(
             dh,
             model_class=DeterministicLinker,
             model_settings={"comparisons": f"l.name = r.{dh.f('company')}"},
         ),
-        view.dedupe(
+        frame.dedupe(
             model_class=NaiveDeduper, model_settings={"unique_fields": ["name", "id"]}
         ),
     ]
@@ -592,7 +592,7 @@ def test_fingerprints_collapse_shared(
     """
     crn = source("crn")
     cleaning = {"name": "crn_company"}
-    twins = [crn.view(cleaning=cleaning), crn.view(cleaning=cleaning)]
+    twins = [crn.clean(cleaning), crn.clean(cleaning)]
     plan = (
         twins[0]
         .dedupe(model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]})
@@ -635,7 +635,7 @@ def test_trim_to_plan_keeps_cache(
     def build(cleaning: str) -> Resolver:
         return (
             source("crn")
-            .view(cleaning={"name": cleaning})
+            .clean({"name": cleaning})
             .dedupe(
                 model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
             )
@@ -667,61 +667,60 @@ def test_trim_to_plan_keeps_cache(
     rebuilt.collect()
 
 
-# -- views ----------------------------------------------------------------------------
+# -- reading through a resolver, and grouping -----------------------------------------
 
 
 def test_resolver_read_repeats_per_record(
     source: Callable[..., Source],
 ) -> None:
-    """Without `group`, a view is record-grained even when `id` is an entity."""
+    """Without a group, a read is record-grained even when `id` is an entity."""
     crn = source("crn")
     deduped = _dedupe_crn(crn)
     deduped.collect()
 
-    view = deduped.view(crn, cleaning={"name": "crn_company"})
-    view.collect()
-    frame = view.data()
+    frame = deduped.read(crn).clean({"name": "crn_company"})
+    frame.collect()
+    data = frame.data()
 
     # a1/a2 deduped to one entity, but each contributes a row.
-    assert frame.height == 3
-    assert frame["id"].n_unique() == 2
+    assert data.height == 3
+    assert data["id"].n_unique() == 2
 
 
 def test_group_one_row_per_entity(source: Callable[..., Source]) -> None:
-    """`group=True` collapses each id, with the aggregate saying how per column."""
+    """`group` collapses each id, with the aggregate saying how per column."""
     crn = source("crn")
     deduped = _dedupe_crn(crn)
     deduped.collect()
 
-    view = deduped.view(
-        crn,
-        cleaning={
+    frame = deduped.read(crn).group(
+        {
             "name": "any_value(crn_company)",
             "towns": "list(distinct crn_town)",
-        },
-        group=True,
+        }
     )
-    view.collect()
-    frame = view.data().sort("name")
+    frame.collect()
+    data = frame.data().sort("name")
 
-    assert frame.height == 2
-    assert frame["name"].to_list() == ["acme", "beta"]
+    assert data.height == 2
+    assert data["name"].to_list() == ["acme", "beta"]
     # The deduped entity keeps both towns rather than silently losing one.
-    assert sorted(frame["towns"][0]) == ["leeds", "london"]
+    assert sorted(data["towns"][0]) == ["leeds", "london"]
 
 
 def test_group_merges_forward(source: Callable[..., Source]) -> None:
-    """Grouping changes the view's grain, never the resolver output's.
+    """Grouping changes the frame's grain, never the resolver output's.
 
     Leaves travel via `identifiers()`, read from the adapter, so collapsing rows in
-    the view cannot lose a record from the resolver output below it.
+    the frame cannot lose a record from the resolver output below it.
     """
     crn = source("crn")
     dh = source("dh")
     deduped = _dedupe_crn(crn)
 
     apex = (
-        deduped.view(crn, cleaning={"name": "any_value(crn_company)"}, group=True)
+        deduped.read(crn)
+        .group({"name": "any_value(crn_company)"})
         .link(
             dh,
             model_class=DeterministicLinker,
@@ -751,33 +750,24 @@ def test_group_multi_source(
     """
     crn = source("crn")
     dh = source("dh")
-    linked = (
-        crn.view()
-        .link(
-            dh,
-            model_class=DeterministicLinker,
-            model_settings={
-                "comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"
-            },
-        )
-        .resolve()
-    )
+    linked = crn.link(
+        dh,
+        model_class=DeterministicLinker,
+        model_settings={"comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"},
+    ).resolve()
     linked.collect()
 
-    ungrouped = linked.view(crn, dh, cleaning={"c": "crn_company", "d": "dh_company"})
+    ungrouped = linked.read(crn, dh).clean({"c": "crn_company", "d": "dh_company"})
     ungrouped.collect()
     acme = ungrouped.data().filter(pl.col("c") == "acme")
     # Every crn row for the acme entity has a null dh column.
     assert acme["d"].null_count() == acme.height
 
-    grouped = linked.view(
-        crn,
-        dh,
-        cleaning={
+    grouped = linked.read(crn, dh).group(
+        {
             "company": "any_value(crn_company)",
             "towns": "list(distinct coalesce(crn_town, dh_town))",
-        },
-        group=True,
+        }
     )
     grouped.collect()
     frame = grouped.data().filter(pl.col("company") == "acme")
@@ -787,11 +777,11 @@ def test_group_multi_source(
     assert set(frame["towns"][0]) == {"london", "leeds", "bristol"}
 
 
-def test_group_without_cleaning_raises(source: Callable[..., Source]) -> None:
-    """Grouping a view with no cleaning to group on is rejected."""
+def test_group_without_aggregates_raises(source: Callable[..., Source]) -> None:
+    """Grouping with no aggregates to say how columns combine is rejected."""
     crn = source("crn")
-    with pytest.raises(ValueError, match="needs cleaning expressions"):
-        crn.view(group=True)
+    with pytest.raises(ValueError, match="aggregate expressions"):
+        crn.group({})
 
 
 # -- specs ----------------------------------------------------------------------------
@@ -810,7 +800,7 @@ def test_spec_serialisable(source: Callable[..., Source]) -> None:
         assert step._spec_key() == step._spec_key()
         kinds.add(step.kind)
 
-    assert kinds == {"source", "view", "model", "resolver"}
+    assert kinds == {"source", "resolved", "model", "resolver"}
 
 
 def test_spec_no_upstream_settings(source: Callable[..., Source]) -> None:
@@ -824,24 +814,25 @@ def test_spec_no_upstream_settings(source: Callable[..., Source]) -> None:
     assert set(resolver_spec) == {"resolver_class", "resolver_settings"}
 
 
-def test_view_through_resolver_distinct(
+def test_read_direct_and_through_resolver_distinct(
     source: Callable[..., Source],
 ) -> None:
-    """Reading a source directly and through a resolver are different views.
+    """Reading a source directly and through a resolver are different frames.
 
+    A source read directly is a leaf; read through a resolver it is a `Resolved` node.
     The edge is what distinguishes them: it is on `upstream`, and folded into the
     fingerprint in order.
     """
     crn = source("crn")
     settings = {"unique_fields": [crn.f("company")]}
 
-    first = crn.view().dedupe(model_class=NaiveDeduper, model_settings=settings)
+    first = crn.dedupe(model_class=NaiveDeduper, model_settings=settings)
     deduped = first.resolve()
-    through = deduped.view(crn)
+    through = deduped.read(crn)
     second = through.dedupe(model_class=NaiveDeduper, model_settings=settings)
 
     assert through.upstream == (crn, deduped)
-    assert crn.view().upstream == (crn,)
+    assert crn.upstream == ()  # a source read directly is a leaf
 
     second.resolve().collect()
     assert first._fp != second._fp  # a second pass is not the first one
@@ -857,8 +848,8 @@ def test_steps_use_positions(source: Callable[..., Source]) -> None:
     names and cannot collide.
     """
     crn = source("crn")
-    strict = crn.view(cleaning={"name": f"upper({crn.f('company')})"})
-    loose = crn.view(cleaning={"name": f"lower({crn.f('company')})"})
+    strict = crn.clean({"name": f"upper({crn.f('company')})"})
+    loose = crn.clean({"name": f"lower({crn.f('company')})"})
     first = strict.dedupe(NaiveDeduper, {"unique_fields": ["name"]})
     second = loose.dedupe(NaiveDeduper, {"unique_fields": ["name", "id"]})
 

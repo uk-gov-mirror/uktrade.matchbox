@@ -142,7 +142,7 @@ class Step(ABC):
           position, which is not redundant. It decides which input the setting
           applies to.
 
-        There is also no early cutoff. A `View` whose SQL is reformatted but
+        There is also no early cutoff. A `Transform` whose SQL is reformatted but
         semantically unchanged invalidates the whole subtree beneath it.
 
         TODO(fingerprints): split this into an action key (plan-derived, as now)
