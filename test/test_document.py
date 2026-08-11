@@ -39,8 +39,9 @@ def plan(source: Callable[..., Source]) -> Resolver:
     )
     resolved = deduped.resolve()
 
-    # One frame, read by both models below — the structural sharing the document has to
-    # preserve rather than inline twice. `resolved` is itself the frame (crn, id=root).
+    # One frame, read by both models below. This is the structural sharing the document
+    # has to preserve rather than inline twice. `resolved` is itself the frame,
+    # crn read at id=root.
     entities = resolved.clean({"company": crn.f("company")})
     raw_dh = dh.clean({"company": dh.f("company")})
 
@@ -387,10 +388,10 @@ def test_document_empty_rejected() -> None:
 
 
 def test_rebuild_reads_resolver_as_frame(plan: Resolver, warehouse: Engine) -> None:
-    """A resolver is a frame: a rebuilt transform reads a resolver at `id`=root.
+    """A resolver is a frame, so a rebuilt transform reads a resolver at `id`=root.
 
     The `plan` cleans `crn`'s dedupe resolver, so a rebuilt transform must read a
-    `Resolver` as its upstream — the layering shape, preserved across the round trip.
+    `Resolver` as its upstream, the layering shape, preserved across the round trip.
     """
     rebuilt = load(dump(plan), clients={"warehouse": warehouse})
     reading_resolver = [
@@ -409,7 +410,7 @@ def test_rebuild_transform_chain(
     """A select → clean chain rebuilds with the transformer settings intact.
 
     Transformers carry their configuration by name, so a document names the class and
-    dumps its fields; the rebuilt transform must reconstruct both, in chain order.
+    dumps its fields. The rebuilt transform must reconstruct both, in chain order.
     """
     crn = source("crn")
     plan = (

@@ -1,4 +1,4 @@
-"""Group — one row per `id`, each column an aggregate.
+"""Tests for `Group`, one row per `id`, each column an aggregate.
 
 Ported from the pre-transformer `group=True` cases in `test_views.py`.
 """
@@ -12,7 +12,7 @@ from matchlab.transformers import Group
 
 
 def test_group_one_row_per_id() -> None:
-    """Aggregates decide how each column combines — per column, not wholesale."""
+    """Aggregates decide how each column combines, per column, not wholesale."""
     data = pl.DataFrame(
         {
             "id": [1, 1, 2],

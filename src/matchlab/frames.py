@@ -1,22 +1,17 @@
-"""Frame — the records a model matches over, and the verbs that build a plan.
+"""Frame, the records a model matches over, and the verbs that build a plan.
 
-A `Frame` is any step whose artifact is a table of records carrying an `id`: a `Source`
-read on its own (`id` is the record's leaf), a `Resolver` read through its clusters
-(`id` is the entity root), or a `Transform` that reshapes one of those. A `Model` reads
-a `Frame`, and every `Frame` chains the same verbs — `select`, `clean`, `group`,
-`transform`, `dedupe`, `link` — so a source, a resolver and a transform all read alike.
-That split is the whole taxonomy: a `Frame` yields records, a `Model` yields edges, and
-a `Model` is simply the one step that is not a `Frame`.
+A `Frame` is a step whose artifact is a table of records carrying an `id`. `Source`
+(`id` is the leaf), `Resolver` (`id` is the entity root) and `Transform` are the three
+kinds. Every `Frame` chains the same verbs (`select`, `clean`, `group`, `transform`,
+`dedupe`, `link`). A `Model` reads a `Frame` and yields edges, not records.
 
 `Frame` is not user-facing. Users hold a `Source`, a `Resolver` or a `Transform` and
-call verbs on it. `Frame` is where those verbs and the shared `identifiers()`/`data()`
-live, so each concrete kind only supplies how it materialises (`_read_cache`) and which
-source rows it stands for (`_identifier_reads`).
+call verbs on it. Each concrete kind supplies only how it materialises (`_read_cache`)
+and which source rows it stands for (`_identifier_reads`).
 
-What a frame does *not* store is `identifiers()`, the `(id, source, key, leaf)` mapping
-a downstream resolver needs. That depends only on the sources and resolver a frame
-reads, never on any reshaping, so it is read back from the source leaves and the
-upstream resolver output, both already stored.
+A frame does not store `identifiers()`, the `(id, source, key, leaf)` mapping a
+downstream resolver needs. Reshaping cannot change it, so it is read back from the
+source leaves and the upstream resolver output instead.
 """
 
 from abc import abstractmethod
@@ -43,7 +38,7 @@ if TYPE_CHECKING:
     from matchlab.sources import Source
     from matchlab.transformers import Transform, Transformer
 
-# What one source's identifiers are read with: `(source_fp, source_name, resolver_fp)`,
+# What one source's identifiers are read with, `(source_fp, source_name, resolver_fp)`,
 # the arguments of `Adapter.read_identifiers`. Deduplicating these is deduplicating the
 # queries, which is why they travel as a value rather than as a call.
 IdentifierRead = tuple[Fingerprint | None, str, Fingerprint | None]
@@ -57,8 +52,8 @@ def build_frame(
     """Assemble the `id` + qualified-columns frame from stored extracts and identifiers.
 
     Every source's extract is prefixed with the source name (`company` → `crn_company`)
-    and joined to its identifiers, so each row gains the `id` it belongs to: the
-    record's leaf when read directly, the entity root when read through `resolver`.
+    and joined to its identifiers, so each row gains the `id` it belongs to. That is the
+    record's leaf when read directly, or the entity root when read through `resolver`.
     Several sources are concatenated diagonally, each row carrying its own source's
     columns and nulls for the rest. This is what both `Source` and `Resolver` read.
     """
@@ -101,10 +96,11 @@ class Frame(Step):
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:
         """The `Adapter.read_identifiers` arguments this frame's records come from.
 
-        One per source, naming what is read rather than reading it. A downstream
-        resolver wants the *set* of these across every frame feeding it, since two
-        frames that reshape the same source through the same resolver differently read
-        exactly the same rows. Quoting them lets the resolver ask once.
+        One per source, naming what is read rather than reading it. Two frames built
+        from the same source and resolver read identical rows, even if they then
+        reshape those rows differently. A downstream resolver wants the *set* of these
+        reads across every frame feeding it, so naming them lets it ask once instead of
+        once per frame.
         """
         ...
 

@@ -1,7 +1,7 @@
-"""The `Transform` plan node: desugaring, construction, and the registry.
+"""The `Transform` plan node, covering desugaring, construction, and the registry.
 
 These assert on plan *shape*, so they build over a real `Source` from the `source`
-fixture but never collect — the identities hold before any warehouse read.
+fixture but never collect. The identities hold before any warehouse read.
 """
 
 from collections.abc import Callable

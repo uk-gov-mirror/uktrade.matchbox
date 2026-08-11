@@ -1,4 +1,4 @@
-"""Clean — derivation. Add or replace named columns, keep the rest."""
+"""Clean derives columns. Add or replace named columns, keep the rest."""
 
 import polars as pl
 from pydantic import Field, field_validator
@@ -11,7 +11,7 @@ class Clean(Transformer):
 
     Each entry maps an output column name to a SQL expression over the frame's columns
     (the source-qualified names, `crn_company`). An alias that names an existing column
-    replaces it; a new alias is added. Every other column, and `id`, passes through
+    replaces it. A new alias is added. Every other column, and `id`, passes through
     untouched. Dropping is `Select`'s job, not `Clean`'s.
     """
 
@@ -22,7 +22,7 @@ class Clean(Transformer):
     @field_validator("cleaning")
     @classmethod
     def _non_empty(cls, cleaning: dict[str, str]) -> dict[str, str]:
-        """A clean that derives nothing is meaningless: 'no cleaning' is no `Clean`."""
+        """A clean that derives nothing is meaningless. 'No cleaning' is no `Clean`."""
         if not cleaning:
             raise ValueError("Clean needs at least one expression to derive.")
         return cleaning

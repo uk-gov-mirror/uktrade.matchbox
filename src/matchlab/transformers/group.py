@@ -1,4 +1,4 @@
-"""Group — granularity. Collapse each `id` to one row."""
+"""Group changes granularity. Collapse each `id` to one row."""
 
 import polars as pl
 from pydantic import Field, field_validator
@@ -10,9 +10,9 @@ class Group(Transformer):
     """Collapse each `id` to a single row, combining columns with aggregate SQL.
 
     Reading several records per entity (through a resolver) gives a model more evidence,
-    but a comparison needs one row. `Group` says how each column combines: `id` is the
-    grouping key, and every named expression is a DuckDB aggregate,
-    `any_value(crn_company)` where records agree, `list(distinct crn_town)` where they
+    but a comparison needs one row. `Group` says how each column combines. `id` is the
+    grouping key, and every named expression is a DuckDB aggregate, for example
+    `any_value(crn_company)` where records agree or `list(distinct crn_town)` where they
     don't. Only `id` and the named aggregates survive, since grouping has to decide how
     every column collapses.
     """

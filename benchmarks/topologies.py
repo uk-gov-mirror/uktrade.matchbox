@@ -116,10 +116,10 @@ def _cleaning(sources: Sequence[Source]) -> dict[str, str]:
 def _frame(sources: Sequence[Source], resolver: Resolver | None = None) -> Frame:
     """A cleaned frame of these sources, optionally read through a resolver output.
 
-    A resolver is itself a frame — read at `id`=entity root — so passing one is the
-    layering move: whatever is built on top compares entities. A resolver reads exactly
-    its own sources, so callers pass one whose sources are `sources`. Without it, there
-    is a single source, read directly at `id`=leaf.
+    A resolver is itself a frame, read at `id`=entity root, so passing one is the
+    layering move. Whatever is built on top then compares entities. A resolver reads
+    exactly its own sources, so callers pass one whose sources are `sources`. Without
+    it, there is a single source, read directly at `id`=leaf.
     """
     base: Frame = resolver if resolver is not None else sources[0]
     return base.clean(_cleaning(sources))
@@ -129,10 +129,10 @@ def _through(resolver: Resolver, source: Source) -> Frame:
     """One source's records, per entity, read through a multi-source resolver.
 
     The resolver frame carries every source's rows diagonally, so this source's columns
-    are null on the other sources' rows; `any_value` skips those, collapsing each entity
-    to one row of this source's cleaned values. That is what reading a single source
-    through a shared resolver is now — entity-grained, the grain for matching on top of
-    a resolver — with no dedicated node.
+    are null on the other sources' rows. `any_value` skips those, collapsing each entity
+    to one row of this source's cleaned values. Reading a single source through a shared
+    resolver is now entity-grained, the grain for matching on top of a resolver, with no
+    dedicated node.
     """
     name, postcode = cast("str", source.f("name")), cast("str", source.f("postcode"))
     return resolver.group(
@@ -144,7 +144,7 @@ def _through(resolver: Resolver, source: Source) -> Frame:
 
 
 def _dedupe(frame: Frame) -> Model:
-    """Deduplicate a cleaned frame: same cleaned name and postcode is one entity."""
+    """Deduplicate a cleaned frame. Same cleaned name and postcode is one entity."""
     return frame.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": UNIQUE_FIELDS}
     )
@@ -207,9 +207,9 @@ def _star(sources: Sequence[Source], pairs: Pairs) -> Resolver:
     """Dedupe everything into one resolver output, then link the pairs `pairs` chooses.
 
     `HUB` and `MESH` differ only in which pairs get linked, so they share everything
-    else: one dedupe per source collapsed into a single resolver output, each source
-    read back out of it with `group` (a resolver is a frame) — built once and shared by
-    every link that uses it — and one apex resolver over all the links.
+    else. One dedupe per source collapses into a single resolver output, and each
+    source reads back out of it with `group` (a resolver is a frame), built once and
+    shared by every link that uses it, before one apex resolver covers all the links.
     """
     dedupes = [_dedupe(_frame([source])) for source in sources]
     deduped = dedupes[0].resolve(*dedupes[1:])
@@ -231,7 +231,7 @@ def _chain(sources: Sequence[Source]) -> Resolver:
     resolved = _dedupe(_frame(sources[:1])).resolve()
 
     for position, source in enumerate(sources[1:], start=1):
-        # One frame of the new source, shared by both models below: the dedupe that
+        # One frame of the new source, shared by both models below, the dedupe that
         # collapses its own duplicates, and the link that attaches it to the rest.
         arriving = _frame([source])
         accumulated = _frame(sources[:position], resolver=resolved)

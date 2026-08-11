@@ -373,12 +373,12 @@ def test_frame_reused_across_plans(
     computes: dict[int, int],
     model_runs: list[Model],
 ) -> None:
-    """Cross-session reuse: a stored frame is read back, not recomputed.
+    """A stored frame is read back across sessions, not recomputed.
 
     The second plan is fresh objects, as a new process would build, with the linker
     retuned so the models genuinely re-run. Their inputs are unchanged, so the transform
-    hits cache and the frame comes off disk. Recomputing here was the old behaviour:
-    a rebuilt frame had no way to know its table was already stored.
+    hits cache and the frame comes off disk. Recomputing here was the old behaviour,
+    since a rebuilt frame had no way to know its table was already stored.
     """
     dh = source("dh")
     apex, _frame = _shared_frame_plan(source)
@@ -436,7 +436,7 @@ def identifier_reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, bytes |
 def _fan_out_plan(source: Callable[..., Source]) -> tuple[Resolver, list[Model]]:
     """Three models over one shared frame, so the resolver sees repeated readings.
 
-    `Resolver._execute` walks `(model, frame)` pairs — four of them here. Only two
+    `Resolver._execute` walks `(model, frame)` pairs, four of them here. Only two
     distinct readings exist between them, which is what it must collapse to. Linking
     every pair of n sources makes that ratio quadratic.
     """
@@ -659,22 +659,22 @@ def test_trim_to_plan_keeps_cache(
 
 
 def test_resolver_is_a_frame(source: Callable[..., Source]) -> None:
-    """A resolver is a frame: read at `id`=root, and matchable on top of directly.
+    """A resolver is a frame, read at `id`=root and matchable on top of directly.
 
     Reading it returns its records regrouped by entity. Linking it to a source with no
     transform between (a bare resolver as a model input) still carries the dedupe
-    grouping forward — merge-forward through a resolver frame.
+    grouping forward, the merge-forward guarantee working through a resolver frame.
     """
     crn = source("crn")
     dh = source("dh")
     deduped = _dedupe_crn(crn)
 
-    # Read as a frame: crn's records at `id`=root, so a1/a2 share one id.
+    # Read as a frame. crn's records sit at `id`=root, so a1/a2 share one id.
     records = deduped.data()
     assert records.height == 3
     assert records["id"].n_unique() == 2
 
-    # Matched on top of directly — no `.read()`, no transform between.
+    # Matched on top of directly, with no `.read()` and no transform between.
     apex = deduped.link(
         dh,
         model_class=DeterministicLinker,
@@ -759,10 +759,10 @@ def test_group_merges_forward(source: Callable[..., Source]) -> None:
 def test_group_multi_source(
     source: Callable[..., Source],
 ) -> None:
-    """The case `group` exists for: several sources under one entity.
+    """The case `group` exists for, several sources under one entity.
 
-    Reading two sources through a resolver concatenates diagonally — crn rows carry
-    null dh columns and vice versa — so a comparison on `l.dh_company` is null on
+    Reading two sources through a resolver concatenates diagonally, so crn rows carry
+    null dh columns and vice versa, and a comparison on `l.dh_company` is null on
     every crn row. Grouping puts the entity on a single populated row.
     """
     crn = source("crn")

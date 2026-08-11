@@ -1,4 +1,4 @@
-"""Select — projection semantics.
+"""Tests for `Select`, projection semantics.
 
 Ported from the pre-transformer cleaning cases that tested *dropping*: that job now
 belongs to `Select`, not `Clean`.

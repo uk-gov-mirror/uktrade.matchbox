@@ -1,7 +1,7 @@
-"""Clean — keep-all derivation with DuckDB SQL.
+"""Tests for `Clean`, keep-all derivation with DuckDB SQL.
 
-The invariant that distinguishes `Clean` from the old cleaning dict: it derives the
-named columns *without dropping* the rest. Ported from the pre-transformer
+`Clean` derives the named columns *without dropping* the rest, which is the invariant
+that distinguishes it from the old cleaning dict. Ported from the pre-transformer
 `test_views.py` cases, re-pointed at what each now guards.
 """
 
@@ -14,7 +14,7 @@ from matchlab.transformers import Clean
 
 
 def test_clean_derives_and_keeps_unreferenced() -> None:
-    """A derived column is added; every column it doesn't name survives untouched."""
+    """A derived column is added. Every column it doesn't name survives untouched."""
     data = pl.DataFrame(
         {"id": [1, 2, 3], "crn_company": ["A", "B", "C"], "crn_town": ["x", "y", "z"]}
     )
@@ -55,6 +55,6 @@ def test_clean_invalid_sql_raises() -> None:
 
 
 def test_clean_empty_rejected() -> None:
-    """A `Clean` with nothing to derive is meaningless — 'no cleaning' is no `Clean`."""
+    """A `Clean` with nothing to derive is meaningless. 'No cleaning' is no `Clean`."""
     with pytest.raises(ValidationError):
         Clean(cleaning={})

@@ -8,17 +8,17 @@ output at collect time and hand the adapter a finished table.
 Artifacts, by step kind (schemas in `matchlab.core.schemas`, which holds exactly the
 shapes that cross this boundary):
 
-* Source   → warehouse extract (arbitrary schema) + leaf assignment `(key, leaf)`.
-* Transform→ the reshaped frame it materialises (arbitrary schema).
-* Model    → edge list, `SCHEMA_MODEL_EDGES` `(left_id, right_id, score)`.
-* Resolver → complete flat output, `SCHEMA_RESOLVER_OUTPUT` `(root, leaf, key, src)`.
-             This is the merge-forward guarantee. It computes `merge(upstream complete
-             output, own clusters)`, not just the resolver's own clusters.
+* Source    → warehouse extract (arbitrary schema) + leaf assignment `(key, leaf)`.
+* Transform → the reshaped frame it materialises (arbitrary schema).
+* Model     → edge list, `SCHEMA_MODEL_EDGES` `(left_id, right_id, score)`.
+* Resolver  → complete flat output, `SCHEMA_RESOLVER_OUTPUT` `(root, leaf, key, src)`.
+              This is the merge-forward guarantee. It computes `merge(upstream complete
+              output, own clusters)`, not just the resolver's own clusters.
 
-A `Source` and a `Resolver` produce a frame too, but neither stores one: a source is
-fully materialised as its *extract* and derives its frame on read, and a resolver read
-is a re-derivable join over a source's extract and the resolver's own output. Only a
-`Transform` stores its materialisation — the one place storage could later be partial.
+A `Source` and a `Resolver` produce a frame too, but neither stores one. A source is
+fully materialised as its *extract* and derives its frame on read. A resolver read is a
+re-derivable join over a source's extract and the resolver's own output. Only a
+`Transform` stores its materialisation, the one place storage could later be partial.
 
 Plus evaluation storage (judgements + cluster expansion), publication (`publish` points
 a label at a resolver's output) and `close`.
@@ -239,8 +239,8 @@ class Adapter(ABC):
     def store_transform(self, fp: Fingerprint, table: pl.DataFrame) -> None:
         """Store a transform's materialised frame (arbitrary schema).
 
-        A `Transform` is the only frame-producing step that materialises its output;
-        a `Source` and a `Resolver` derive theirs. Called on every collect, so a
+        A `Transform` is the only frame-producing step that materialises its output. A
+        `Source` and a `Resolver` derive theirs instead. Called on every collect, so a
         transform feeding several models is computed once and read back by each.
         """
         ...

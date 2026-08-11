@@ -1,4 +1,4 @@
-"""Select — projection. Keep the named columns, drop the rest."""
+"""Select projects. Keep the named columns, drop the rest."""
 
 import polars as pl
 from pydantic import Field
@@ -9,9 +9,9 @@ from matchlab.transformers.base import Transformer
 class Select(Transformer):
     """Keep only the named columns, plus `id`.
 
-    Projection is `Select`'s one job. Naming a column keeps it; every column you do not
-    name is dropped. `id` survives whether or not you name it, since it is the grouping
-    a model matches on. Columns are the source-qualified names (`crn_company`).
+    Projection is `Select`'s one job. Naming a column keeps it, and every column you do
+    not name is dropped. `id` survives whether or not you name it, since it is the
+    grouping a model matches on. Columns are the source-qualified names (`crn_company`).
     """
 
     columns: tuple[str, ...] = Field(

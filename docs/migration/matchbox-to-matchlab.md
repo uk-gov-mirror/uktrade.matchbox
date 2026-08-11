@@ -204,12 +204,12 @@ Nouns became verbs, and each one is a step in the plan:
 | `dag.get_matches(resolver=...).as_lookup()` | `resolver.get_lookup()` |
 | `dag.lookup_key(...)` | `resolver.lookup_key(...)` |
 
-A source is now directly matchable, so `source.query(...)` has no single successor: you
-reshape only when you need to. `select` keeps columns, `clean` derives them with SQL,
-and `group` collapses each `id` to one row — each a serialisable
+A source is now directly matchable, so `source.query(...)` has no single successor.
+Reshape only when you need to. `select` keeps columns, `clean` derives them with SQL,
+and `group` collapses each `id` to one row, each a serialisable
 [transformer](../guide/build-a-plan.md#reshaping-records), the same pluggable pattern
 dedupers and linkers already follow. To match on top of an earlier resolver output, a
-resolver is itself a frame — reshape or match on it directly (`deduped.link(dh, …)`).
+resolver is itself a frame, reshaped or matched on directly (`deduped.link(dh, …)`).
 
 ### `QueryCombineType` is gone
 

@@ -39,10 +39,9 @@ from matchlab.specs import SourceSpec
 class Source(Frame):
     """A warehouse table, extracted and content-addressed.
 
-    A source is a `Frame`: read on its own, its records are its extract with each row's
-    content-addressed leaf as `id`, so a model can match over it directly with no
-    intervening step. A `Resolver` is a frame too, read at `id`=entity root; matching on
-    top of one (`deduped.link(dh, …)`) is how you layer.
+    A source is a `Frame`. Read directly, its records are its extract, with `id` set
+    to each row's content-addressed leaf, so a model can match over it with no
+    intervening step.
     """
 
     kind: ClassVar[StepKind] = StepKind.SOURCE
@@ -279,13 +278,13 @@ class Source(Frame):
     def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
         """Return this source's records with each row's leaf as `id`.
 
-        Derived from the extract and leaves stored by `_execute` — a cheap join, not a
-        separately cached artifact. Reading a source on its own means `id` is the leaf,
-        so there is no resolver in the read.
+        Derived from the extract and leaves stored by `_execute`, a cheap join rather
+        than a separately cached artifact. Reading a source on its own means `id` is
+        the leaf, so there is no resolver in the read.
         """
         return build_frame(adapter, (self,), None)
 
     @property
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:
-        """Read directly, so `id` is the leaf: no resolver in the identifier read."""
+        """Read directly, so `id` is the leaf and no resolver enters the read."""
         return ((self._fp, self.name, None),)

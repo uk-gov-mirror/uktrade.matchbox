@@ -32,11 +32,10 @@ add_resolver_class(Components)
 class Resolver(Frame):
     """Clusters computed over one or more models' edges.
 
-    A resolver is a `Frame`: read as records, its rows are the sources it covers with
-    each row's `id` set to the entity root it resolved to. That is what layering matches
-    on — `deduped.link(dh, …)` reads `deduped`'s entities and links them to `dh` — and
-    is the same join a `Source` frame is, only keyed by root rather than leaf. The
-    resolver output it stores is a separate artifact; the frame is derived on read.
+    A resolver is also a `Frame`. Read as records, its rows are the sources it covers,
+    with `id` set to the entity root, so matching on top of a resolver is how a plan
+    layers (`deduped.link(dh, …)`). The resolver output it stores is a separate
+    artifact, and the frame itself is derived on read.
     """
 
     kind: ClassVar[StepKind] = StepKind.RESOLVER
@@ -396,11 +395,10 @@ class Resolver(Frame):
     # -- Frame contract ---------------------------------------------------------------
 
     def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
-        """Derive the frame — this resolver's sources, `id` set to the entity root.
+        """Derive the frame, this resolver's sources with `id` set to the entity root.
 
         A re-derivable join over artifacts already stored (the source extracts and this
-        resolver's output), so nothing is materialised for it. `select`/`clean`/`group`,
-        inherited from `Frame`, reshape it; `dedupe`/`link` match on top of it.
+        resolver's output), so nothing is materialised for it.
         """
         if self._fp is None:  # collect orders upstream first
             raise RuntimeError(

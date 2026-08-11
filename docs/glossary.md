@@ -53,7 +53,7 @@ reads the cached one back rather than recomputing it.
 ## Deduper
 
 A [methodology](#methodology) that finds candidate duplicate pairs within one
-[frame](#frame), run by `.dedupe()`. `NaiveDeduper` is the built-in; a custom one
+[frame](#frame), run by `.dedupe()`. `NaiveDeduper` is the built-in. A custom one
 subclasses `Deduper` and registers with `add_model_class`, the same pattern
 [transformers](#transform) plug in with.
 
@@ -77,12 +77,12 @@ fingerprint, which is what makes a store [content-addressed](#content-addressed)
 
 ## Frame
 
-The records a [model](#model) matches over: a table carrying an `id`. Three steps are
-frames — a [source](#source) (`id` is the record's [leaf](#leaf)), a
-[transform](#transform) (a reshaped frame), and a [resolver](#resolver) (`id` is the
-entity root, so matching on it is layering). Every frame chains the same verbs —
-`select`, `clean`, `group`, `transform`, `dedupe`, `link`. A [model](#model) is the one
-step that is not a frame: it yields edges, not records.
+The records a [model](#model) matches over, a table carrying an `id`. A
+[source](#source) (`id` is the leaf), a [transform](#transform), and a
+[resolver](#resolver) (`id` is the entity root, which is what makes layering possible)
+are the three kinds. Every frame chains the same verbs (`select`, `clean`, `group`,
+`transform`, `dedupe`, `link`). A [model](#model) is the one step that is not a frame,
+since it yields edges rather than records.
 
 ## Judgement
 
@@ -111,7 +111,7 @@ source or frame directly, without going through a resolver, exposes the leaf as 
 
 A [methodology](#methodology) that finds candidate matches between two
 [frames](#frame), run by `.link()`. `DeterministicLinker`, `WeightedDeterministicLinker`,
-and `SplinkLinker` are the built-ins; a custom one subclasses `Linker` and registers
+and `SplinkLinker` are the built-ins. A custom one subclasses `Linker` and registers
 with `add_model_class`.
 
 ## Location
@@ -152,10 +152,10 @@ changing `model_class` (or `resolver_class`), never restructuring the plan aroun
 
 ## Model
 
-A step that scores candidate matches by running one [methodology](#methodology): a
-[deduper](#deduper) within one [frame](#frame) via `.dedupe()`, or a [linker](#linker)
-between two via `.link()`. A model produces edges, not clusters. Turning edges into
-entities is a [resolver's](#resolver) job.
+A step that scores candidate matches by running one [methodology](#methodology). A
+[deduper](#deduper) matches within one [frame](#frame) via `.dedupe()`, and a
+[linker](#linker) matches between two via `.link()`. A model produces edges, not
+clusters. Turning edges into entities is a [resolver's](#resolver) job.
 
 ## Plan
 
@@ -256,15 +256,15 @@ module docstring for which to use.
 
 ## Transform
 
-A step that reshapes a [frame](#frame) with a pluggable, serialisable **transformer**:
+A step that reshapes a [frame](#frame) with a pluggable, serialisable **transformer**.
 `select` keeps only the named columns, `clean` derives new ones with DuckDB SQL while
 keeping the rest, and `group` collapses each `id` to one row. `transform()` is the
 general verb they desugar to (`.clean(...)` is `.transform(Clean(...))`).
-`Transformer` is the base class; `Select`, `Clean`, and `Group` are the built-ins, and
+`Transformer` is the base class. `Select`, `Clean`, and `Group` are the built-ins, and
 a custom one registers with `add_transformer_class`, the same pattern
-[dedupers](#deduper) and [linkers](#linker) plug in with. A transformer's configuration
-is part of the plan and its [fingerprint](#fingerprint), like any
-[methodology](#methodology)'s settings.
+[dedupers](#deduper) and [linkers](#linker) plug in with. Its configuration is part of
+the plan and its [fingerprint](#fingerprint), like any [methodology](#methodology)'s
+settings.
 
 ## Trim
 

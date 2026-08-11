@@ -64,7 +64,7 @@ Steps chain. Each verb returns a new lazy step:
 | `.resolve(...)` | `Resolver` | Collapse candidate edges into clusters |
 | `.collect()` | (same step) | Run everything the step depends on |
 
-**A source is already matchable.** You don't have to reshape it first — a model reads a
+**A source is already matchable.** You don't have to reshape it first. A model reads a
 source directly:
 
 ```python
@@ -72,14 +72,14 @@ crn.dedupe(model_class=NaiveDeduper, model_settings={...})
 crn.link(dh, model_class=DeterministicLinker, model_settings={...})
 ```
 
-Both sides of a link are covered. Reach for the reshaping verbs — `select`, `clean`,
-`group` — only when you want to change what a model sees. They each return a new step,
+Both sides of a link are covered. Reach for the reshaping verbs (`select`, `clean`,
+`group`) only when you want to change what a model sees. They each return a new step,
 so they chain, and each does one job.
 
 ### Reshaping records
 
-The records a model matches over are a **frame**: a table carrying an `id`. A `Source`,
-a resolver, and the step a reshape produces are all frames — the same shared type,
+The records a model matches over are a **frame**, a table carrying an `id`. A `Source`,
+a resolver, and the step a reshape produces are all frames, the same shared type,
 which is why `Frame` is what you'll see in a signature or a hover tooltip wherever one
 is expected. `select`, `clean` and `group` each reshape a frame into a new one, and
 `transform` is the general verb they desugar to (`source.clean(...)` is
@@ -100,8 +100,8 @@ is how fields are named on a frame.
 cleaned = crn.clean({"name": f"lower({crn.f('company')})"})
 ```
 
-`name` is added; `crn_company`, `crn_town` and `id` all pass through untouched.
-Dropping unrelated columns is `select`'s job, not `clean`'s — chain them when you want
+`name` is added. `crn_company`, `crn_town` and `id` all pass through untouched.
+Dropping unrelated columns is `select`'s job, not `clean`'s. Chain them when you want
 both:
 
 ```python
@@ -111,8 +111,8 @@ crn.clean({"name": f"lower({crn.f('company')})"}).select("name")
 #### What `id` is, and when to group
 
 Read a source directly and `id` is the record, one row each. **A resolver is itself a
-frame** — reshape it with the same verbs — and its `id` is the entity, so several
-records share one:
+frame**, reshaped with the same verbs, and its `id` is the entity, so several records
+share one:
 
 ```python
 deduped.clean({"name": "crn_company"}).data()
@@ -123,7 +123,7 @@ deduped.clean({"name": "crn_company"}).data()
 # E2 | beta
 ```
 
-That's often what you want — more evidence per entity. When it isn't, **`group`
+That's often what you want, more evidence per entity. When it isn't, **`group`
 collapses each `id` to one row**. Every expression is an aggregate, so you say how each
 column combines:
 
@@ -179,7 +179,7 @@ record forward.
 
 `select`, `clean` and `group` are the built-in transformers. `transform` takes any
 transformer object, so an advanced user can pass one explicitly, and a custom one plugs
-in the same way a custom deduper does — subclass `Transformer`, register it with
+in the same way a custom deduper does. Subclass `Transformer`, register it with
 `add_transformer_class`, and it can be named in a plan and a document:
 
 ```python
@@ -234,7 +234,7 @@ with no threshold will contribute every edge.
 ## Layering
 
 A resolver is a frame, so to match *on top of* an earlier resolver output you match on
-the resolver directly — the same verbs, now at `id`=entity:
+the resolver directly, the same verbs, now at `id`=entity:
 
 ```python
 deduped_crn = crn.dedupe(...).resolve()

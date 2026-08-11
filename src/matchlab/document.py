@@ -128,7 +128,7 @@ class StepNode(BaseModel):
     def _spec_from_kind(cls, data: Any) -> Any:  # noqa: ANN401 - raw pydantic input
         """Parse `spec` as the type `kind` names, rather than guessing.
 
-        The specs are structurally close enough that a plain union mis-assigns: a
+        The specs are structurally close enough that a plain union mis-assigns. A
         `TransformSpec` and a `ModelSpec` overlap once optional settings default, so a
         union could bind the wrong one. `kind` is the discriminator the document holds.
         """

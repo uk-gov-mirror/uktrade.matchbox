@@ -1,9 +1,9 @@
-"""Transform — a plan node that reshapes one frame with a `Transformer`.
+"""Transform, a plan node that reshapes one frame with a `Transformer`.
 
-`Transform` is to `Transformer` what `Model` is to a `Deduper`/`Linker`: the lazy plan
+`Transform` is to `Transformer` what `Model` is to a `Deduper`/`Linker`, the lazy plan
 node that wraps a serialisable methodology, folds its configuration into a cache key,
-and runs it on collect. Its single input is a `Frame` — a `Source`, a `Resolver`, or a
-`Transform` — so transforms chain, each its own cached artifact.
+and runs it on collect. Its single input is a `Frame`, so transforms chain, each its
+own cached artifact.
 """
 
 from typing import ClassVar
