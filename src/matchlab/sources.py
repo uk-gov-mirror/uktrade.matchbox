@@ -260,7 +260,7 @@ class Source(Frame):
         column therefore moves the fingerprint. This was not true while a separate list
         of index fields could be narrower than the extract. A column outside it changed
         the stored extract without touching the fingerprint, so the source cache-hit,
-        never re-stored, and downstream views kept reading the stale value.
+        never re-stored, and downstream frames kept reading the stale value.
         """
         _, hashes = self._read_warehouse()
         return super()._spec_key() + hash_arrow_table(hashes.to_arrow())

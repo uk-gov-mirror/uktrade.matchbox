@@ -116,13 +116,13 @@ Logs quote the position:
 ```
 ● [4] resolver(Components)
     ├── ● [3] model(NaiveDeduper)
-    │   └── ● [1] view
+    │   └── ● [1] transform(Clean)
     │       └── ● [0] source 'crn'
     └── ● [2] model(NaiveDeduper)
-        └── ● [1] view ↑
+        └── ● [1] transform(Clean) ↑
 ```
 
-The shared view appears as `[1]` under both models, because it *is* one node read
+The shared frame appears as `[1]` under both models, because it *is* one node read
 twice, not two identical ones. It is drawn in full where you first meet it, and marked
 `↑` after that. It runs once, and both models read its stored table.
 
@@ -176,7 +176,7 @@ the `select` to get the old grouping back.
 
 The upside is that the two can no longer disagree. A column outside the old index could
 change in the warehouse without moving the source's fingerprint. The source then
-registered a cache hit instead of re-storing, and downstream views kept reading the
+registered a cache hit instead of re-storing, and downstream frames kept reading the
 stale value.
 
 Field types went the same way. They served one purpose, the dtype each column was read

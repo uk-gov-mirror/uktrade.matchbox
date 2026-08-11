@@ -20,7 +20,7 @@ upstream resolver output, both already stored.
 """
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import polars as pl
 
@@ -34,8 +34,11 @@ from matchlab.core.dataframes import (
 from matchlab.steps import Step
 
 if TYPE_CHECKING:
-    # Each of these modules imports this one.
+    # Each of these modules imports this one. Only for annotations, so importing the
+    # real classes (rather than typing them `Any`) costs nothing at runtime.
     from matchlab.models import Model
+    from matchlab.models.dedupers.base import Deduper, DeduperSettings
+    from matchlab.models.linkers.base import Linker, LinkerSettings
     from matchlab.resolvers import Resolver
     from matchlab.sources import Source
     from matchlab.transformers import Transform, Transformer
@@ -155,8 +158,8 @@ class Frame(Step):
 
     def dedupe(
         self,
-        model_class: Any,  # noqa: ANN401 - a Deduper subclass or its registered name
-        model_settings: Any,  # noqa: ANN401 - its settings model or a dict
+        model_class: "type[Deduper] | str",
+        model_settings: "DeduperSettings | dict",
     ) -> "Model":
         """Deduplicate this frame."""
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle
@@ -166,8 +169,8 @@ class Frame(Step):
     def link(
         self,
         other: "Frame",
-        model_class: Any,  # noqa: ANN401 - a Linker subclass or its registered name
-        model_settings: Any,  # noqa: ANN401 - its settings model or a dict
+        model_class: "type[Linker] | str",
+        model_settings: "LinkerSettings | dict",
     ) -> "Model":
         """Link this frame to another. A `Source` is a frame, needing no wrapping."""
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle

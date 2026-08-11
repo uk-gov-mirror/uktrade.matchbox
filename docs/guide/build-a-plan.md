@@ -78,9 +78,12 @@ so they chain, and each does one job.
 
 ### Reshaping records
 
-The records a model matches over are a **frame**: a table carrying an `id`. `select`,
-`clean` and `group` each reshape a frame into a new one, and `transform` is the general
-verb they desugar to (`source.clean(...)` is `source.transform(Clean(...))`).
+The records a model matches over are a **frame**: a table carrying an `id`. A `Source`,
+a resolver, and the step a reshape produces are all frames — the same shared type,
+which is why `Frame` is what you'll see in a signature or a hover tooltip wherever one
+is expected. `select`, `clean` and `group` each reshape a frame into a new one, and
+`transform` is the general verb they desugar to (`source.clean(...)` is
+`source.transform(Clean(...))`).
 
 **`select` keeps only the columns you name**, plus `id`:
 
