@@ -27,6 +27,8 @@ from pydantic import (
     Field,
 )
 
+from matchlab.core.sql import SQLQuery
+
 
 class ModelType(StrEnum):
     """Whether a model is a deduper or a linker."""
@@ -57,7 +59,7 @@ class SourceSpec(BaseModel):
             "and tags its rows in a resolver's output."
         )
     )
-    extract_transform: str = Field(
+    extract_transform: SQLQuery = Field(
         description=(
             "Logic to extract and transform data from the source. "
             "Language is location dependent."

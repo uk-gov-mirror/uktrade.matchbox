@@ -5,9 +5,10 @@ from sqlglot import parse_one
 from sqlglot.errors import ParseError
 
 from matchlab.core.logging import logger
+from matchlab.core.sql import SQLCondition
 
 
-def comparison(sql_condition: str, dialect: str = "postgres") -> str:
+def comparison(sql_condition: SQLCondition, dialect: str = "duckdb") -> SQLCondition:
     """Validate a SQL WHERE-clause condition and recompile it for `dialect`.
 
     Every column must be qualified with the alias `l` or `r`, the two sides a

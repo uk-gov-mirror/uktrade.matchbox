@@ -3,6 +3,7 @@
 import polars as pl
 from pydantic import Field, field_validator
 
+from matchlab.core.sql import SQLExpression
 from matchlab.transformers.base import Transformer, apply_derive
 
 
@@ -15,13 +16,13 @@ class Clean(Transformer):
     untouched. Dropping is `Select`'s job, not `Clean`'s.
     """
 
-    cleaning: dict[str, str] = Field(
+    cleaning: dict[str, SQLExpression] = Field(
         description="Output column name to a DuckDB SQL expression over the frame."
     )
 
     @field_validator("cleaning")
     @classmethod
-    def _non_empty(cls, cleaning: dict[str, str]) -> dict[str, str]:
+    def _non_empty(cls, cleaning: dict[str, SQLExpression]) -> dict[str, SQLExpression]:
         """A clean that derives nothing is meaningless. 'No cleaning' is no `Clean`."""
         if not cleaning:
             raise ValueError("Clean needs at least one expression to derive.")

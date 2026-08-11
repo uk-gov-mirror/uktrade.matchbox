@@ -27,6 +27,7 @@ from matchlab.core.dataframes import (
     qualify,
     to_dataframe,
 )
+from matchlab.core.sql import SQLExpression
 from matchlab.steps import Step
 
 if TYPE_CHECKING:
@@ -141,13 +142,13 @@ class Frame(Step):
 
         return self.transform(Select(*columns))
 
-    def clean(self, cleaning: dict[str, str]) -> "Transform":
+    def clean(self, cleaning: dict[str, SQLExpression]) -> "Transform":
         """Derive columns with DuckDB SQL, keeping the rest."""
         from matchlab.transformers import Clean  # noqa: PLC0415 - avoids a cycle
 
         return self.transform(Clean(cleaning=cleaning))
 
-    def group(self, aggregates: dict[str, str]) -> "Transform":
+    def group(self, aggregates: dict[str, SQLExpression]) -> "Transform":
         """Collapse each `id` to one row using aggregate SQL."""
         from matchlab.transformers import Group  # noqa: PLC0415 - avoids a cycle
 

@@ -7,6 +7,7 @@ import polars as pl
 from pydantic import Field, field_validator
 
 from matchlab.core.logging import logger
+from matchlab.core.sql import SQLCondition, SQLQuery
 from matchlab.models import comparison
 from matchlab.models.linkers.base import Linker, LinkerSettings
 
@@ -14,7 +15,7 @@ from matchlab.models.linkers.base import Linker, LinkerSettings
 class DeterministicSettings(LinkerSettings):
     """Settings for `DeterministicLinker`."""
 
-    comparisons: list[str] | list[list[str]] = Field(
+    comparisons: list[SQLCondition] | list[list[SQLCondition]] = Field(
         description="""
             Match conditions, in DuckDB SQL. Qualify every column with `l` or `r`.
 
@@ -47,8 +48,8 @@ class DeterministicSettings(LinkerSettings):
     @field_validator("comparisons", mode="before")
     @classmethod
     def validate_comparison(
-        cls, value: str | list[str] | list[list[str]]
-    ) -> list[list[str]]:
+        cls, value: SQLCondition | list[SQLCondition] | list[list[SQLCondition]]
+    ) -> list[list[SQLCondition]]:
         """Normalise to a list of rounds, and validate each comparison string."""
         if isinstance(value, str):
             return [[comparison(value, dialect="duckdb")]]
@@ -139,16 +140,16 @@ class DeterministicLinker(Linker):
         con: duckdb.DuckDBPyConnection,
         left: pl.DataFrame,
         right: pl.DataFrame,
-        comparisons: list[str],
+        comparisons: list[SQLCondition],
         round_num: int,
     ) -> pl.DataFrame:
         """Apply all comparisons in a round using OR logic via DuckDB."""
         con.register("left_df", left)
         con.register("right_df", right)
 
-        subqueries: list[str] = []
+        subqueries: list[SQLQuery] = []
         for condition in comparisons:
-            subquery: str = f"""
+            subquery: SQLQuery = f"""
                 SELECT
                     l.{self.settings.left_id} AS left_id,
                     r.{self.settings.right_id} AS right_id,
@@ -159,7 +160,7 @@ class DeterministicLinker(Linker):
             """
             subqueries.append(subquery)
 
-        query: str = f"""
+        query: SQLQuery = f"""
             SELECT DISTINCT *
             FROM ({" UNION ALL ".join(subqueries)})
         """
@@ -169,7 +170,9 @@ class DeterministicLinker(Linker):
 
         return con.execute(query).pl()
 
-    def _get_max_cardinality(self, con: duckdb.DuckDBPyConnection, query: str) -> int:
+    def _get_max_cardinality(
+        self, con: duckdb.DuckDBPyConnection, query: SQLQuery
+    ) -> int:
         """Get max cardinality estimate from DuckDB plan, or -1 if unavailable."""
         explain = con.execute(
             f"PRAGMA explain_output = 'all'; EXPLAIN (FORMAT json) {query}"

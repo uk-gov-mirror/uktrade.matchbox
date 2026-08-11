@@ -31,6 +31,7 @@ from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
 from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.resolver_output import leaf_id
+from matchlab.core.sql import SQLQuery
 from matchlab.frames import Frame, IdentifierRead, build_frame
 from matchlab.locations import Location
 from matchlab.specs import SourceSpec
@@ -50,7 +51,7 @@ class Source(Frame):
         self,
         location: Location,
         name: str,
-        extract_transform: str,
+        extract_transform: SQLQuery,
         key_field: str,
         validate_etl: bool = True,
     ) -> None:

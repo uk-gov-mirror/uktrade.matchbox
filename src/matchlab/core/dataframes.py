@@ -17,6 +17,8 @@ from polars import DataFrame as PolarsDataFrame
 from pyarrow import Table as ArrowTable
 from sqlalchemy.engine import Engine
 
+from matchlab.core.sql import SQLQuery
+
 
 class DataFrameType(StrEnum):
     """Enumeration of dataframe types to return from query."""
@@ -106,7 +108,7 @@ def to_dataframe(
 
 @overload
 def sql_to_df(
-    stmt: str,
+    stmt: SQLQuery,
     connection: Engine | AdbcConnection,
     return_type: Literal[DataFrameType.POLARS],
     *,
@@ -120,7 +122,7 @@ def sql_to_df(
 
 @overload
 def sql_to_df(
-    stmt: str,
+    stmt: SQLQuery,
     connection: Engine | AdbcConnection,
     return_type: Literal[DataFrameType.PANDAS],
     *,
@@ -134,7 +136,7 @@ def sql_to_df(
 
 @overload
 def sql_to_df(
-    stmt: str,
+    stmt: SQLQuery,
     connection: Engine | AdbcConnection,
     return_type: Literal[DataFrameType.ARROW],
     *,
@@ -148,7 +150,7 @@ def sql_to_df(
 
 @overload
 def sql_to_df(
-    stmt: str,
+    stmt: SQLQuery,
     connection: Engine | AdbcConnection,
     return_type: Literal[DataFrameType.POLARS],
     *,
@@ -162,7 +164,7 @@ def sql_to_df(
 
 @overload
 def sql_to_df(
-    stmt: str,
+    stmt: SQLQuery,
     connection: Engine | AdbcConnection,
     return_type: Literal[DataFrameType.PANDAS],
     *,
@@ -176,7 +178,7 @@ def sql_to_df(
 
 @overload
 def sql_to_df(
-    stmt: str,
+    stmt: SQLQuery,
     connection: Engine | AdbcConnection,
     return_type: Literal[DataFrameType.ARROW],
     *,
@@ -189,7 +191,7 @@ def sql_to_df(
 
 
 def sql_to_df(
-    stmt: str,
+    stmt: SQLQuery,
     connection: Engine | AdbcConnection,
     return_type: DataFrameType = DataFrameType.PANDAS,
     *,

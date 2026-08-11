@@ -4,6 +4,7 @@ import duckdb
 import polars as pl
 from pydantic import BaseModel, Field, field_validator
 
+from matchlab.core.sql import SQLCondition
 from matchlab.models import comparison
 from matchlab.models.linkers.base import Linker, LinkerSettings
 
@@ -11,7 +12,7 @@ from matchlab.models.linkers.base import Linker, LinkerSettings
 class WeightedComparison(BaseModel):
     """A comparison condition, and the weight it contributes to a pair's score."""
 
-    comparison: str = Field(
+    comparison: SQLCondition = Field(
         description="""
             A valid ON clause comparing fields between the left and the right data.
 
@@ -29,7 +30,7 @@ class WeightedComparison(BaseModel):
 
     @field_validator("comparison")
     @classmethod
-    def validate_comparison(cls, v: str) -> str:
+    def validate_comparison(cls, v: SQLCondition) -> SQLCondition:
         """Validate the comparison string."""
         comp_val = comparison(v, dialect="duckdb")
         return comp_val

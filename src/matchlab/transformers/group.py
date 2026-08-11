@@ -3,6 +3,7 @@
 import polars as pl
 from pydantic import Field, field_validator
 
+from matchlab.core.sql import SQLExpression
 from matchlab.transformers.base import Transformer, apply_group
 
 
@@ -17,13 +18,15 @@ class Group(Transformer):
     every column collapses.
     """
 
-    aggregates: dict[str, str] = Field(
+    aggregates: dict[str, SQLExpression] = Field(
         description="Output column name to a DuckDB aggregate expression."
     )
 
     @field_validator("aggregates")
     @classmethod
-    def _non_empty(cls, aggregates: dict[str, str]) -> dict[str, str]:
+    def _non_empty(
+        cls, aggregates: dict[str, SQLExpression]
+    ) -> dict[str, SQLExpression]:
         """Grouping collapses rows, so each column must say how it combines."""
         if not aggregates:
             raise ValueError(

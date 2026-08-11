@@ -26,6 +26,7 @@ from matchlab.core.dataframes import (
 )
 from matchlab.core.exceptions import ExtractTransformError
 from matchlab.core.logging import logger
+from matchlab.core.sql import SQLQuery
 
 
 class ClientType(StrEnum):
@@ -106,7 +107,7 @@ class Location(ABC):
         ...
 
     @abstractmethod
-    def validate_extract_transform(self, extract_transform: str) -> None:
+    def validate_extract_transform(self, extract_transform: SQLQuery) -> None:
         """Validate ET logic against this location's query language.
 
         Raises:
@@ -117,7 +118,7 @@ class Location(ABC):
     @abstractmethod
     def execute(
         self,
-        extract_transform: str,
+        extract_transform: SQLQuery,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
         return_type: DataFrameType = DataFrameType.POLARS,
@@ -209,7 +210,7 @@ class RelationalDBLocation(Location):
                 logger.warning("Could not validate specific dialect.")
                 return None
 
-    def validate_extract_transform(self, extract_transform: str) -> None:
+    def validate_extract_transform(self, extract_transform: SQLQuery) -> None:
         """Check that the SQL statement only contains a single data-extracting command.
 
         This does not fully sanitise the SQL statement. Validation only guards
@@ -264,7 +265,7 @@ class RelationalDBLocation(Location):
     @overload
     def execute(
         self,
-        extract_transform: str,
+        extract_transform: SQLQuery,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
         return_type: Literal[DataFrameType.POLARS] = ...,
@@ -275,7 +276,7 @@ class RelationalDBLocation(Location):
     @overload
     def execute(
         self,
-        extract_transform: str,
+        extract_transform: SQLQuery,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
         return_type: Literal[DataFrameType.PANDAS] = ...,
@@ -286,7 +287,7 @@ class RelationalDBLocation(Location):
     @overload
     def execute(
         self,
-        extract_transform: str,
+        extract_transform: SQLQuery,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
         return_type: Literal[DataFrameType.ARROW] = ...,
@@ -296,7 +297,7 @@ class RelationalDBLocation(Location):
 
     def execute(  # noqa: D102
         self,
-        extract_transform: str,
+        extract_transform: SQLQuery,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
         return_type: DataFrameType = DataFrameType.POLARS,

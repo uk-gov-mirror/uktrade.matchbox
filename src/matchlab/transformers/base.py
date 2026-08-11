@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict
 from sqlglot import expressions, parse_one
 from sqlglot import select as sqlglot_select
 
+from matchlab.core.sql import SQLExpression, SQLQuery
+
 
 class Transformer(BaseModel, ABC):
     """Base contract every transformer implements.
@@ -34,14 +36,16 @@ class Transformer(BaseModel, ABC):
         ...
 
 
-def _run(query: str, data: pl.DataFrame) -> pl.DataFrame:
+def _run(query: SQLQuery, data: pl.DataFrame) -> pl.DataFrame:
     """Execute one DuckDB query against `data`, registered as `data`."""
     with duckdb.connect(":memory:") as connection:
         connection.register("data", data)
         return connection.execute(query).pl()
 
 
-def apply_derive(data: pl.DataFrame, cleaning: dict[str, str]) -> pl.DataFrame:
+def apply_derive(
+    data: pl.DataFrame, cleaning: dict[str, SQLExpression]
+) -> pl.DataFrame:
     """Add or replace the named columns, keeping every other column (including `id`).
 
     Each value is a DuckDB SQL expression over the frame's columns, aliased to its key.
@@ -59,7 +63,9 @@ def apply_derive(data: pl.DataFrame, cleaning: dict[str, str]) -> pl.DataFrame:
     return _run(query.sql(dialect="duckdb"), data)
 
 
-def apply_group(data: pl.DataFrame, aggregates: dict[str, str]) -> pl.DataFrame:
+def apply_group(
+    data: pl.DataFrame, aggregates: dict[str, SQLExpression]
+) -> pl.DataFrame:
     """Collapse each `id` to one row, each named column an aggregate SQL expression.
 
     `id` is passed through as the grouping key. Every expression must be an aggregate.
