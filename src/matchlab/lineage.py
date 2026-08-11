@@ -15,9 +15,10 @@ drives it during a collection. Nothing here executes anything.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     # `matchlab.steps` imports this module
@@ -76,9 +77,10 @@ _STYLES: dict[StepStatus, str] = {
 _TIMED = (StepStatus.RUNNING, StepStatus.DONE, StepStatus.FAILED)
 
 
-@dataclass(frozen=True)
-class StepState:
+class StepState(BaseModel):
     """A step's status, and how long it has been in it."""
+
+    model_config = ConfigDict(frozen=True)
 
     status: StepStatus
     elapsed: float | None = None
@@ -197,7 +199,7 @@ def render(
             marker = "●" if step.is_collected else "○"
             style, annotation = "", ""
         else:
-            step_state = state.get(id(step), StepState(StepStatus.PENDING))
+            step_state = state.get(id(step), StepState(status=StepStatus.PENDING))
             marker = step_state.status.marker
             style = step_state.status.style
             annotation = step_state.annotation()

@@ -660,9 +660,9 @@ def test_tree_marks_status() -> None:
     """The drawn tree marks each step ran, cached, or failed."""
     apex, source, view = _plan()
     state = {
-        id(source): StepState(StepStatus.CACHED),
-        id(view): StepState(StepStatus.DONE, 0.4),
-        id(apex): StepState(StepStatus.RUNNING, 2.5),
+        id(source): StepState(status=StepStatus.CACHED),
+        id(view): StepState(status=StepStatus.DONE, elapsed=0.4),
+        id(apex): StepState(status=StepStatus.RUNNING, elapsed=2.5),
     }
 
     tree = draw(apex, state)
@@ -680,8 +680,8 @@ def test_tree_missing_is_pending() -> None:
 
 def test_tree_cached_untimed() -> None:
     """`0.0s` beside a skipped step says nothing; the marker already said it."""
-    assert StepState(StepStatus.CACHED, 0.0).annotation() == "cached"
-    assert StepState(StepStatus.DONE, 1.24).annotation() == "1.2s"
+    assert StepState(status=StepStatus.CACHED, elapsed=0.0).annotation() == "cached"
+    assert StepState(status=StepStatus.DONE, elapsed=1.24).annotation() == "1.2s"
 
 
 def test_tree_escapes_markup() -> None:

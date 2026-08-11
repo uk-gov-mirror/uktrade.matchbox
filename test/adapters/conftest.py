@@ -13,11 +13,11 @@ is engine-specific, so it lives in `test_duckdb.py`, which builds its stores dir
 """
 
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
 from pathlib import Path
 
 import polars as pl
 import pytest
+from pydantic import BaseModel, ConfigDict
 
 from matchlab.adapters import Adapter, DuckDBAdapter
 
@@ -67,9 +67,10 @@ def durable_store(request: pytest.FixtureRequest) -> Callable[[], Adapter]:
 # -- artifacts under test -------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class Fingerprints:
+class Fingerprints(BaseModel):
     """Distinct 32-byte fingerprints, one per artifact under test."""
+
+    model_config = ConfigDict(frozen=True)
 
     src: bytes = b"\x01" * 32
     model: bytes = b"\x02" * 32

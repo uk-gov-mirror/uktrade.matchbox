@@ -150,7 +150,7 @@ class Progress:
             id(step): position for position, step in enumerate(self.steps)
         }
         self.state: dict[int, StepState] = {
-            id(step): StepState(StepStatus.PENDING) for step in self.steps
+            id(step): StepState(status=StepStatus.PENDING) for step in self.steps
         }
         self._nested = nested
         self._running: Step | None = None
@@ -196,7 +196,7 @@ class Progress:
         self._release()
         self._running = step
         self._running_since = time.perf_counter()
-        self.state[id(step)] = StepState(StepStatus.RUNNING)
+        self.state[id(step)] = StepState(status=StepStatus.RUNNING)
         self._prefix_token = mlog.prefix.set(f"step {self.positions[id(step)]}")
         self._focus = self._rows.get(id(step))
         self._refresh()
@@ -210,7 +210,7 @@ class Progress:
         )
         self._running = None
         self._running_since = None
-        self.state[id(step)] = StepState(status, elapsed)
+        self.state[id(step)] = StepState(status=status, elapsed=elapsed)
         self._refresh()
 
         # Logged before the prefix is released, so this record is tagged like the ones
@@ -397,7 +397,7 @@ class Progress:
             return self.state
         running = time.perf_counter() - self._running_since
         return self.state | {
-            id(self._running): StepState(StepStatus.RUNNING, running),
+            id(self._running): StepState(status=StepStatus.RUNNING, elapsed=running),
         }
 
     @staticmethod
