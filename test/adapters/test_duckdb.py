@@ -1,9 +1,9 @@
-"""DuckDB engine specifics: what only a real DuckDB file (or `:memory:`) can show.
+"""DuckDB engine specifics, what only a real DuckDB file (or `:memory:`) can show.
 
 The backend-agnostic storage contract lives in `test_contract.py`. What stays here is
-DuckDB's own file semantics — reclaiming space to disk, the difference between resident
-and on-disk bytes, the high-water mark, and the `:memory:` trim hazard — none of which a
-contract written against the `Adapter` ABC could state.
+DuckDB's own file semantics: reclaiming space to disk, the difference between resident
+and on-disk bytes, the high-water mark, and the `:memory:` trim hazard. None of that
+fits in a contract written against the `Adapter` ABC.
 """
 
 from collections.abc import Iterator
@@ -29,7 +29,7 @@ def memory_store() -> Iterator[DuckDBAdapter]:
 
 
 def test_stats_resident_vs_on_disk() -> None:
-    """The subclass hook: `4.0 KB` reads as disk, and for `:memory:` it is not."""
+    """The subclass hook. `4.0 KB` reads as on disk, but not for `:memory:`."""
     resident = DuckDBStoreStats(location=":memory:", bytes=4096)
     on_disk = DuckDBStoreStats(location="/s.duckdb", bytes=4096, path=Path("/s.duckdb"))
 
@@ -46,8 +46,9 @@ def test_stats_in_memory_size(
     """The regression guard for the in-memory branch.
 
     An in-memory store allocates no blocks, so anything reading DuckDB's block count
-    reports `0 B` — for every test in this suite and every `DuckDBAdapter(":memory:")` a
-    user writes. It has no file either, so there is nothing to `stat`.
+    reports `0 B`. That is true for every test in this suite, and for every
+    `DuckDBAdapter(":memory:")` a user writes. It has no file either, so there is
+    nothing to `stat`.
     """
     memory_store.store_source(fp.src, "key", extract, leaves)
 
@@ -66,9 +67,9 @@ def test_stats_on_disk_size(
 ) -> None:
     """The figure has to survive the user checking it with `du`.
 
-    Taken while the connection is open, which is when a collect reports: writes sit in
-    the write-ahead log until they are settled into blocks, and a store measured before
-    that reads orders of magnitude low.
+    This is measured while the connection is open, which is when a collect reports it.
+    Writes sit in the write-ahead log until they are settled into blocks, so a store
+    measured before that reads orders of magnitude low.
     """
     db = tmp_path / "store.duckdb"
     store = DuckDBAdapter(db)
@@ -82,7 +83,7 @@ def test_stats_on_disk_size(
     finally:
         store.close()
 
-    # And it does not move once the store is closed and reopened.
+    # The on-disk size does not move once the store is closed and reopened.
     assert sum(f.stat().st_size for f in tmp_path.iterdir()) == stats.bytes
 
 
@@ -108,7 +109,7 @@ def test_trim_reclaims_disk_space(
 ) -> None:
     """The assertion the old `gc()` would have failed.
 
-    Purging alone frees nothing: DuckDB reuses freed blocks but never hands them back,
+    Purging alone frees nothing. DuckDB reuses freed blocks but never hands them back,
     so the file stays at its high-water mark until it is rewritten.
     """
     store = DuckDBAdapter(tmp_path / "store.duckdb")
@@ -138,8 +139,8 @@ def test_trim_in_memory_keeps_data(
     """An in-memory store must not be rewritten.
 
     Reopening `:memory:` hands back an empty database rather than a smaller one, so a
-    close-and-swap would destroy the store it was asked to tidy — and `:memory:` is what
-    the whole suite and both examples run on.
+    close-and-swap would destroy the store it was asked to tidy. `:memory:` is what the
+    whole suite, and both examples, run on.
     """
     memory_store.store_source(fp.src, "key", extract, leaves)
     memory_store.store_model(fp.model, edges)

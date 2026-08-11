@@ -1,8 +1,8 @@
 """The pure functions behind a resolver's stored output.
 
-These pin the `(clusters, upstream)` shapes a resolver materialises and assert the
-merge-forward output — including fall-through of upstream-grouped, locally untouched
-leaves.
+These pin the `(clusters, upstream)` shapes a resolver materialises. They also assert
+the merge-forward output, including fall-through of upstream-grouped, locally
+untouched leaves.
 """
 
 import polars as pl
@@ -61,11 +61,12 @@ def test_root_id_order_invariant() -> None:
 
 
 def test_materialise_layered_fallthrough() -> None:
-    """Apex links A+B; C, grouped by an upstream dedupe, must survive untouched.
+    """Apex links A+B. C, grouped by an upstream dedupe, must survive untouched.
 
     Leaf IDs: a1=1 a2=2 a3=3 b1=4 b2=5 c1=6 c2=7.
-    Upstream: dedupe_A grouped {a1,a2} -> id 101; dedupe_C grouped {c1,c2} -> id 103.
-    Apex model edge: (101, 4) links the A-cluster with b1. Nothing else is touched.
+    Upstream: dedupe_A grouped {a1,a2} into id 101, and dedupe_C grouped {c1,c2} into
+    id 103. Apex model edge: (101, 4) links the A-cluster with b1. Nothing else is
+    touched.
     """
     upstream = _upstream(
         [
@@ -178,8 +179,7 @@ def test_root_id_matches_adapter_mint() -> None:
     """Scoring compares judged groups to resolved clusters *by ID*.
 
     If `_mint_cluster_id` and `root_id` ever diverge, every comparison misses and
-    precision/recall is computed over an empty set — which is what happened when
-    `root_id` was vectorised and this coupling was implicit.
+    precision/recall is computed over an empty set.
     """
     from matchlab.adapters.duckdb import _mint_cluster_id  # noqa: PLC0415
 

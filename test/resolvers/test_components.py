@@ -7,7 +7,7 @@ from matchlab.resolvers.base import SCHEMA_CLUSTERS
 
 
 def test_components_uses_thresholds() -> None:
-    """Test thresholds are honoured by the Components.compute_clusters."""
+    """`Components.compute_clusters` honours a per-model threshold."""
     method = Components(settings=ComponentsSettings(thresholds={0: 0.6}))
     model_edges = {
         0: pl.DataFrame(
@@ -34,7 +34,7 @@ def test_components_uses_thresholds() -> None:
 
 
 def test_components_no_edges() -> None:
-    """Test Components.compute_clusters can work with no data."""
+    """`Components.compute_clusters` works with no data."""
     clusters = Components(settings=ComponentsSettings()).compute_clusters(
         model_edges={}
     )
@@ -43,7 +43,7 @@ def test_components_no_edges() -> None:
 
 
 def test_components_merges_models() -> None:
-    """Test Components.compute_clusters can work with multiple models."""
+    """`Components.compute_clusters` merges edges from multiple models."""
     method = Components(
         settings=ComponentsSettings(
             thresholds={0: 0.0}  # the second input's threshold is implicit
@@ -78,11 +78,11 @@ def test_components_merges_models() -> None:
 
 
 def test_components_threshold_no_edges() -> None:
-    """A methodology takes positions on trust; `Resolver` is what checks them.
+    """A methodology takes positions on trust. `Resolver` is what checks them.
 
-    A threshold naming a model that is not an input used to be caught here, at collect
-    time. It is now caught when the resolver is constructed, where the model object is
-    still in hand — see `test_a_threshold_must_name_an_input`.
+    `Components.compute_clusters` doesn't validate that a threshold names a real
+    input. That check happens when the resolver is constructed, which still has the
+    model object in hand. See `test_threshold_must_name_input`.
     """
     method = Components(settings=ComponentsSettings(thresholds={7: 0.5}))
 

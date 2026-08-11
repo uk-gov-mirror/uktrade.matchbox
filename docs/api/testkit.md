@@ -1,6 +1,5 @@
 Generate test data whose answer you already know, then score matching against it.
-Used throughout matchlab's own test suite, and the fastest way to sanity-check a
-methodology before pointing it at real data.
+Used throughout matchlab's own test suite to implement to oracle pattern.
 
 Start at `matchlab.testkit` below — it carries the decision table for choosing between
 these. `linked` is where most work happens.

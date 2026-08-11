@@ -1,8 +1,8 @@
 """The disjoint-set forest a resolver's connected components are built on.
 
-Union-find is small enough that a handful of behaviours pins it: an empty forest, that
-`union` closes transitively, that `add` is an idempotent singleton, and that the two
-compose. Every finer case (union after add, redundant union, and so on) follows from
+Union-find is small. A handful of behaviours pin it down completely: an empty forest,
+`union` closing transitively, an idempotent singleton `add`, and the two composing
+together. Every finer case (union after add, redundant union, and so on) follows from
 those, so it would only cost maintenance without being able to fail on its own.
 """
 
@@ -43,7 +43,7 @@ def test_empty_forest() -> None:
     ],
 )
 def test_union(unions: list[tuple[int, int]], expected: set[frozenset[int]]) -> None:
-    """The one property union-find exists for: unioned elements share a component."""
+    """Union-find exists to guarantee that unioned elements share a component."""
     dsu: DisjointSet[int] = DisjointSet()
     for left, right in unions:
         dsu.union(left, right)
@@ -63,7 +63,7 @@ def test_union(unions: list[tuple[int, int]], expected: set[frozenset[int]]) -> 
     ],
 )
 def test_add(adds: list[int], expected: set[frozenset[int]]) -> None:
-    """A new element is its own component; adding it again changes nothing."""
+    """A new element is its own component. Adding it again changes nothing."""
     dsu: DisjointSet[int] = DisjointSet()
     for element in adds:
         dsu.add(element)

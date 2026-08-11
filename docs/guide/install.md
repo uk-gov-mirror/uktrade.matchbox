@@ -4,14 +4,11 @@
 pip install matchlab
 ```
 
-matchlab is a library, not a service. There is nothing to deploy, no credentials to
-configure, and no environment variables to set before you can use it.
+matchlab is a library, not a service. There is nothing to deploy, no credentials to configure, and no environment variables to set before you can use it.
 
 ## What you need
 
-**A warehouse to read from.** matchlab reads source data through a
-[`Location`](../api/locations.md). Anything SQLAlchemy or ADBC can connect to works,
-including Postgres, SQLite, and DuckDB.
+**A warehouse to read from.** matchlab reads source data through a [`Location`](../api/locations.md). Anything SQLAlchemy or ADBC can connect to works, including Postgres, SQLite, and DuckDB.
 
 ```python
 from sqlalchemy import create_engine
@@ -23,9 +20,7 @@ warehouse = RelationalDBLocation(
 )
 ```
 
-**Somewhere to keep results.** matchlab stores what it computes in an
-[adapter](../api/adapters.md). By default, that's a DuckDB file in your user cache
-directory, created on first use. You don't have to do anything.
+**Somewhere to keep results.** matchlab stores what it computes in an [adapter](../api/adapters.md). By default, that's a DuckDB file in your user cache directory, created on first use. You don't have to do anything.
 
 To put it somewhere specific:
 

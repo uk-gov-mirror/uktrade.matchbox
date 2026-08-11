@@ -1,8 +1,8 @@
 """The review app, driven end to end over a real plan.
 
-No server and no mocked handler: samples come from a collected resolver, and judgements
-land in the same DuckDB store the rest of the library uses. That round trip — sample,
-paint, store, score — is the thing worth testing.
+There is no server and no mocked handler. Samples come from a collected resolver, and
+judgements land in the same DuckDB store the rest of the library uses. That round trip
+(sample, paint, store, score) is the thing worth testing.
 """
 
 from collections.abc import Callable
@@ -17,7 +17,7 @@ from matchlab.eval import EvalData
 from matchlab.eval.tui.app import EntityResolutionApp
 from matchlab.models.dedupers import NaiveDeduper
 
-# `warehouse`, `adapter` and `source` come from `test/conftest.py`; only `crn` is read.
+# `warehouse`, `adapter` and `source` come from `test/conftest.py`. Only `crn` is read.
 
 
 @pytest.fixture
@@ -59,7 +59,7 @@ async def test_app_stores_judgement(resolver: Resolver, adapter: DuckDBAdapter) 
 
         # Judge until a cluster with more than one record has been submitted. A
         # singleton yields no pairs to score, and which cluster leads is sampling
-        # order — not something this test should depend on. The queue refills, so
+        # order. This test should not depend on that order. The queue refills, so
         # bound the loop rather than draining it.
         for _ in range(10):
             session = app.queue.current
@@ -78,7 +78,7 @@ async def test_app_stores_judgement(resolver: Resolver, adapter: DuckDBAdapter) 
     assert judgements.height > 0
     assert expansion.height > 0
 
-    # And it scores: judged pairs are compared against the resolver's output.
+    # It also scores judged pairs against the resolver's output.
     precision, recall = EvalData(adapter, tag="review-test").precision_recall(resolver)
     assert 0.0 <= precision <= 1.0
     assert 0.0 <= recall <= 1.0
@@ -120,11 +120,12 @@ async def test_app_no_samples(
 async def test_app_reviews_without_plan(
     warehouse: Engine, source: Callable[..., Source], tmp_path: Path
 ) -> None:
-    """The point of storing extracts: review needs neither the plan nor the warehouse.
+    """The reviewer needs neither the plan nor the warehouse.
 
-    Collect into a file-backed store, throw the plan away, dispose the warehouse
-    engine, and the reviewer still shows real values — they came from the extract
-    cached at collect time, which is the data the matching actually saw.
+    That is the point of storing extracts. Collect into a file-backed store, throw the
+    plan away, and dispose of the warehouse engine. The reviewer still shows real
+    values. They came from the extract cached at collect time, which is the data the
+    matching actually saw.
     """
     store = DuckDBAdapter(tmp_path / "run.duckdb")
     crn = source("crn")
@@ -136,7 +137,7 @@ async def test_app_reviews_without_plan(
 
     del plan, crn
 
-    # Not just "don't use the warehouse" — make it impossible to.
+    # Not just "don't use the warehouse". Make it impossible to.
     warehouse.dispose()
     (tmp_path / "wh.sqlite").unlink()
 
@@ -154,7 +155,7 @@ async def test_app_reviews_without_plan(
 
 
 def test_app_resolver_or_label(resolver: Resolver, adapter: DuckDBAdapter) -> None:
-    """One parameter, two ways of saying which resolver — and they agree.
+    """One parameter, two ways of saying which resolver, and they agree.
 
     The object and the label differ only in how the fingerprint is found, so nothing
     downstream needs to know which was given.

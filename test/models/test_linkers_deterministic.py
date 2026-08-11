@@ -1,4 +1,9 @@
-"""Test deterministic behavior of linkers."""
+"""Deterministic and weighted-deterministic linkers, checked against the testkit oracle.
+
+Each linker is a `pytest.param` in `LINKERS`, so covering a new one is a new row, not
+a new test body. Splink also appears here because `configure_splink_linker` pins its
+match probabilities to certainty, making it behave deterministically for this suite.
+"""
 
 from collections.abc import Callable
 from typing import Any
@@ -36,16 +41,7 @@ LinkerConfigurator = Callable[[GeneratedSource, GeneratedSource], dict[str, Any]
 def configure_deterministic_linker(
     left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
-    """Configure settings for DeterministicLinker using only shared fields.
-
-    Args:
-        left_testkit: Left GeneratedSource from linked_sources_factory
-        right_testkit: Right GeneratedSource from linked_sources_factory
-
-    Returns:
-        A dictionary with validated settings for DeterministicLinker
-    """
-    # Extract field names excluding key and id
+    """Build validated `DeterministicSettings` comparing every shared field."""
     left_fields = {
         name for name in left_testkit.field_names if name not in ("key", "id")
     }
@@ -57,7 +53,6 @@ def configure_deterministic_linker(
     if not shared_fields:
         raise ValueError("Must have at least one shared field")
 
-    # Build comparison strings
     comparisons: list[str] = []
     for field in shared_fields:
         comparisons.append(f"l.{field} = r.{field}")
@@ -68,7 +63,6 @@ def configure_deterministic_linker(
         "comparisons": comparisons,
     }
 
-    # Validate the settings dictionary
     DeterministicSettings.model_validate(settings_dict)
 
     return settings_dict
@@ -77,17 +71,11 @@ def configure_deterministic_linker(
 def configure_deterministic_linker_sequential(
     left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
-    """Configure settings for DeterministicLinker with sequential rounds.
+    """Like `configure_deterministic_linker`, but each round holds one comparison.
 
-    Args:
-        left_testkit: Left GeneratedSource from linked_sources_factory
-        right_testkit: Right GeneratedSource from linked_sources_factory
-
-    Returns:
-        A dictionary with validated settings for DeterministicLinker using
-            sequential rounds
+    `DeterministicLinker` runs each round in sequence rather than all at once, so this
+    checks that behaviour too, not just the single-round case.
     """
-    # Extract field names excluding key and id
     left_fields = {
         name for name in left_testkit.field_names if name not in ("key", "id")
     }
@@ -99,7 +87,6 @@ def configure_deterministic_linker_sequential(
     if not shared_fields:
         raise ValueError("Must have at least one shared field")
 
-    # Build sequential rounds - one comparison per round
     comparisons: list[list[str]] = []
     for field in shared_fields:
         comparisons.append([f"l.{field} = r.{field}"])
@@ -110,10 +97,9 @@ def configure_deterministic_linker_sequential(
         "comparisons": comparisons,
     }
 
-    # Meaningfully using rounds
+    # More than one round, or this configurator isn't testing sequential rounds at all.
     assert len(comparisons) > 1
 
-    # Validate the settings dictionary
     DeterministicSettings.model_validate(settings_dict)
 
     return settings_dict
@@ -122,16 +108,7 @@ def configure_deterministic_linker_sequential(
 def configure_weighted_deterministic_linker(
     left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
-    """Configure settings for WeightedDeterministicLinker using only shared fields.
-
-    Args:
-        left_testkit: Left source object from linked_sources_factory
-        right_testkit: Right source object from linked_sources_factory
-
-    Returns:
-        A dictionary with validated settings for WeightedDeterministicLinker
-    """
-    # Extract field names excluding key and id
+    """Build validated `WeightedDeterministicSettings` with equal weight per field."""
     left_fields = {
         name for name in left_testkit.field_names if name not in ("key", "id")
     }
@@ -143,14 +120,12 @@ def configure_weighted_deterministic_linker(
     if not shared_fields:
         raise ValueError("Must have at least one shared field")
 
-    # Build weighted comparisons with equal weights
     weighted_comparisons = []
     for field in shared_fields:
         weighted_comparisons.append(
             {"comparison": f"l.{field} = r.{field}", "weight": 1}
         )
 
-    # Create settings dictionary
     settings_dict = {
         "left_id": "id",
         "right_id": "id",
@@ -158,7 +133,6 @@ def configure_weighted_deterministic_linker(
         "threshold": 1,  # Require all comparisons to match
     }
 
-    # Validate the settings dictionary
     WeightedDeterministicSettings.model_validate(settings_dict)
 
     return settings_dict
@@ -167,16 +141,7 @@ def configure_weighted_deterministic_linker(
 def configure_splink_linker(
     left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
-    """Configure settings for SplinkLinker using only shared fields.
-
-    Args:
-        left_testkit: Left source object from linked_sources_factory
-        right_testkit: Right source object from linked_sources_factory
-
-    Returns:
-        A dictionary with validated settings for SplinkLinker
-    """
-    # Extract field names excluding key and id
+    """Build validated `SplinkSettings`, pinned to certainty for deterministic runs."""
     left_fields = {
         name for name in left_testkit.field_names if name not in ("key", "id")
     }
@@ -211,9 +176,10 @@ def configure_splink_linker(
         },
     ]
 
-    # The m parameter is 1 because we're testing in a deterministic system, and
-    # many of these tests only have one field, so we can't use expectation
-    # maximisation to estimate. For testing raw functionality, fine to use 1
+    # m is pinned to 1 rather than estimated. Estimating it needs expectation
+    # maximisation, which many of these tests can't run, since several have only one
+    # shared field. A pinned m is fine here, since these tests only check raw
+    # match/no-match behaviour, not a calibrated probability.
     linker_settings = SettingsCreator(
         link_type="link_only",
         retain_matching_columns=False,
@@ -230,7 +196,6 @@ def configure_splink_linker(
         "threshold": None,
     }
 
-    # Validate the settings dictionary
     SplinkSettings.model_validate(settings_dict)
 
     return settings_dict
@@ -262,8 +227,7 @@ LINKERS = [
 def test_link_exact_match(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
-    """Test linking with exact matches between sources."""
-    # Create sources with the same entities
+    """A linker recovers every match when both sources hold identical field values."""
     features = (
         FeatureConfig(
             name="company",
@@ -284,7 +248,7 @@ def test_link_exact_match(
         SourceParameters(
             name="source_right",
             features=features,
-            n_true_entities=10,  # Same number of entities
+            n_true_entities=10,
         ),
     )
 
@@ -294,7 +258,7 @@ def test_link_exact_match(
     left_source = linked.sources["source_left"]
     right_source = linked.sources["source_right"]
 
-    # First left is queried, then right
+    # The side_effect order matches the call order, so left is queried before right.
     mock_query_run.side_effect = [
         pl.from_arrow(left_source.data),
         pl.from_arrow(right_source.data),
@@ -304,7 +268,6 @@ def test_link_exact_match(
         right_source.data.select(["company", "email"])
     )
 
-    # Configure and run the linker
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
@@ -313,7 +276,6 @@ def test_link_exact_match(
     )
     results = linker.collect().edges()
 
-    # Validate results against ground truth
     identical, report = linked.diff_model_edges(
         results, left=left_source, right=right_source
     )
@@ -326,8 +288,7 @@ def test_link_exact_match(
 def test_link_exact_with_duplicates(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
-    """Test linking with exact matches between sources, where data is duplicated."""
-    # Create sources with the same entities
+    """A linker still recovers every match when both sources repeat each entity."""
     features = (
         FeatureConfig(
             name="company",
@@ -349,7 +310,7 @@ def test_link_exact_with_duplicates(
         SourceParameters(
             name="source_right",
             features=features,
-            n_true_entities=10,  # Same number of entities
+            n_true_entities=10,
             repetition=3,  # Each entity appears four times
         ),
     )
@@ -365,7 +326,6 @@ def test_link_exact_with_duplicates(
         pl.from_arrow(right_source.data),
     ]
 
-    # Configure and run the linker
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
@@ -374,7 +334,6 @@ def test_link_exact_with_duplicates(
     )
     results = linker.collect().edges()
 
-    # Validate results against ground truth
     identical, report = linked.diff_model_edges(
         results, left=left_source, right=right_source
     )
@@ -387,12 +346,11 @@ def test_link_exact_with_duplicates(
 def test_link_partial_overlap(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
-    """Test linking when one source contains only a subset of entities.
+    """A linker matches only the entities the right source actually has.
 
-    This tests that the linker correctly handles when the right source
-    only contains a subset of the entities in the left source.
+    The left source has every entity, but the right source has only half. A linker
+    must not invent matches for the left source's extra entities.
     """
-    # Create features for our test sources
     features = (
         FeatureConfig(
             name="company",
@@ -405,21 +363,19 @@ def test_link_partial_overlap(
         ),
     )
 
-    # Configure sources - full set on left, half on right
     configs = (
         SourceParameters(
             name="source_left",
             features=features,
-            n_true_entities=10,  # Full set
+            n_true_entities=10,
         ),
         SourceParameters(
             name="source_right",
             features=features,
-            n_true_entities=5,  # Half the entities
+            n_true_entities=5,
         ),
     )
 
-    # Create the linked sources
     linked = linked_sources_factory(source_parameters=configs, seed=42)
     for _testkit in linked.sources.values():
         _testkit.write_to_location()
@@ -431,7 +387,6 @@ def test_link_partial_overlap(
         pl.from_arrow(right_source.data),
     ]
 
-    # Configure and run the linker
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
@@ -440,7 +395,6 @@ def test_link_partial_overlap(
     )
     results = linker.collect().edges()
 
-    # Validate results against ground truth
     identical, report = linked.diff_model_edges(
         results, left=left_source, right=right_source
     )
@@ -453,11 +407,7 @@ def test_link_partial_overlap(
 def test_link_no_matches(
     mock_query_run: Mock, Linker: Linker, configure_linker: LinkerConfigurator
 ) -> None:
-    """Test linking when there are no matching entities between sources.
-
-    Verifies linkers behave correctly when there should be no matches.
-    """
-    # Create two data source with disjoint entities
+    """A linker produces no matches when the two sources share no entities at all."""
     features = (
         FeatureConfig(name="company", base_generator="company"),
         FeatureConfig(name="identifier", base_generator="uuid4"),
@@ -490,7 +440,6 @@ def test_link_no_matches(
         r_col = set(right_source.data[column].to_pylist())
         assert l_col.isdisjoint(r_col)
 
-    # Configure and run the linker
     linker = Model(
         model_class=Linker,
         model_settings=configure_linker(left_source, right_source),
@@ -499,7 +448,6 @@ def test_link_no_matches(
     )
     results = linker.collect().edges()
 
-    # Validate results against ground truth
     identical, report = linked.diff_model_edges(
         results, left=left_source, right=right_source
     )

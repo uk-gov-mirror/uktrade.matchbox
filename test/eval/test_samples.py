@@ -1,6 +1,6 @@
 """Sampling and scoring across more than one resolver.
 
-Scenario — one source, two ways of deduplicating it:
+One source, two ways of deduplicating it:
 
     crn (pk, company, town):  a1=(acme,london) a2=(acme,leeds) a3=(beta,london)
 
@@ -29,9 +29,9 @@ from matchlab.models.dedupers import NaiveDeduper
 def warehouse(tmp_path: Path) -> Engine:
     """One source, and an `a3` that agrees with `a1` on town but not company.
 
-    Overrides the shared scenario: `a3=(beta,london)` here, so deduping on `company`
-    ({a1,a2},{a3}) and on `town` ({a1,a3},{a2}) disagree about every record — which is
-    exactly the case worth scoring two resolvers against one set of judgements.
+    Overrides the shared scenario: `a3=(beta,london)` here. Deduping on `company` gives
+    {a1,a2},{a3}. Deduping on `town` gives {a1,a3},{a2}. They disagree about every
+    record, exactly the case worth scoring two resolvers against one set of judgements.
     """
     engine = create_engine(f"sqlite:///{tmp_path / 'wh.sqlite'}")
     with engine.begin() as conn:
@@ -82,12 +82,12 @@ def test_sample_one_resolver(by_company: Resolver) -> None:
 
 
 def test_sample_merged(by_company: Resolver, by_town: Resolver) -> None:
-    """The union: two records land together if *either* resolver put them there.
+    """Two records land together in the union if *either* resolver put them there.
 
     Individually each resolver splits the source into a pair and a singleton, and
-    they disagree about which. Merged, everything is connected — which is the point:
-    every cluster where the two could differ is on screen, so one judgement settles it
-    for both, and neither gets to choose the clusters it is scored on.
+    they disagree about which. Merged, everything is connected. That is the point.
+    Every cluster where the two could differ is on screen, so one judgement settles it
+    for both. Neither resolver chooses the clusters it is scored on.
     """
     assert sorted(len(s.leaves) for s in get_samples(999, by_company).values()) == [
         1,
@@ -115,10 +115,10 @@ def test_sample_merged_content_addressed(
 def test_sample_rejects_mismatched_sources(
     source: Callable[..., Source],
 ) -> None:
-    """Same source *name*, different data — so the clusters are not comparable.
+    """Same source *name*, different data, so the clusters are not comparable.
 
-    A name repeats across generations of a source; agreeing on it is not agreeing on
-    the records.
+    A name repeats across generations of a source. Agreeing on the name does not mean
+    agreeing on the records.
     """
     wide = _dedupe_on(source("crn"), "company").collect()
     narrow = _dedupe_on(
@@ -160,8 +160,8 @@ def test_seed_fixes_merged(by_company: Resolver, by_town: Resolver) -> None:
 def judged(by_company: Resolver, adapter: DuckDBAdapter) -> DuckDBAdapter:
     """A judgement saying a1 and a2 are the same company, and a3 is not.
 
-    Which is exactly what deduplicating on `company` concluded, and exactly what
-    deduplicating on `town` — which grouped a1 with a3 — did not.
+    Deduplicating on `company` reached exactly this conclusion. Deduplicating on
+    `town` did not, because it grouped a1 with a3 instead.
     """
     leaves = _leaves(by_company)
     adapter.store_judgement(
@@ -203,7 +203,7 @@ def test_score_by_label(judged: DuckDBAdapter, by_company: Resolver) -> None:
 def test_fixture_guard_resolvers_differ(
     by_company: Resolver, by_town: Resolver
 ) -> None:
-    """Guards the fixtures: the scores above mean nothing if these agree."""
+    """Guards the fixtures. The scores above mean nothing if these agree."""
     assert by_company.leaf_sets() != by_town.leaf_sets()
-    # And over the same records, or the comparison would not be fair.
+    # Also check they cover the same records, or the comparison would not be fair.
     assert set(_leaves(by_company).values()) == set(_leaves(by_town).values())

@@ -1,15 +1,15 @@
 """Fixtures for the storage-adapter tests.
 
-The contract tests (`test_contract.py`) run one body over every backend: a test that
-takes the `store` fixture is parametrised across each storage backend, and one that
-takes `durable_store` across each backend that survives a reopen. The wiring in
-`pytest_generate_tests` means a second backend is a new entry in the lists below, not a
-new test body — the same move `DEDUPERS` makes for models, and the `warehouse` dispatch
-makes for warehouse clients.
+The contract tests (`test_contract.py`) run one test body over every backend. A test
+that takes the `store` fixture is parametrised across each storage backend. A test
+that takes `durable_store` runs only over backends that survive a reopen. Adding a
+backend means adding an entry to the lists below, not writing a new test. That is the
+same move `DEDUPERS` makes for models, and the `warehouse` dispatch makes for warehouse
+clients.
 
-DuckDB is the only backend today. Behaviour only a DuckDB *file* can show — reclaiming
-space, resident-vs-on-disk bytes, the in-memory-trim hazard — is engine-specific and
-lives in `test_duckdb.py`, which builds its stores directly.
+DuckDB is the only backend today. Some behaviour only a real DuckDB *file* can show:
+reclaiming space, resident-vs-on-disk bytes, the in-memory-trim hazard. That behaviour
+is engine-specific, so it lives in `test_duckdb.py`, which builds its stores directly.
 """
 
 from collections.abc import Callable, Iterator
@@ -53,14 +53,14 @@ def store(request: pytest.FixtureRequest) -> Adapter:
 
 @pytest.fixture
 def duckdb_durable_store(tmp_path: Path) -> Callable[[], Adapter]:
-    """A factory that opens — and reopens — a file-backed DuckDB store at one path."""
+    """A factory that reopens a file-backed DuckDB store at the same path each call."""
     db = tmp_path / "store.duckdb"
     return lambda: DuckDBAdapter(db)
 
 
 @pytest.fixture
 def durable_store(request: pytest.FixtureRequest) -> Callable[[], Adapter]:
-    """Dispatch to a durable backend: a factory that reopens the same store."""
+    """Dispatch to a durable backend, returning a factory that reopens its store."""
     return request.getfixturevalue(f"{request.param}_durable_store")
 
 
@@ -86,7 +86,7 @@ def fp() -> Fingerprints:
 
 @pytest.fixture
 def extract() -> pl.DataFrame:
-    """A source's extract: three records over two columns and a key."""
+    """A source's extract, three records over two columns and a key."""
     return pl.DataFrame(
         {
             "company_name": ["acme", "acme ltd", "beta"],
@@ -98,7 +98,7 @@ def extract() -> pl.DataFrame:
 
 @pytest.fixture
 def leaves() -> pl.DataFrame:
-    """The leaf assignment for `extract`: one leaf per record."""
+    """The leaf assignment for `extract`, one leaf per record."""
     return pl.DataFrame(
         {"key": ["k1", "k2", "k3"], "leaf": [1, 2, 3]},
         schema={"key": pl.Utf8, "leaf": pl.UInt64},

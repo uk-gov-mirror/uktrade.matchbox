@@ -4,14 +4,14 @@ Covers the whole plan surface: building a plan with no DAG, laziness, collect wi
 plan-fingerprint caching, frame storage, lineage navigation, GC, and the terminal
 reads (`get_lookup`, `lookup_key`).
 
-Scenario — a dedupe feeding a cross-source link:
+Scenario: a dedupe feeding a cross-source link.
 
     crn: a1=(acme,london) a2=(acme,leeds) a3=(beta,hull)
     dh:  b1=(acme,bristol) b2=(gamma,york)
 
 a1/a2 differ on town, so they are distinct leaves and the deduper does real work.
 The apex is a *link*, yet the dedupe grouping of {a1,a2} must survive through it, and
-a3/b2 — reachable but matched by nothing — must stay singletons (merge-forward).
+a3/b2, reachable but matched by nothing, must stay singletons (merge-forward).
 """
 
 import json
@@ -65,7 +65,7 @@ def _ids_by_key(matches: pl.DataFrame, column: str) -> dict[str, int]:
 
 
 def test_plan_needs_no_dag(source: Callable[..., Source]) -> None:
-    """A plan is reachable purely through upstream references; no DAG object."""
+    """A plan is reachable purely through upstream references, with no DAG object."""
     crn = source("crn")
     assert crn.upstream == ()
     assert not crn.is_collected
@@ -77,7 +77,7 @@ def test_plan_needs_no_dag(source: Callable[..., Source]) -> None:
 
 
 def test_collect_is_lazy(source: Callable[..., Source]) -> None:
-    """Nothing runs until collect; building a plan touches no warehouse."""
+    """Nothing runs until collect. Building a plan touches no warehouse."""
     crn = source("crn")
     deduped = _dedupe_crn(crn)
 
@@ -191,8 +191,8 @@ def test_source_column_change_invalidates(
 def test_source_identity_is_every_column(source: Callable[..., Source]) -> None:
     """Selecting a column makes it part of the record, so it splits leaves.
 
-    Leave it out of the extract and the rows collapse to one leaf. This is the knob
-    that replaced `index_fields`: the SELECT is the whole declaration.
+    Leave it out of the extract and the rows collapse to one leaf. The SELECT is the
+    whole declaration of a source's identity.
     """
     # a1/a2 agree on company and differ on town.
     with_town = source("crn", "select pk, company, town from crn")
@@ -393,8 +393,8 @@ def test_frame_reused_across_plans(
 
     assert computes == {}, "a stored frame was recomputed"
     assert adapter.has(frame._fp)
-    # The linker really did re-run, so something genuinely asked for the frame —
-    # without this the assertion above would hold trivially.
+    # The linker really did re-run, so something genuinely asked for the frame.
+    # Without this the assertion above would hold trivially.
     assert [model.model_class for model in model_runs] == [DeterministicLinker]
 
 
@@ -468,7 +468,7 @@ def test_read_identifiers_once_per_source(
     apex, models = _fan_out_plan(source)
     assert sum(len(model.inputs) for model in apex.inputs) == 4  # the pairs it walks
 
-    # Collect the models first so their own reads are done and cleared; what the apex
+    # Collect the models first so their own reads are done and cleared. What the apex
     # collect records is then the resolver's alone.
     for model in models:
         model.collect()
@@ -483,7 +483,7 @@ def test_read_identifiers_dedup_keeps_all(
 ) -> None:
     """The merge-forward guarantee, which the dedup must not weaken.
 
-    Every reachable leaf has to reach the resolver output — including records no model
+    Every reachable leaf has to reach the resolver output, including records no model
     matched. A reading dropped here loses clusters silently rather than failing, so
     assert on the records rather than on the call count.
     """
@@ -539,10 +539,10 @@ def test_resolver_exposes_sources(source: Callable[..., Source]) -> None:
 def test_gc_keeps_artifacts(
     source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
-    """A store keeps what it was given; dropping the Python objects reclaims nothing.
+    """A store keeps what it was given. Dropping the Python objects reclaims nothing.
 
     Deliberate. An artifact's value has nothing to do with whether this process still
-    holds the variable that produced it — the next process rebuilding the same plan
+    holds the variable that produced it. The next process rebuilding the same plan
     wants a cache hit. Reclaiming is the owner's explicit act, not the library's.
     """
     import gc as pygc  # noqa: PLC0415 - the interpreter's, to force reachability
@@ -573,9 +573,9 @@ def test_fingerprints_name_every_artifact(
 def test_fingerprints_collapse_shared(
     source: Callable[..., Source],
 ) -> None:
-    """Two distinct steps can be the same artifact — same spec over same inputs.
+    """Two distinct steps can be the same artifact: same spec, same inputs.
 
-    A set is what makes that safe further down: a store told to keep one of them and
+    A set is what makes that safe further down. A store told to keep one of them and
     delete the other would delete the bytes both of them are.
     """
     crn = source("crn")
@@ -601,7 +601,7 @@ def test_fingerprints_uncollected_raises(source: Callable[..., Source]) -> None:
     """An uncollected plan names no artifacts, so it must not answer with a smaller set.
 
     Silently returning what happens to be collected would tell a caller that less is
-    worth keeping than they think — and the caller here is about to delete the rest.
+    worth keeping than they think. The caller here is about to delete the rest.
     """
     plan = _dedupe_crn(source("crn"))
 
@@ -614,7 +614,7 @@ def test_trim_to_plan_keeps_cache(
 ) -> None:
     """The property a trim has to have: it removes only what was superseded.
 
-    Editing a cleaning expression strands the whole subtree below it — that is what
+    Editing a cleaning expression strands the whole subtree below it. That is what
     fills a store. Trimming to the plan you kept should take exactly those, and leave a
     store the same plan still hits cache on. If it took one artifact too many the next
     collect quietly recomputes, and the trim has cost work rather than saved space.
@@ -648,7 +648,7 @@ def test_trim_to_plan_keeps_cache(
     assert not any(adapter.has(fp) for fp in stranded)
 
     # The real assertion: rebuild the same plan over the trimmed store and let it run.
-    # Nothing may execute — if the trim took one artifact too many, this raises.
+    # Nothing may execute here. If the trim took one artifact too many, this raises.
     rebuilt = build("upper(crn_company)")
     for step in rebuilt.lineage():
         _sabotage(step)
@@ -789,7 +789,7 @@ def test_group_multi_source(
     grouped.collect()
     frame = grouped.data().filter(pl.col("company") == "acme")
 
-    # One row, both sources' values present — any_value skips the nulls.
+    # One row, both sources' values present, because any_value skips the nulls.
     assert frame.height == 1
     assert set(frame["towns"][0]) == {"london", "leeds", "bristol"}
 
@@ -821,7 +821,7 @@ def test_spec_serialisable(source: Callable[..., Source]) -> None:
 
 
 def test_spec_no_upstream_settings(source: Callable[..., Source]) -> None:
-    """Specs describe a step's own settings; edges live on `upstream`."""
+    """Specs describe a step's own settings. Edges live on `upstream`."""
     apex, crn, _dh = _apex(source)
 
     resolver_spec = apex.spec.model_dump(mode="json")
@@ -912,10 +912,10 @@ def test_publish_points_label(
 def test_publish_idempotent(
     source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
-    """Re-running an unchanged pipeline must not fail; repointing must be deliberate."""
+    """Re-running an unchanged pipeline must not fail. Repointing must be deliberate."""
     apex, crn, _dh = _apex(source)
     apex.collect(adapter).publish("entities")
-    apex.publish("entities")  # same resolver output, same name — a no-op
+    apex.publish("entities")  # same resolver output, same name, so this is a no-op
 
     other = _dedupe_crn(crn).collect(adapter)
     with pytest.raises(
@@ -942,7 +942,7 @@ def test_publish_needs_collected(
 def test_threshold_stored_as_position(
     source: Callable[..., Source],
 ) -> None:
-    """You hold the model; the plan works out where it sits.
+    """You hold the model. The plan works out where it sits.
 
     Positions rather than names are what let inputs be referred to without a naming
     scheme, and what keep the resolver's fingerprint out of it.

@@ -1,4 +1,4 @@
-"""Model-level helpers: the normalisation every methodology's scores go through."""
+"""Model-level helpers, including the normalisation every score goes through."""
 
 import polars as pl
 import pytest
@@ -51,7 +51,10 @@ from matchlab.models.models import add_model_class, normalise_model_scores
 def test_normalise_one_edge_per_pair(
     scores: pl.DataFrame, expected: pl.DataFrame
 ) -> None:
-    """One edge per unordered pair: `(a, b)` and `(b, a)` collapse, top score wins."""
+    """An unordered pair collapses to one edge, keeping the top score.
+
+    `(a, b)` and `(b, a)` count as the same pair.
+    """
     assert_frame_equal(
         normalise_model_scores(scores),
         expected,
@@ -62,7 +65,7 @@ def test_normalise_one_edge_per_pair(
 
 
 def test_normalise_empty_input() -> None:
-    """No edges is a valid answer: an empty frame normalises to the edge schema."""
+    """No edges is a valid answer, so an empty frame normalises to the edge schema."""
     empty = pl.DataFrame(
         {"left_id": [], "right_id": [], "score": []},
         schema={"left_id": pl.UInt64, "right_id": pl.UInt64, "score": pl.Float64},
@@ -79,11 +82,7 @@ def test_normalise_rejects_non_dataframe() -> None:
 
 
 def test_normalise_rejects_wrong_columns() -> None:
-    """Missing the score column names what was expected against what was found.
-
-    Regression: the message read `scores.column_names`, an attribute polars lacks, so
-    this path raised a bare `AttributeError` rather than the intended `ValueError`.
-    """
+    """Missing the score column names what was expected against what was found."""
     bad = pl.DataFrame({"left_id": [1], "right_id": [2]})  # no score
     with pytest.raises(ValueError, match="Expected.*score"):
         normalise_model_scores(bad)
@@ -119,7 +118,7 @@ def test_add_model_class_rejects_non_subclass() -> None:
 
 def test_add_model_class_registers_a_subclass() -> None:
     """A real subclass registers under its name, so a plan can name it as a string."""
-    add_model_class(NaiveDeduper)  # idempotent: NaiveDeduper is already known
+    add_model_class(NaiveDeduper)  # already known, so this call is idempotent
     from matchlab.models.models import _MODEL_CLASSES  # noqa: PLC0415
 
     assert _MODEL_CLASSES["NaiveDeduper"] is NaiveDeduper
