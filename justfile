@@ -6,6 +6,10 @@ test *ARGS:
 bench *ARGS:
     uv run python -m benchmarks {{ARGS}}
 
+# Review a dummy testkit-generated pipeline in the evaluation TUI
+eval:
+    uv run matchlab review scripts.test_eval:entities --tag demo
+
 # Delete all compiled Python files
 clean:
     find . -type f -name "*.py[co]" -delete
