@@ -186,22 +186,23 @@ def test_broken_plan_fails(
         measure(mismatched, path, rows)
 
 
-def test_frames_shared(
+def test_record_steps_shared(
     warehouse: tuple[Path, int],
 ) -> None:
-    """Mesh links every pair but reads each source through one cleaned frame.
+    """Mesh links every pair but reads each source through one cleaned record step.
 
-    Six links over four sources would be twelve frames if they were not shared. The
-    step count is what proves they are, and it is why the suite can claim to be
+    Six links over four sources would be twelve record steps if they were not shared.
+    The step count is what proves they are, and it is why the suite can claim to be
     measuring plan shape rather than accidental duplication.
     """
     path, _ = warehouse
     plan = build(Topology.MESH, declare(path, SMALL.sources))
 
-    frames = [step for step in plan.lineage() if step.kind == "transform"]
+    record_steps = [step for step in plan.lineage() if step.kind == "transform"]
 
-    # Four cleaned frames for the dedupes, four read back through the resolver output.
-    assert len(frames) == 2 * SMALL.n_sources
+    # Four cleaned record steps for the dedupes, four read back through the resolver
+    # output.
+    assert len(record_steps) == 2 * SMALL.n_sources
 
 
 def test_collect_warm(

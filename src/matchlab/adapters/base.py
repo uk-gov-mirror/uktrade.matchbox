@@ -9,16 +9,16 @@ Artifacts, by step kind (schemas in `matchlab.core.schemas`, which holds exactly
 shapes that cross this boundary):
 
 * Source    → warehouse extract (arbitrary schema) + leaf assignment `(key, leaf)`.
-* Transform → the reshaped frame it materialises (arbitrary schema).
+* Transform → the reshaped record step it materialises (arbitrary schema).
 * Model     → edge list, `SCHEMA_MODEL_EDGES` `(left_id, right_id, score)`.
 * Resolver  → complete flat output, `SCHEMA_RESOLVER_OUTPUT` `(root, leaf, key, src)`.
               This is the merge-forward guarantee. It computes `merge(upstream complete
               output, own clusters)`, not just the resolver's own clusters.
 
-A `Source` and a `Resolver` produce a frame too, but neither stores one. A source is
-fully materialised as its *extract* and derives its frame on read. A resolver read is a
-re-derivable join over the source's extract and the resolver's own output. Only a
-`Transform` stores its materialisation.
+A `Source` and a `Resolver` produce a record step too, but neither stores one. A source
+is fully materialised as its *extract* and derives its record step on read. A resolver
+read is a re-derivable join over the source's extract and the resolver's own output.
+Only a `Transform` stores its materialisation.
 
 Plus evaluation storage (judgements + cluster expansion), publication (`publish` points
 a label at a resolver's output) and `close`.
@@ -208,9 +208,9 @@ class Adapter(ABC):
 
         A query rather than an artifact. Nothing here is computed. Both readings are
         projections of tables this store already holds, `source_leaves` and
-        `resolver_output`. There is nothing to cache, and caching it under a frame's
-        fingerprint would be wrong anyway. The result depends only on the source and
-        resolver read, not on how a frame reshapes the data.
+        `resolver_output`. There is nothing to cache, and caching it under a record
+        step's fingerprint would be wrong anyway. The result depends only on the source
+        and resolver read, not on how a record step reshapes the data.
 
         Args:
             source_fp: Fingerprint of the stored source whose records are wanted.
@@ -237,7 +237,7 @@ class Adapter(ABC):
 
     @abstractmethod
     def store_transform(self, fp: Fingerprint, table: pl.DataFrame) -> None:
-        """Store a transform's materialised frame (arbitrary schema).
+        """Store a transform's materialised record step (arbitrary schema).
 
         Called on every collect, so a transform feeding several models is computed
         once and read back by each.
@@ -246,7 +246,7 @@ class Adapter(ABC):
 
     @abstractmethod
     def read_transform(self, fp: Fingerprint) -> pl.DataFrame:
-        """Return a stored transform's frame."""
+        """Return a stored transform's record step."""
         ...
 
     # -- resolvers --------------------------------------------------------------------

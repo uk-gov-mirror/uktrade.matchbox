@@ -14,9 +14,9 @@ or inputs changed.
 """
 
 from matchlab.document import PlanDocument, dump, load
-from matchlab.frames import Frame
 from matchlab.locations import RelationalDBLocation
 from matchlab.models import Model
+from matchlab.recordstep import RecordStep
 from matchlab.resolvers import Resolver
 from matchlab.sources import Source
 from matchlab.steps import Step, default_adapter, set_default_adapter
@@ -31,10 +31,10 @@ from matchlab.transformers import (
 
 __all__ = (
     "Clean",
-    "Frame",
     "Group",
     "Model",
     "PlanDocument",
+    "RecordStep",
     "RelationalDBLocation",
     "Resolver",
     "Select",

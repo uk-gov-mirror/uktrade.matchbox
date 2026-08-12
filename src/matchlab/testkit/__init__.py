@@ -53,7 +53,7 @@ picking the wrong one is the easiest mistake to make here:
 | Asks | does this *methodology* work? | does the *plan* carry grouping forward? |
 | Built from | `GeneratedModel.predicted_clusters` | `AnswerKey` + `Perfect*` |
 | Scored with | `diff_model_edges` | `diff_resolver_output` |
-| Needs a warehouse | no, the frame read is mocked | yes, and a real `collect()` |
+| Needs a warehouse | no, the record step read is mocked | yes, and a real `collect()` |
 | Example | `test/methodologies/` | `test/plan/test_ground_truth.py` |
 
 The split exists because matchlab derives record identity by content-hashing rows at

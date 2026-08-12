@@ -1,9 +1,9 @@
-"""Transform, a plan node that reshapes one frame with a `Transformer`.
+"""Transform, a plan node that reshapes one record step with a `Transformer`.
 
 `Transform` is to `Transformer` what `Model` is to a `Deduper`/`Linker`, the lazy plan
 node that wraps a serialisable methodology, folds its configuration into a cache key,
-and runs it on collect. Its single input is a `Frame`, so transforms chain, each its
-own cached artifact.
+and runs it on collect. Its single input is a `RecordStep`, so transforms chain, each
+its own cached artifact.
 """
 
 from typing import ClassVar
@@ -12,7 +12,7 @@ import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.kinds import StepKind
-from matchlab.frames import Frame, IdentifierRead
+from matchlab.recordstep import IdentifierRead, RecordStep
 from matchlab.specs import TransformSpec
 from matchlab.transformers.base import Transformer
 from matchlab.transformers.clean import Clean
@@ -34,21 +34,21 @@ for _builtin in (Select, Clean, Group, Explode):
     add_transformer_class(_builtin)
 
 
-class Transform(Frame):
-    """A frame reshaped by one transformer."""
+class Transform(RecordStep):
+    """A record step reshaped by one transformer."""
 
     kind: ClassVar[StepKind] = StepKind.TRANSFORM
 
     def __init__(
         self,
-        upstream: Frame,
+        upstream: RecordStep,
         transformer: Transformer | type[Transformer] | str,
         transformer_settings: dict | None = None,
     ) -> None:
         """Define a transform.
 
         Args:
-            upstream: The frame to reshape.
+            upstream: The record step to reshape.
             transformer: A `Transformer` instance, or a subclass / its registered name
                 to build from `transformer_settings`.
             transformer_settings: The configuration dict, when `transformer` is a class
@@ -86,7 +86,7 @@ class Transform(Frame):
         reshaped = self.transformer.apply(self._input._read_cache(adapter))
         adapter.store_transform(fp, reshaped)
 
-    # -- Frame contract ---------------------------------------------------------------
+    # -- RecordStep contract ------------------------------------------------------
 
     def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
         if self._fp is None:  # collect orders upstream first

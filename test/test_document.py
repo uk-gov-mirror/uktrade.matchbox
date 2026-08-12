@@ -29,7 +29,7 @@ from matchlab.transformers import Transform
 
 @pytest.fixture
 def plan(source: Callable[..., Source]) -> Resolver:
-    """A dedupe feeding a cross-source link, with one frame read by two models."""
+    """A dedupe feeding a cross-source link, with one record step read by two models."""
     crn = source("crn")
     dh = source("dh")
 
@@ -39,9 +39,9 @@ def plan(source: Callable[..., Source]) -> Resolver:
     )
     resolved = deduped.resolve()
 
-    # One frame, read by both models below. This is the structural sharing the document
-    # has to preserve rather than inline twice. `resolved` is itself the frame,
-    # crn read at id=root.
+    # One record step, read by both models below. This is the structural sharing the
+    # document has to preserve rather than inline twice. `resolved` is itself the
+    # record step, crn read at id=root.
     entities = resolved.clean({"company": crn.f("company")})
     raw_dh = dh.clean({"company": dh.f("company")})
 
@@ -387,8 +387,10 @@ def test_document_empty_rejected() -> None:
         load(PlanDocument(steps=()), clients={})
 
 
-def test_rebuild_reads_resolver_as_frame(plan: Resolver, warehouse: Engine) -> None:
-    """A resolver is a frame, so a rebuilt transform reads a resolver at `id`=root.
+def test_rebuild_reads_resolver_as_record_step(
+    plan: Resolver, warehouse: Engine
+) -> None:
+    """A resolver is a record step, so a rebuilt transform reads one at `id`=root.
 
     The `plan` cleans `crn`'s dedupe resolver, so a rebuilt transform must read a
     `Resolver` as its upstream, the layering shape, preserved across the round trip.

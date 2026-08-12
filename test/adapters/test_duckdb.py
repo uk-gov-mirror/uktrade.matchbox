@@ -93,7 +93,7 @@ def test_stats_grows_with_data(tmp_path: Path, fp: Fingerprints) -> None:
     try:
         empty = store.stats().bytes
         store.store_transform(
-            fp.frame,
+            fp.record_step,
             pl.DataFrame({"id": range(50_000), "name": ["x"] * 50_000}),
         )
         assert store.stats().bytes > empty
@@ -116,7 +116,7 @@ def test_prune_reclaims_disk_space(
     try:
         store.store_source(fp.src, "key", extract, leaves)
         store.store_transform(
-            fp.frame,
+            fp.record_step,
             pl.DataFrame({"id": range(200_000), "name": ["padding"] * 200_000}),
         )
         before = store.stats().bytes

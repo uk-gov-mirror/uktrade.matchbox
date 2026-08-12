@@ -23,7 +23,7 @@ nav:
     - Lineage: api/lineage.md
     - Progress: api/progress.md
     - Sources: api/sources.md
-    - Frames: api/frames.md
+    - Record step: api/recordstep.md
     - Transformers: api/transformers.md
     - Models: api/models.md
     - Resolvers: api/resolvers.md

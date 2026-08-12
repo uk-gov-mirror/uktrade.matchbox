@@ -40,7 +40,7 @@ def resolver_output_to_clusters(resolver_output: pl.DataFrame) -> set[Cluster]:
     cluster asserts.
 
     Args:
-        resolver_output: A frame conforming to `SCHEMA_RESOLVER_OUTPUT`, the frame
+        resolver_output: A table conforming to `SCHEMA_RESOLVER_OUTPUT`, the table
             `Resolver.entities()` returns, with `root`, `key` and `source` columns.
 
     Returns:

@@ -72,7 +72,7 @@ Two things shared the name `name`, but did very different jobs. That is why one 
 
 ### Everything else goes by position
 
-A step is identified by its position in the plan, the order `collect` runs it in. Trying two settings of a methodology over one frame needs no names, and cannot collide. Before, each setting needed a name you'd never use again:
+A step is identified by its position in the plan, the order `collect` runs it in. Trying two settings of a methodology over one step needs no names, and cannot collide. Before, each setting needed a name you'd never use again:
 
 ```python
 cleaned = crn.clean({...})
@@ -102,7 +102,7 @@ Logs quote the position:
         └── ● [1] transform(Clean) ↑
 ```
 
-The shared frame appears as `[1]` under both models, because it *is* one node read twice, not two identical ones. It is drawn in full where you first meet it, and marked `↑` after that. It runs once, and both models read its stored table.
+The shared step appears as `[1]` under both models, because it *is* one node read twice, not two identical ones. It is drawn in full where you first meet it, and marked `↑` after that. It runs once, and both models read its stored table.
 
 ### Per-model thresholds take the model, not its name
 
@@ -145,7 +145,7 @@ A source is now its query plus a key. There is no `index_fields` and no `SourceF
 
 **This changes behaviour, not just signatures.** Identity used to be the indexed fields. It's now every column the extract returns except the key. If your `index_fields` listed everything you selected, nothing changes. If it listed *fewer* columns than you selected, records that used to collapse into one now stay separate. Remove those columns from the `select` to get the old grouping back.
 
-The upside is that the two can no longer disagree. A column outside the old index could change in the warehouse without moving the source's fingerprint. The source then registered a cache hit instead of re-storing, and downstream frames kept reading the stale value.
+The upside is that the two can no longer disagree. A column outside the old index could change in the warehouse without moving the source's fingerprint. The source then registered a cache hit instead of re-storing, and downstream steps kept reading the stale value.
 
 Field types went the same way. They served one purpose, the dtype each column was read as. Hashing casts every value to text anyway, so the pin only mattered when a driver changed a column's *kind*. Say it in the SQL instead:
 
@@ -171,7 +171,7 @@ Nouns became verbs, and each one is a step in the plan:
 
 A source is now directly matchable, so `source.query(...)` has no single successor. Reshape only when you need to. `select` keeps columns, `clean` derives them with SQL, and `group` collapses each `id` to one row. All three are [transformers](../guide/build-a-plan.md#reshaping-records), the same pluggable pattern dedupers and linkers already follow, and each is serialisable as part of the plan.
 
-A resolver is itself a frame, so matching on top of an earlier resolver output needs no separate step. Reshape it or match on it directly, the same as any other frame (`deduped.link(dh, ...)`).
+A resolver is itself a step, so matching on top of an earlier resolver output needs no separate step. Reshape it or match on it directly, the same as any other step (`deduped.link(dh, ...)`).
 
 ### `QueryCombineType` is gone
 
@@ -179,7 +179,7 @@ A resolver is itself a frame, so matching on top of an earlier resolver output n
 
 **`set_agg`** collapsed each entity to one row, but wrapped *every* column in a list. That included the column you deduped on, whose values agree by construction anyway. Comparison-based matchers can't consume a list, which is why it went unused.
 
-**`explode`** looks like it should have produced the cross-product of each entity's values across sources. That's what you'd want when a frame reads several sources and each row carries one source's columns and nulls for the rest. It didn't. It grouped every column into a list and then exploded them *in parallel*, and Polars explodes multiple columns element-wise rather than as a cross product:
+**`explode`** looks like it should have produced the cross-product of each entity's values across sources. That's what you'd want when a step reads several sources and each row carries one source's columns and nulls for the rest. It didn't. It grouped every column into a list and then exploded them *in parallel*, and Polars explodes multiple columns element-wise rather than as a cross product:
 
 ```python
 {"a": [["x", "y"]], "b": [["p", "q"]]}  # explode("a", "b") gives (x, p), (y, q)
@@ -187,7 +187,7 @@ A resolver is itself a frame, so matching on top of an earlier resolver output n
 
 Since every list held one entry per row, that round-tripped straight back to the input. `explode` was therefore `concat` plus a `unique()` and a reordering. It was a broken feature, not a redundant one.
 
-**Use `group`** with aggregate expressions when you want one populated row per entity. Because DuckDB's `any_value` skips nulls, it collapses a multi-source frame onto one row:
+**Use `group`** with aggregate expressions when you want one populated row per entity. Because DuckDB's `any_value` skips nulls, it collapses a multi-source step onto one row:
 
 ```python
 resolver.group(

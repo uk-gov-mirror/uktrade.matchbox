@@ -1,4 +1,4 @@
-"""Pluggable, serialisable reshapings of a frame.
+"""Pluggable, serialisable reshapings of a record step.
 
 `Select` projects, `Clean` derives, `Group` collapses each `id` to one row, and
 `Explode` cross-joins each `id`'s columns back out to every combination, each one job.

@@ -19,13 +19,13 @@ class LinkerSettings(BaseModel):
 
 
 class Linker(BaseModel, ABC):
-    """A methodology that finds candidate matches between two frames.
+    """A methodology that finds candidate matches between two record steps.
 
     A `Model` step calls `prepare()` once, then `link()`, each time it collects. Put
     one-off setup in `prepare()` instead, for example fitting a model over both
     datasets, so it doesn't repeat on every call to `link()`. `link()` must return a
-    frame with `left_id`, `right_id`, and `score` columns. `normalise_model_scores`
-    casts that frame to `SCHEMA_MODEL_EDGES`.
+    table with `left_id`, `right_id`, and `score` columns. `normalise_model_scores`
+    casts that table to `SCHEMA_MODEL_EDGES`.
     """
 
     settings: LinkerSettings

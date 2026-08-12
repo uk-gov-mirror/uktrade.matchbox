@@ -9,8 +9,8 @@ The subtlety is how a matcher identifies a record. Pre-generating edges between 
 IDs does not work, because matchlab derives cluster IDs by content-hashing rows at
 collect time. The IDs a model actually receives are unknowable when a fixture is built,
 which is why an `AnswerKey` is keyed by the row's *values* instead. At match time the
-matcher reads those columns out of the frame it was handed, looks up each row's true
-entity, and emits edges between whatever IDs are actually present. That makes it
+matcher reads those columns out of the record step it was handed, looks up each row's
+true entity, and emits edges between whatever IDs are actually present. That makes it
 independent of how identity is assigned, and lets it survive any future change to ID
 minting.
 """
@@ -47,12 +47,14 @@ class AnswerKey(BaseModel):
       lookup table is not. Hashing the content keeps the fingerprint honest. A different
       answer produces a different ID, and so a different model artifact.
     * **use**: `.dedupe_edges()` / `.link_edges()` are what `PerfectDeduper` and
-      `PerfectLinker` call at match time, against whatever frame they were handed.
+      `PerfectLinker` call at match time, against whatever record step they were
+      handed.
 
     `groups` maps a tuple of column values to a true-entity ID. `columns` names the
-    columns to read, in the same order they appear in the frame the model is given
-    (source-qualified). Linkers carry a second set for the right-hand frame. Both sides
-    map into the same entity-ID space, which is what lets them be joined.
+    columns to read, in the same order they appear in the record step the model is
+    given (source-qualified). Linkers carry a second set for the right-hand record
+    step. Both sides map into the same entity-ID space, which is what lets them be
+    joined.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -75,7 +77,7 @@ class AnswerKey(BaseModel):
 
         Each generated row is mapped to the true entity that owns its key, then keyed by
         its feature values under the names the model will see them by, source-qualified,
-        because that is how they arrive in the frame a matcher is handed.
+        because that is how they arrive in the record step a matcher is handed.
 
         Args:
             left: The generated source the matcher reads as its left input.
@@ -117,7 +119,7 @@ class AnswerKey(BaseModel):
     def _assign(
         self, data: pl.DataFrame, columns: tuple[str, ...], groups: dict[tuple, int]
     ) -> dict[int, list[int]]:
-        """Bucket the frame's row IDs by the true entity their values belong to."""
+        """Bucket the row IDs by the true entity their values belong to."""
         missing = [column for column in columns if column not in data.columns]
         if missing:
             raise KeyError(
@@ -146,7 +148,7 @@ class AnswerKey(BaseModel):
         )
 
     def dedupe_edges(self, data: pl.DataFrame) -> pl.DataFrame:
-        """All within-entity pairs among the frame's records."""
+        """All within-entity pairs among the record step's records."""
         pairs: list[tuple[int, int]] = []
         for ids in self._assign(data, self.left_columns, self.left_groups).values():
             unique = sorted(set(ids))

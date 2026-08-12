@@ -21,7 +21,7 @@ class Explode(Transformer):
 
     An `id` with several populated columns can generate many rows fast, so
     `max_combinations` caps it and raises, naming the `id`, rather than silently
-    building an enormous frame.
+    building an enormous table.
     """
 
     max_combinations: int = Field(

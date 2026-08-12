@@ -32,16 +32,16 @@ from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.resolver_output import leaf_id
 from matchlab.core.sql import SQLQuery
-from matchlab.frames import Frame, IdentifierRead, build_frame
 from matchlab.locations import Location
+from matchlab.recordstep import IdentifierRead, RecordStep, build_record_step
 from matchlab.specs import SourceSpec
 
 
-class Source(Frame):
+class Source(RecordStep):
     """A warehouse table, extracted and content-addressed.
 
-    A source is a `Frame`. Read directly, its records are its extract, with `id` set
-    to each row's content-addressed leaf, so a model can match over it with no
+    A source is a `RecordStep`. Read directly, its records are its extract, with `id`
+    set to each row's content-addressed leaf, so a model can match over it with no
     intervening step.
     """
 
@@ -113,10 +113,10 @@ class Source(Frame):
 
     # -- column naming ----------------------------------------------------------------
     #
-    # A frame built over several sources qualifies every column with the source it came
-    # from, so `company` from `crn` becomes `crn_company`. These say what a column will
-    # be called once that has happened, which is how you refer to it in a cleaning
-    # expression or a model's settings, before anything has been collected.
+    # A record step built over several sources qualifies every column with the source
+    # it came from, so `company` from `crn` becomes `crn_company`. These say what a
+    # column will be called once that has happened, which is how you refer to it in a
+    # cleaning expression or a model's settings, before anything has been collected.
 
     def f(self, fields: str | Iterable[str]) -> str | list[str]:
         """Prefix one or more field names with this source's name."""
@@ -260,7 +260,7 @@ class Source(Frame):
         column therefore moves the fingerprint. This was not true while a separate list
         of index fields could be narrower than the extract. A column outside it changed
         the stored extract without touching the fingerprint, so the source cache-hit,
-        never re-stored, and downstream frames kept reading the stale value.
+        never re-stored, and downstream record steps kept reading the stale value.
         """
         _, hashes = self._read_warehouse()
         return super()._spec_key() + hash_arrow_table(hashes.to_arrow())
@@ -274,7 +274,7 @@ class Source(Frame):
             leaves=self.leaves(),
         )
 
-    # -- Frame contract ---------------------------------------------------------------
+    # -- RecordStep contract -------------------------------------------------------
 
     def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
         """Return this source's records with each row's leaf as `id`.
@@ -283,7 +283,7 @@ class Source(Frame):
         than a separately cached artifact. Reading a source on its own means `id` is
         the leaf, so there is no resolver in the read.
         """
-        return build_frame(adapter, (self,), None)
+        return build_record_step(adapter, (self,), None)
 
     @property
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:

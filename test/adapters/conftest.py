@@ -76,7 +76,7 @@ class Fingerprints(BaseModel):
     model: bytes = b"\x02" * 32
     resolver: bytes = b"\x03" * 32
     resolver_b: bytes = b"\x0c" * 32
-    frame: bytes = b"\x04" * 32
+    record_step: bytes = b"\x04" * 32
 
 
 @pytest.fixture

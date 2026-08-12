@@ -43,8 +43,8 @@ Steps chain. Each verb returns a new lazy step:
 | `.clean(...)` | `Transform` | Derive columns with SQL, keeping the rest |
 | `.group(...)` | `Transform` | Collapse each `id` to one row |
 | `.transform(...)` | `Transform` | Apply any transformer object (the general form) |
-| `.dedupe(...)` | `Model` | Candidate matches *within* one frame |
-| `.link(other, ...)` | `Model` | Candidate matches *between* two frames |
+| `.dedupe(...)` | `Model` | Candidate matches *within* one step |
+| `.link(other, ...)` | `Model` | Candidate matches *between* two steps |
 | `.resolve(...)` | `Resolver` | Collapse candidate edges into clusters |
 | `.collect()` | (same step) | Run everything the step depends on |
 
@@ -59,7 +59,7 @@ Both sides of a link are covered. Reach for the reshaping verbs (`select`, `clea
 
 ### Reshaping records
 
-A **frame** is a table with an `id` column, the records a model matches over. A `Source`, a resolver, and the output of a reshape step are all frames, one shared type. That's why `Frame` is what you see in a signature or a hover tooltip wherever one of these is expected. `select`, `clean` and `group` each reshape a frame into a new frame. `transform` is the general verb they desugar to. `source.clean(...)` is shorthand for `source.transform(Clean(...))`.
+A **record step** is a step that produces data for a model to match over. It is not itself a table, but produces one, always with an `id` column. A `Source`, a resolver, and the output of a reshape step are all record steps, one shared type. That's why `RecordStep` is what you see in a signature or a hover tooltip wherever one of these is expected. `select`, `clean` and `group` each reshape a record step into a new record step. `transform` is the general verb they desugar to. `source.clean(...)` is shorthand for `source.transform(Clean(...))`.
 
 Not every registered transformer has a dedicated verb. The [API reference](../api/transformers.md) lists all of them, including ones you reach only through `transform(...)`, such as `Explode`.
 
@@ -69,7 +69,7 @@ Not every registered transformer has a dedicated verb. The [API reference](../ap
 crn.select("crn_company", "crn_town")
 ```
 
-`source.f("field")` gives you the source-qualified column name (`crn_company`), which is how fields are named on a frame.
+`source.f("field")` gives you the source-qualified column name (`crn_company`), which is how fields are named on a record step.
 
 **`clean` derives columns with DuckDB SQL, keeping the rest**:
 
@@ -86,7 +86,7 @@ crn.clean({"name": f"lower({crn.f('company')})"}).select("name")
 #### What `id` is, and when to group
 
 Read a source directly and `id` is the record, one row each. **A resolver is itself a
-frame**, reshaped with the same verbs. Its `id` is the entity, so several records can
+record step**, reshaped with the same verbs. Its `id` is the entity, so several records can
 share one:
 
 ```python
@@ -140,7 +140,7 @@ resolver.group(
 # acme    | ["london", "leeds", "bristol"]
 ```
 
-Grouping changes what the *model* sees. It never changes the resolver output. Record identity travels separately, so a resolver below a grouped frame still carries every record forward.
+Grouping changes what the *model* sees. It never changes the resolver output. Record identity travels separately, so a resolver below a grouped step still carries every record forward.
 
 #### Custom transformers
 
@@ -193,7 +193,7 @@ Thresholds take the model itself, not its name. You're already holding it. Any m
 
 ## Layering
 
-A resolver is a frame. To match **on top of** an earlier resolver output, match on the resolver directly with the same verbs. Now `id` means entity, not record:
+A resolver is a record step. To match **on top of** an earlier resolver output, match on the resolver directly with the same verbs. Now `id` means entity, not record:
 
 ```python
 deduped_crn = crn.dedupe(...).resolve()

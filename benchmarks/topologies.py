@@ -29,7 +29,7 @@ from typing import cast
 
 from sqlalchemy import create_engine
 
-from matchlab import Frame, Model, RelationalDBLocation, Resolver, Source
+from matchlab import Model, RecordStep, RelationalDBLocation, Resolver, Source
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
 
@@ -93,12 +93,12 @@ def declare(path: Path, names: Sequence[str]) -> list[Source]:
 
 
 def _cleaning(sources: Sequence[Source]) -> dict[str, str]:
-    """Cleaning expressions that work across however many sources a frame reads.
+    """Cleaning expressions that work across however many sources a record step reads.
 
-    A multi-source frame concatenates the extracts diagonally, so each source's columns
-    are null on every other source's rows. `coalesce` over the qualified names is what
-    folds them back into one column per field. With a single source it degenerates to
-    `coalesce(crn_name)`, which costs nothing and keeps one code path.
+    A multi-source record step concatenates the extracts diagonally, so each source's
+    columns are null on every other source's rows. `coalesce` over the qualified names
+    is what folds them back into one column per field. With a single source it
+    degenerates to `coalesce(crn_name)`, which costs nothing and keeps one code path.
     """
 
     def across(field: str) -> str:
@@ -113,26 +113,29 @@ def _cleaning(sources: Sequence[Source]) -> dict[str, str]:
     }
 
 
-def _frame(sources: Sequence[Source], resolver: Resolver | None = None) -> Frame:
-    """A cleaned frame of these sources, optionally read through a resolver output.
+def _record_step(
+    sources: Sequence[Source], resolver: Resolver | None = None
+) -> RecordStep:
+    """A cleaned record step of these sources, read through a resolver if given one.
 
-    A resolver is itself a frame, read at `id`=entity root, so passing one is the
+    A resolver is itself a record step, read at `id`=entity root, so passing one is the
     layering move. Whatever is built on top then compares entities. A resolver reads
     exactly its own sources, so `sources` must match the resolver's own sources when
     one is given. Without a resolver, there is a single source, read directly at
     `id`=leaf.
     """
-    base: Frame = resolver if resolver is not None else sources[0]
+    base: RecordStep = resolver if resolver is not None else sources[0]
     return base.clean(_cleaning(sources))
 
 
-def _through(resolver: Resolver, source: Source) -> Frame:
+def _through(resolver: Resolver, source: Source) -> RecordStep:
     """One source's records, per entity, read through a multi-source resolver.
 
-    The resolver frame carries every source's rows diagonally, so this source's columns
-    are null on the other sources' rows. `any_value` skips those, collapsing each entity
-    to one row of this source's cleaned values. That's the entity-grained shape matching
-    on top of a resolver needs. `group` builds it directly, with no separate plan step.
+    The resolver's record step carries every source's rows diagonally, so this
+    source's columns are null on the other sources' rows. `any_value` skips those,
+    collapsing each entity to one row of this source's cleaned values. That's the
+    entity-grained shape matching on top of a resolver needs. `group` builds it
+    directly, with no separate plan step.
     """
     name, postcode = cast("str", source.f("name")), cast("str", source.f("postcode"))
     return resolver.group(
@@ -143,15 +146,15 @@ def _through(resolver: Resolver, source: Source) -> Frame:
     )
 
 
-def _dedupe(frame: Frame) -> Model:
-    """Deduplicate a cleaned frame. Same cleaned name and postcode is one entity."""
-    return frame.dedupe(
+def _dedupe(record_step: RecordStep) -> Model:
+    """Deduplicate a cleaned record step. Same name and postcode is one entity."""
+    return record_step.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": UNIQUE_FIELDS}
     )
 
 
-def _link(left: Frame, right: Frame) -> Model:
-    """Link two cleaned frames, on the same rule the deduper uses."""
+def _link(left: RecordStep, right: RecordStep) -> Model:
+    """Link two cleaned record steps, on the same rule the deduper uses."""
     return left.link(
         right,
         model_class=DeterministicLinker,
@@ -180,7 +183,7 @@ def build(topology: Topology, sources: Sequence[Source]) -> Resolver:
 
     match topology:
         case Topology.DEDUPE:
-            return _dedupe(_frame(sources[:1])).resolve()
+            return _dedupe(_record_step(sources[:1])).resolve()
         case Topology.HUB:
             return _star(sources, pairs=_spokes)
         case Topology.MESH:
@@ -189,18 +192,20 @@ def build(topology: Topology, sources: Sequence[Source]) -> Resolver:
             return _chain(sources)
 
 
-# Which links a star-shaped plan builds, given its frames.
-Pairs = Callable[[Sequence[Frame]], list[tuple[Frame, Frame]]]
+# Which links a star-shaped plan builds, given its record steps.
+Pairs = Callable[[Sequence[RecordStep]], list[tuple[RecordStep, RecordStep]]]
 
 
-def _spokes(frames: Sequence[Frame]) -> list[tuple[Frame, Frame]]:
+def _spokes(record_steps: Sequence[RecordStep]) -> list[tuple[RecordStep, RecordStep]]:
     """Every (hub, spoke) pair. `n-1` links, and the hub in all of them."""
-    return [(frames[0], spoke) for spoke in frames[1:]]
+    return [(record_steps[0], spoke) for spoke in record_steps[1:]]
 
 
-def _every_pair(frames: Sequence[Frame]) -> list[tuple[Frame, Frame]]:
-    """Every pair of frames. `n(n-1)/2` links, and no frame privileged."""
-    return list(combinations(frames, 2))
+def _every_pair(
+    record_steps: Sequence[RecordStep],
+) -> list[tuple[RecordStep, RecordStep]]:
+    """Every pair of record steps. `n(n-1)/2` links, and no record step privileged."""
+    return list(combinations(record_steps, 2))
 
 
 def _star(sources: Sequence[Source], pairs: Pairs) -> Resolver:
@@ -208,14 +213,14 @@ def _star(sources: Sequence[Source], pairs: Pairs) -> Resolver:
 
     `HUB` and `MESH` differ only in which pairs get linked, so they share everything
     else. One dedupe per source collapses into a single resolver output. Each source
-    then reads back out of it with `group` (a resolver is a frame), built once and
-    shared by every link that uses it. One apex resolver covers all the links.
+    then reads back out of it with `group` (a resolver is a record step), built once
+    and shared by every link that uses it. One apex resolver covers all the links.
     """
-    dedupes = [_dedupe(_frame([source])) for source in sources]
+    dedupes = [_dedupe(_record_step([source])) for source in sources]
     deduped = dedupes[0].resolve(*dedupes[1:])
 
-    frames = [_through(deduped, source) for source in sources]
-    links = [_link(left, right) for left, right in pairs(frames)]
+    record_steps = [_through(deduped, source) for source in sources]
+    links = [_link(left, right) for left, right in pairs(record_steps)]
     return links[0].resolve(*links[1:])
 
 
@@ -228,13 +233,13 @@ def _chain(sources: Sequence[Source]) -> Resolver:
     link joining it to everything already resolved — so every source is still
     deduplicated exactly once and the shapes stay comparable.
     """
-    resolved = _dedupe(_frame(sources[:1])).resolve()
+    resolved = _dedupe(_record_step(sources[:1])).resolve()
 
     for position, source in enumerate(sources[1:], start=1):
-        # One frame of the new source, shared by both models below, the dedupe that
-        # collapses its own duplicates, and the link that attaches it to the rest.
-        arriving = _frame([source])
-        accumulated = _frame(sources[:position], resolver=resolved)
+        # One record step of the new source, shared by both models below, the dedupe
+        # that collapses its own duplicates, and the link that attaches it to the rest.
+        arriving = _record_step([source])
+        accumulated = _record_step(sources[:position], resolver=resolved)
         resolved = _link(accumulated, arriving).resolve(_dedupe(arriving))
 
     return resolved

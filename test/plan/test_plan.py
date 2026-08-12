@@ -1,7 +1,7 @@
 """End-to-end tests for the plan API, over a real SQLite warehouse.
 
 Covers the whole plan surface: building a plan with no DAG, laziness, collect with
-plan-fingerprint caching, frame storage, lineage navigation, GC, and the terminal
+plan-fingerprint caching, record step storage, lineage navigation, GC, and the terminal
 reads (`get_lookup`, `lookup_key`).
 
 Scenario: a dedupe feeding a cross-source link.
@@ -173,7 +173,7 @@ def test_source_column_change_invalidates(
 
     Without that rule, a column outside identity could change in the warehouse
     without moving the source's fingerprint. The source would cache-hit instead of
-    re-storing, and downstream frames would keep reading the stale value.
+    re-storing, and downstream record steps would keep reading the stale value.
     """
     et = "select pk, company, town from crn"
 
@@ -288,7 +288,7 @@ def test_source_memoises_read(warehouse: Engine, source: Callable[..., Source]) 
     crn.collect()  # memoised fingerprint short-circuits
 
 
-# -- Frame storage --------------------------------------------------------------------
+# -- Record step storage ---------------------------------------------------------
 
 
 @pytest.fixture
@@ -319,95 +319,95 @@ def model_runs(monkeypatch: pytest.MonkeyPatch) -> list[Model]:
     return ran
 
 
-def _shared_frame_plan(
+def _shared_record_step_plan(
     source: Callable[..., Source], comparison: str | None = None
 ) -> tuple[Resolver, Transform]:
-    """One cleaned frame feeding both a dedupe and a link, joined by a resolver.
+    """One cleaned record step feeding both a dedupe and a link, joined by a resolver.
 
-    `comparison` retunes the linker without touching the frame, so a second plan can
-    invalidate the models while the transform's fingerprint still hits.
+    `comparison` retunes the linker without touching the record step, so a second plan
+    can invalidate the models while the transform's fingerprint still hits.
     """
     crn = source("crn")
     dh = source("dh")
-    frame = crn.clean({"name": "crn_company"})
-    deduped = frame.dedupe(
+    record_step = crn.clean({"name": "crn_company"})
+    deduped = record_step.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
     )
-    linked = frame.link(
+    linked = record_step.link(
         dh,
         model_class=DeterministicLinker,
         model_settings={"comparisons": comparison or f"l.name = r.{dh.f('company')}"},
     )
-    return deduped.resolve(linked), frame
+    return deduped.resolve(linked), record_step
 
 
-def test_frame_stored_with_consumer(
+def test_record_step_stored_with_consumer(
     source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
     """Collecting a transform's consumer stores the transform too."""
     crn = source("crn")
-    frame = crn.clean({"name": "crn_company"})
-    deduped = frame.dedupe(
+    record_step = crn.clean({"name": "crn_company"})
+    deduped = record_step.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
     ).resolve()
     deduped.collect()
 
-    assert frame.is_collected
-    assert adapter.has(frame._fp)
+    assert record_step.is_collected
+    assert adapter.has(record_step._fp)
 
 
-def test_frame_shared_computed_once(
+def test_record_step_shared_computed_once(
     source: Callable[..., Source], adapter: DuckDBAdapter, computes: dict[int, int]
 ) -> None:
     """The point of storing: fan-out costs one computation, not one per consumer."""
-    apex, frame = _shared_frame_plan(source)
+    apex, record_step = _shared_record_step_plan(source)
 
     apex.collect()
 
-    assert computes[id(frame)] == 1
-    assert adapter.has(frame._fp)
+    assert computes[id(record_step)] == 1
+    assert adapter.has(record_step._fp)
 
 
-def test_frame_reused_across_plans(
+def test_record_step_reused_across_plans(
     source: Callable[..., Source],
     adapter: DuckDBAdapter,
     computes: dict[int, int],
     model_runs: list[Model],
 ) -> None:
-    """A stored frame is read back across sessions, not recomputed.
+    """A stored record step is read back across sessions, not recomputed.
 
     The second plan is fresh objects, as a new process would build, with the linker
     retuned so the models genuinely re-run. Their inputs are unchanged, so the transform
-    still fingerprints the same and hits cache, reading the frame off disk rather than
-    recomputing it.
+    still fingerprints the same and hits cache, reading the record step off disk rather
+    than recomputing it.
     """
     dh = source("dh")
-    apex, _frame = _shared_frame_plan(source)
+    apex, _record_step = _shared_record_step_plan(source)
     apex.collect()
     computes.clear()
     model_runs.clear()
 
-    retuned, frame = _shared_frame_plan(
+    retuned, record_step = _shared_record_step_plan(
         source, comparison=f"r.{dh.f('company')} = l.name"
     )
     retuned.collect()
 
-    assert computes == {}, "a stored frame was recomputed"
-    assert adapter.has(frame._fp)
-    # The linker really did re-run, so something genuinely asked for the frame.
+    assert computes == {}, "a stored record step was recomputed"
+    assert adapter.has(record_step._fp)
+    # The linker really did re-run, so something genuinely asked for the record step.
     # Without this the assertion above would hold trivially.
     assert [model.model_class for model in model_runs] == [DeterministicLinker]
 
 
-def test_frame_collected_directly(
+def test_record_step_collected_directly(
     source: Callable[..., Source], adapter: DuckDBAdapter
 ) -> None:
-    """A frame collected on its own materialises its table."""
+    """A record step collected on its own materialises its table."""
     crn = source("crn")
-    frame = crn.clean({"name": "crn_company"})
+    record_step = crn.clean({"name": "crn_company"})
 
-    data = frame.collect().data()
-    assert adapter.has(frame._fp)
+    data = record_step.collect().data()
+    assert adapter.has(record_step._fp)
     assert "name" in data.columns
     assert data.height == 3
 
@@ -435,25 +435,25 @@ def identifier_reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, bytes |
 
 
 def _fan_out_plan(source: Callable[..., Source]) -> tuple[Resolver, list[Model]]:
-    """Three models over one shared frame, so the resolver sees repeated readings.
+    """Three models over one shared record step, so the resolver sees repeated readings.
 
-    `Resolver._execute` walks `(model, frame)` pairs, four of them here. Only two
+    `Resolver._execute` walks `(model, record_step)` pairs, four of them here. Only two
     distinct readings exist between them, which is what it must collapse to. Linking
     every pair of n sources makes that ratio quadratic.
     """
     crn = source("crn")
     dh = source("dh")
-    frame = crn.clean({"name": "crn_company"})
+    record_step = crn.clean({"name": "crn_company"})
     models = [
-        frame.dedupe(
+        record_step.dedupe(
             model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]}
         ),
-        frame.link(
+        record_step.link(
             dh,
             model_class=DeterministicLinker,
             model_settings={"comparisons": f"l.name = r.{dh.f('company')}"},
         ),
-        frame.dedupe(
+        record_step.dedupe(
             model_class=NaiveDeduper, model_settings={"unique_fields": ["name", "id"]}
         ),
     ]
@@ -659,18 +659,18 @@ def test_prune_to_plan_keeps_cache(
 # -- reading through a resolver, and grouping -----------------------------------------
 
 
-def test_resolver_is_a_frame(source: Callable[..., Source]) -> None:
-    """A resolver is a frame, read at `id`=root and matchable on top of directly.
+def test_resolver_is_a_record_step(source: Callable[..., Source]) -> None:
+    """A resolver is a record step, read at `id`=root and matchable on top of directly.
 
     Reading it returns its records regrouped by entity. Linking it directly to a
     source, with no transform in between, still carries the dedupe grouping forward.
-    That's the merge-forward guarantee working through a resolver frame.
+    That's the merge-forward guarantee working through a resolver record step.
     """
     crn = source("crn")
     dh = source("dh")
     deduped = _dedupe_crn(crn)
 
-    # Read as a frame. crn's records sit at `id`=root, so a1/a2 share one id.
+    # Read as a record step. crn's records sit at `id`=root, so a1/a2 share one id.
     records = deduped.data()
     assert records.height == 3
     assert records["id"].n_unique() == 2
@@ -697,9 +697,9 @@ def test_resolver_read_repeats_per_record(
     deduped = _dedupe_crn(crn)
     deduped.collect()
 
-    frame = deduped.clean({"name": "crn_company"})
-    frame.collect()
-    data = frame.data()
+    record_step = deduped.clean({"name": "crn_company"})
+    record_step.collect()
+    data = record_step.data()
 
     # a1/a2 deduped to one entity, but each contributes a row.
     assert data.height == 3
@@ -712,14 +712,14 @@ def test_group_one_row_per_entity(source: Callable[..., Source]) -> None:
     deduped = _dedupe_crn(crn)
     deduped.collect()
 
-    frame = deduped.group(
+    record_step = deduped.group(
         {
             "name": "any_value(crn_company)",
             "towns": "list(distinct crn_town)",
         }
     )
-    frame.collect()
-    data = frame.data().sort("name")
+    record_step.collect()
+    data = record_step.data().sort("name")
 
     assert data.height == 2
     assert data["name"].to_list() == ["acme", "beta"]
@@ -728,10 +728,10 @@ def test_group_one_row_per_entity(source: Callable[..., Source]) -> None:
 
 
 def test_group_merges_forward(source: Callable[..., Source]) -> None:
-    """Grouping changes the frame's grain, never the resolver output's.
+    """Grouping changes the record step's grain, never the resolver output's.
 
     Leaves travel via `identifiers()`, read from the adapter, so collapsing rows in
-    the frame cannot lose a record from the resolver output below it.
+    the record step cannot lose a record from the resolver output below it.
     """
     crn = source("crn")
     dh = source("dh")
@@ -788,11 +788,11 @@ def test_group_multi_source(
         }
     )
     grouped.collect()
-    frame = grouped.data().filter(pl.col("company") == "acme")
+    result = grouped.data().filter(pl.col("company") == "acme")
 
     # One row, both sources' values present, because any_value skips the nulls.
-    assert frame.height == 1
-    assert set(frame["towns"][0]) == {"london", "leeds", "bristol"}
+    assert result.height == 1
+    assert set(result["towns"][0]) == {"london", "leeds", "bristol"}
 
 
 def test_group_without_aggregates_raises(source: Callable[..., Source]) -> None:
@@ -805,8 +805,8 @@ def test_group_without_aggregates_raises(source: Callable[..., Source]) -> None:
 def test_explode_cross_source_combinations(source: Callable[..., Source]) -> None:
     """`Explode` gives the cross product across sources, the case `group` skips.
 
-    `group` collapses this diagonally-concatenated frame to one populated row (see
-    `test_group_multi_source`). `Explode` instead gives one row per combination of
+    `group` collapses this diagonally-concatenated record step to one populated row
+    (see `test_group_multi_source`). `Explode` instead gives one row per combination of
     each source's populated values.
     """
     crn = source("crn")
@@ -861,18 +861,18 @@ def test_spec_no_upstream_settings(source: Callable[..., Source]) -> None:
 def test_read_direct_and_through_resolver_distinct(
     source: Callable[..., Source],
 ) -> None:
-    """Reading a source directly and through a resolver are different frames.
+    """Reading a source directly and through a resolver are different record steps.
 
-    Read directly, a source is a leaf frame (`id`=leaf). A resolver is itself a frame
-    (`id`=root), so matching on it reads the same records regrouped by entity. Deduping
-    again over that resolver output is a genuinely different operation from the first
-    dedupe, so the two models get different fingerprints.
+    Read directly, a source is a leaf record step (`id`=leaf). A resolver is itself a
+    record step (`id`=root), so matching on it reads the same records regrouped by
+    entity. Deduping again over that resolver output is a genuinely different operation
+    from the first dedupe, so the two models get different fingerprints.
     """
     crn = source("crn")
     settings = {"unique_fields": [crn.f("company")]}
 
     first = crn.dedupe(model_class=NaiveDeduper, model_settings=settings)
-    deduped = first.resolve()  # a resolver, and a frame reading crn at id=root
+    deduped = first.resolve()  # a resolver, and a record step reading crn at id=root
     second = deduped.dedupe(model_class=NaiveDeduper, model_settings=settings)
 
     assert crn.upstream == ()  # a source read directly is a leaf

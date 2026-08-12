@@ -12,14 +12,15 @@ from matchlab.transformers.base import Transformer, run_sql
 class Clean(Transformer):
     """Derive columns with DuckDB SQL, without dropping unrelated fields.
 
-    Each entry maps an output column name to a SQL expression over the frame's columns
+    Each entry maps an output column name to a SQL expression over the record step's
+    columns
     (the source-qualified names, `crn_company`). An alias that names an existing column
     replaces it. A new alias is added. Every other column, and `id`, passes through
     untouched. Dropping is `Select`'s job, not `Clean`'s.
     """
 
     cleaning: dict[str, SQLExpression] = Field(
-        description="Output column name to a DuckDB SQL expression over the frame."
+        description="Output column name to a DuckDB SQL expression over the step."
     )
 
     @field_validator("cleaning")

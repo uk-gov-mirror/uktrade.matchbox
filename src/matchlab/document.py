@@ -6,7 +6,7 @@ plan. It is dumped, transferred and loaded, never hand-authored. That is why nod
 refer to each other by position rather than by any human-facing name.
 
 Nodes come out in `lineage.walk` order, so every input index is smaller than the index
-of the step that consumes it. Positions also preserve structural sharing. A frame
+of the step that consumes it. Positions also preserve structural sharing. A record step
 feeding two models is one node referenced twice. Nesting each step's inputs inside it
 would have inlined the whole subtree twice over instead.
 
@@ -47,10 +47,10 @@ from typing import Any, TypeVar, cast
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from matchlab.core.kinds import StepKind
-from matchlab.frames import Frame
 from matchlab.lineage import walk
 from matchlab.locations import build_location
 from matchlab.models import Model
+from matchlab.recordstep import RecordStep
 from matchlab.resolvers import Resolver
 from matchlab.sources import Source
 from matchlab.specs import (
@@ -264,29 +264,29 @@ def _rebuild(
 
         case StepKind.TRANSFORM:
             spec = _expect(node, position, TransformSpec)
-            frames = _all_of(node, position, inputs, Frame)
-            if len(frames) != 1:
+            record_steps = _all_of(node, position, inputs, RecordStep)
+            if len(record_steps) != 1:
                 raise ValueError(
-                    f"Step {position} (transform) reads {len(frames)} frames; a "
-                    "transform reshapes exactly one."
+                    f"Step {position} (transform) reads {len(record_steps)} record "
+                    "steps; a transform reshapes exactly one."
                 )
             return Transform(
-                frames[0],
+                record_steps[0],
                 transformer=spec.transformer_class,
                 transformer_settings=spec.transformer_settings,
             )
 
         case StepKind.MODEL:
             spec = _expect(node, position, ModelSpec)
-            frames = _all_of(node, position, inputs, Frame)
-            if not 1 <= len(frames) <= 2:
+            record_steps = _all_of(node, position, inputs, RecordStep)
+            if not 1 <= len(record_steps) <= 2:
                 raise ValueError(
-                    f"Step {position} (model) reads {len(frames)} frames; a deduper "
-                    "reads one and a linker two."
+                    f"Step {position} (model) reads {len(record_steps)} record "
+                    "steps; a deduper reads one and a linker two."
                 )
             return Model(
-                left=frames[0],
-                right=frames[1] if len(frames) > 1 else None,
+                left=record_steps[0],
+                right=record_steps[1] if len(record_steps) > 1 else None,
                 model_class=spec.model_class,
                 model_settings=spec.model_settings,
             )

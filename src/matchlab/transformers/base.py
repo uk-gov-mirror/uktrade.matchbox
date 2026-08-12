@@ -1,6 +1,6 @@
 """Base class for transformer methodologies, and the DuckDB query runner some share.
 
-A `Transformer` is a pure function of a frame, called by a `Transform` step's
+A `Transformer` is a pure function of a record step, called by a `Transform` step's
 `apply()` on every collect. Both input and output must carry `id`, the grouping every
 downstream model and resolver reads.
 

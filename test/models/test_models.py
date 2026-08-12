@@ -65,7 +65,7 @@ def test_normalise_one_edge_per_pair(
 
 
 def test_normalise_empty_input() -> None:
-    """No edges is a valid answer, so an empty frame normalises to the edge schema."""
+    """No edges is a valid answer, so an empty table normalises to the edge schema."""
     empty = pl.DataFrame(
         {"left_id": [], "right_id": [], "score": []},
         schema={"left_id": pl.UInt64, "right_id": pl.UInt64, "score": pl.Float64},
@@ -76,7 +76,7 @@ def test_normalise_empty_input() -> None:
 
 
 def test_normalise_rejects_non_dataframe() -> None:
-    """A methodology must hand back a frame, not a list of dicts or None."""
+    """A methodology must hand back a table, not a list of dicts or None."""
     with pytest.raises(ValueError, match="Expected a polars DataFrame"):
         normalise_model_scores([{"left_id": 1, "right_id": 2, "score": 0.5}])
 

@@ -1,16 +1,16 @@
-"""Frame, the records a model matches over, and the verbs that build a plan.
+"""RecordStep, the records a model matches over, and the verbs that build a plan.
 
-A `Frame` is a step whose artifact is a table of records carrying an `id`. `Source`,
-`Resolver` and `Transform` are the three kinds. On a `Source`, `id` is the leaf. On a
-`Resolver`, `id` is the entity root. Every `Frame` chains the same verbs (`select`,
-`clean`, `group`, `transform`, `dedupe`, `link`). A `Model` reads a `Frame` and yields
-edges, not records.
+A `RecordStep` is a step whose artifact is a table of records carrying an `id`.
+`Source`, `Resolver` and `Transform` are the three kinds. On a `Source`, `id` is the
+leaf. On a `Resolver`, `id` is the entity root. Every `RecordStep` chains the same
+verbs (`select`, `clean`, `group`, `transform`, `dedupe`, `link`). A `Model` reads a
+`RecordStep` and yields edges, not records.
 
-`Frame` is not user-facing. Users hold a `Source`, a `Resolver` or a `Transform` and
-call verbs on it. Each concrete kind supplies only how it materialises (`_read_cache`)
-and which source rows it stands for (`_identifier_reads`).
+`RecordStep` is not user-facing. Users hold a `Source`, a `Resolver` or a `Transform`
+and call verbs on it. Each concrete kind supplies only how it materialises
+(`_read_cache`) and which source rows it stands for (`_identifier_reads`).
 
-A frame does not store `identifiers()`, the `(id, source, key, leaf)` mapping a
+A record step does not store `identifiers()`, the `(id, source, key, leaf)` mapping a
 downstream resolver needs. Reshaping cannot change it, so it is read back from the
 source leaves and the upstream resolver output instead.
 """
@@ -46,12 +46,12 @@ if TYPE_CHECKING:
 IdentifierRead = tuple[Fingerprint | None, str, Fingerprint | None]
 
 
-def build_frame(
+def build_record_step(
     adapter: Adapter,
     sources: "tuple[Source, ...]",
     resolver: "Resolver | None",
 ) -> pl.DataFrame:
-    """Assemble the `id` + qualified-columns frame from stored extracts and identifiers.
+    """Assemble the `id` + qualified-columns table from stored extracts and identifiers.
 
     Every source's extract is prefixed with the source name (`company` → `crn_company`)
     and joined to its identifiers, so each row gains the `id` it belongs to. That is the
@@ -83,31 +83,31 @@ def build_frame(
     )
 
 
-class Frame(Step):
+class RecordStep(Step):
     """A step whose artifact is a table of records a model matches over."""
 
-    # -- Frame contract ---------------------------------------------------------------
+    # -- RecordStep contract -------------------------------------------------------
 
     @abstractmethod
     def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
-        """Return this frame's records from wherever they are materialised."""
+        """Return this record step's records from wherever they are materialised."""
         ...
 
     @property
     @abstractmethod
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:
-        """The `Adapter.read_identifiers` arguments this frame's records come from.
+        """The `Adapter.read_identifiers` arguments this record step's data comes from.
 
-        One per source, naming what is read rather than reading it. Two frames built
-        from the same source and resolver read identical rows, even if they then
+        One per source, naming what is read rather than reading it. Two record steps
+        built from the same source and resolver read identical rows, even if they then
         reshape those rows differently. A downstream resolver wants the *set* of these
-        reads across every frame feeding it, so naming them lets it ask once instead of
-        once per frame.
+        reads across every record step feeding it, so naming them lets it ask once
+        instead of once per record step.
         """
         ...
 
     def identifiers(self, adapter: Adapter) -> pl.DataFrame:
-        """Return `(id, source, key, leaf)` for every record this frame reads.
+        """Return `(id, source, key, leaf)` for every record this record step reads.
 
         `id` is the resolver's entity root when reading through one, otherwise the
         source leaf. This is the upstream resolver output a downstream resolver needs to
@@ -119,7 +119,7 @@ class Frame(Step):
         )
 
     def data(self, return_type: DataFrameType = DataFrameType.POLARS) -> DataFrameClass:
-        """Return this frame's records, collecting the plan first if needed."""
+        """Return this record step's records, collecting the plan first if needed."""
         if not self.is_collected:
             self.collect()
         return to_dataframe(self._read_cache(self._require_adapter()), return_type)
@@ -131,7 +131,7 @@ class Frame(Step):
         transformer: "Transformer | type[Transformer] | str",
         transformer_settings: dict | None = None,
     ) -> "Transform":
-        """Reshape this frame with a transformer."""
+        """Reshape this record step with a transformer."""
         from matchlab.transformers import Transform  # noqa: PLC0415 - avoids a cycle
 
         return Transform(self, transformer, transformer_settings)
@@ -159,18 +159,18 @@ class Frame(Step):
         model_class: "type[Deduper] | str",
         model_settings: "DeduperSettings | dict",
     ) -> "Model":
-        """Deduplicate this frame."""
+        """Deduplicate this record step."""
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle
 
         return Model(left=self, model_class=model_class, model_settings=model_settings)
 
     def link(
         self,
-        other: "Frame",
+        other: "RecordStep",
         model_class: "type[Linker] | str",
         model_settings: "LinkerSettings | dict",
     ) -> "Model":
-        """Link this frame to another. A `Source` is a frame, needing no wrapping."""
+        """Link this record step to another. A `Source` is one, needing no wrapping."""
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle
 
         return Model(

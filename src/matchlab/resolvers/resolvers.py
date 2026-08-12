@@ -9,8 +9,8 @@ from matchlab.core.dataframes import qualify
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.kinds import StepKind
 from matchlab.core.resolver_output import materialise_resolver_output
-from matchlab.frames import Frame, IdentifierRead, build_frame
 from matchlab.models import Model
+from matchlab.recordstep import IdentifierRead, RecordStep, build_record_step
 from matchlab.resolvers.base import ResolverMethod, ResolverSettings
 from matchlab.resolvers.components import Components
 from matchlab.sources import Source
@@ -29,13 +29,13 @@ def add_resolver_class(resolver_class: type[ResolverMethod]) -> None:
 add_resolver_class(Components)
 
 
-class Resolver(Frame):
+class Resolver(RecordStep):
     """Clusters computed over one or more models' edges.
 
-    A resolver is also a `Frame`. Read as records, its rows are the sources it covers,
-    with `id` set to the entity root, so matching on top of a resolver is how a plan
-    layers (`deduped.link(dh, …)`). The resolver output it stores is a separate
-    artifact, and the frame itself is derived on read.
+    A resolver is also a `RecordStep`. Read as records, its rows are the sources it
+    covers, with `id` set to the entity root, so matching on top of a resolver is how a
+    plan layers (`deduped.link(dh, …)`). The resolver output it stores is a separate
+    artifact, and the record step itself is derived on read.
     """
 
     kind: ClassVar[StepKind] = StepKind.RESOLVER
@@ -193,16 +193,16 @@ class Resolver(Frame):
         # (the merge-forward / fall-through requirement).
 
         # Deduplicate what is read. Linking every pair of n sources gives n(n-1)
-        # (model, frame) pairs, but only a handful of distinct readings between them,
-        # since they share an upstream resolver and cover the same sources. Asking
-        # per pair would otherwise repeat the same query a quadratic number of times.
-        # `dict.fromkeys` dedupes while keeping lineage order, so the frame is built
-        # the same way every run.
+        # (model, record_step) pairs, but only a handful of distinct readings between
+        # them, since they share an upstream resolver and cover the same sources.
+        # Asking per pair would otherwise repeat the same query a quadratic number of
+        # times. `dict.fromkeys` dedupes while keeping lineage order, so the record
+        # step is built the same way every run.
         reads = dict.fromkeys(
             read
             for model in self.inputs
-            for frame in model.inputs
-            for read in frame._identifier_reads
+            for record_step in model.inputs
+            for read in record_step._identifier_reads
         )
         upstream = pl.concat(
             [adapter.read_identifiers(*read) for read in reads],
@@ -281,7 +281,7 @@ class Resolver(Frame):
         names = self._named(sources) if sources is not None else None
 
         # This is never empty. A resolver always has a source, and `_named` raises
-        # rather than narrow to none, so there is always a frame to start the join
+        # rather than narrow to none, so there is always a table to start the join
         # from.
         columns = [
             resolver_output.filter(pl.col("source") == source.name).select(
@@ -390,10 +390,10 @@ class Resolver(Frame):
             target: keys_in(target) for target in to_sources
         }
 
-    # -- Frame contract ---------------------------------------------------------------
+    # -- RecordStep contract -------------------------------------------------------
 
     def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
-        """Derive the frame, this resolver's sources with `id` set to the entity root.
+        """Derive the table, this resolver's sources with `id` set to the entity root.
 
         A re-derivable join over artifacts already stored (the source extracts and this
         resolver's output), so nothing is materialised for it.
@@ -402,7 +402,7 @@ class Resolver(Frame):
             raise RuntimeError(
                 "This resolver has not been collected. Call collect() first."
             )
-        return build_frame(adapter, self.sources, self)
+        return build_record_step(adapter, self.sources, self)
 
     @property
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:

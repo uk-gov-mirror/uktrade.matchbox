@@ -4,7 +4,7 @@
 testkit's *own* entity ID space, which is what `LinkedSources.diff_model_edges` compares
 a methodology against without running a plan. The model itself matches on row values
 (see `matchers`), so a collected plan reproduces the same answer over the
-content-derived IDs the frame actually carries.
+content-derived IDs the record step actually carries.
 
 Build one with `LinkedSources.dedupe()` or `.link()`. They know the answer, so nothing
 has to be threaded through by hand.

@@ -87,7 +87,7 @@ class SourceSpec(BaseModel):
 
 
 class TransformSpec(BaseModel):
-    """Specification of a transform, naming which transformer reshapes the frame."""
+    """Specification of a transform, naming the transformer that reshapes the step."""
 
     model_config = ConfigDict(frozen=True)
 

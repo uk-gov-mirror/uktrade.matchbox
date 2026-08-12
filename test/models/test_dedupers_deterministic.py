@@ -74,7 +74,7 @@ def test_recovers_planted(
         testkit.write_to_location()
     source = linked.sources["source_exact"]
 
-    # Mock the frame read so the deduper scores the generated rows directly.
+    # Mock the record step read so the deduper scores the generated rows directly.
     mock_read_cache.return_value = pl.from_arrow(source.data)
 
     deduper = Model(

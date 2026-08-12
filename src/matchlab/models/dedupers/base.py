@@ -16,13 +16,13 @@ class DeduperSettings(BaseModel):
 
 
 class Deduper(BaseModel, ABC):
-    """A methodology that finds candidate duplicate pairs within one frame.
+    """A methodology that finds candidate duplicate pairs within one record step.
 
     A `Model` step calls `prepare()` once, then `dedupe()`, each time it collects. Put
     one-off setup in `prepare()` instead, for example fitting a model over the whole
     dataset, so it doesn't repeat on every call to `dedupe()`. `dedupe()` must return
-    a frame with `left_id`, `right_id`, and `score` columns. `normalise_model_scores`
-    casts that frame to `SCHEMA_MODEL_EDGES`.
+    a table with `left_id`, `right_id`, and `score` columns. `normalise_model_scores`
+    casts that table to `SCHEMA_MODEL_EDGES`.
     """
 
     settings: DeduperSettings

@@ -10,11 +10,11 @@ Where a plan's artifacts are stored and read back, keyed by [fingerprint](#finge
 
 🧪 Testkits
 
-A [testkit's](#testkit) map from a generated row's own values to the [true entity](#true-entity) that produced it. It exists because matchlab derives a row's real ID by content-hashing at collect time, so no ID is knowable when the answer key is built. A [matcher](#matcher) built from one reads a row's values back out of whatever frame it is handed, and looks up the entity that row belongs to, which is what lets it score a plan it has never seen. `AnswerKey` is the class.
+A [testkit's](#testkit) map from a generated row's own values to the [true entity](#true-entity) that produced it. It exists because matchlab derives a row's real ID by content-hashing at collect time, so no ID is knowable when the answer key is built. A [matcher](#matcher) built from one reads a row's values back out of whatever record step it is handed, and looks up the entity that row belongs to, which is what lets it score a plan it has never seen. `AnswerKey` is the class.
 
 ## Artifact
 
-The stored output of one [step](#step), such as a source's [extract](#extract) and leaf assignment, a [transform](#transform)'s materialised frame, a model's edge list, or a [resolver](#resolver)'s complete, merge-forward output. A [store](#store) keeps every artifact it is given until something explicitly [prunes](#prune) it.
+The stored output of one [step](#step), such as a source's [extract](#extract) and leaf assignment, a [transform](#transform)'s materialised record step, a model's edge list, or a [resolver](#resolver)'s complete, merge-forward output. A [store](#store) keeps every artifact it is given until something explicitly [prunes](#prune) it.
 
 ## Cluster
 
@@ -32,7 +32,7 @@ Identified by what it is, not by when or how it was built. A step's [fingerprint
 
 ## Deduper
 
-A [methodology](#methodology) that finds candidate duplicate pairs within one [frame](#frame), run by `.dedupe()`. `NaiveDeduper` is the built-in. A custom one subclasses `Deduper` and registers with `add_model_class`, the same pattern [transformers](#transform) plug in with.
+A [methodology](#methodology) that finds candidate duplicate pairs within one [record step](#record-step), run by `.dedupe()`. `NaiveDeduper` is the built-in. A custom one subclasses `Deduper` and registers with `add_model_class`, the same pattern [transformers](#transform) plug in with.
 
 ## Entity
 
@@ -46,10 +46,6 @@ The rows a [source](#source)'s query returns, cached exactly as read so they can
 
 The 32-byte SHA-256 digest that keys a step's stored [artifact](#artifact). Two steps with identical configuration and identical input fingerprints hash to the same fingerprint, which is what makes a store [content-addressed](#content-addressed).
 
-## Frame
-
-A table with an `id` column, the records a [model](#model) matches over. A [source](#source), a [transform](#transform), and a [resolver](#resolver) are the three kinds. On a source, `id` is the leaf. On a resolver, `id` is the entity root, which is what makes layering possible. Every frame chains the same verbs (`select`, `clean`, `group`, `transform`, `dedupe`, `link`). A [model](#model) is the one step that is not a frame, since it yields edges rather than records.
-
 ## Judgement
 
 A person's decision that one reviewed cluster's records do, or do not, describe the same [entity](#entity), recorded by matchlab's evaluation tools and scored against a [resolver](#resolver)'s clusters. A judgement is anchored to the content a reviewer was shown, not to any record's key, which is why a [leaf](#leaf) ID, a hash of content, rather than a key, is what a judgement endorses or rejects.
@@ -60,11 +56,11 @@ A pointer from a name someone chose to a [resolver](#resolver)'s [fingerprint](#
 
 ## Leaf
 
-The stable ID of one record, a hash of its content rather than its key. Identity coming from content rather than key is why a leaf ID changes only when the underlying data does, which is the basis matchlab anchors evaluation judgements to. Reading a source or frame directly, without going through a resolver, exposes the leaf as the `id` column.
+The stable ID of one record, a hash of its content rather than its key. Identity coming from content rather than key is why a leaf ID changes only when the underlying data does, which is the basis matchlab anchors evaluation judgements to. Reading a source or record step directly, without going through a resolver, exposes the leaf as the `id` column.
 
 ## Linker
 
-A [methodology](#methodology) that finds candidate matches between two [frames](#frame), run by `.link()`. `DeterministicLinker`, `WeightedDeterministicLinker`, and `SplinkLinker` are the built-ins. A custom one subclasses `Linker` and registers with `add_model_class`.
+A [methodology](#methodology) that finds candidate matches between two [record steps](#record-step), run by `.link()`. `DeterministicLinker`, `WeightedDeterministicLinker`, and `SplinkLinker` are the built-ins. A custom one subclasses `Linker` and registers with `add_model_class`.
 
 ## Location
 
@@ -82,11 +78,11 @@ The guarantee that a [resolver](#resolver)'s stored output carries forward every
 
 ## Methodology
 
-The matching algorithm a [model](#model) or [resolver](#resolver) step runs. Models run `NaiveDeduper`, `DeterministicLinker`, `SplinkLinker`, or `WeightedDeterministicLinker`. Resolvers run connected components. A model wraps one methodology, chosen by `model_class`, using a [deduper](#deduper) to match within one frame or a [linker](#linker) to match between two. Swapping the methodology only means changing `model_class` (or `resolver_class`), never restructuring the plan around it.
+The matching algorithm a [model](#model) or [resolver](#resolver) step runs. Models run `NaiveDeduper`, `DeterministicLinker`, `SplinkLinker`, or `WeightedDeterministicLinker`. Resolvers run connected components. A model wraps one methodology, chosen by `model_class`, using a [deduper](#deduper) to match within one record step or a [linker](#linker) to match between two. Swapping the methodology only means changing `model_class` (or `resolver_class`), never restructuring the plan around it.
 
 ## Model
 
-A step that scores candidate matches by running one [methodology](#methodology). A [deduper](#deduper) matches within one [frame](#frame) via `.dedupe()`, and a [linker](#linker) matches between two via `.link()`. A model produces edges, not clusters. Turning edges into entities is a [resolver's](#resolver) job.
+A step that scores candidate matches by running one [methodology](#methodology). A [deduper](#deduper) matches within one [record step](#record-step) via `.dedupe()`, and a [linker](#linker) matches between two via `.link()`. A model produces edges, not clusters. Turning edges into entities is a [resolver's](#resolver) job.
 
 ## Plan
 
@@ -114,6 +110,14 @@ Re-publishing the same label at the same resolver output is a no-op. Aiming an e
 
 Prefix a column name with its [source](#source)'s name (`first_name` becomes `crn_first_name`), so the same field from two sources can sit side by side without colliding. A qualified column's prefix must parse as a valid identifier, which is why a source's `name` is restricted to safe characters.
 
+## Record step
+
+A record step is a kind of step whose job is to hold data that a [model](#model) can match over. It is not a table. It is the step that produces one, a table with an id column holding the records a model reads.
+
+A [source](#source), a [transform](#transform), and a [resolver](#resolver) are the three kinds of record step. On a source, id is the leaf. On a resolver, id is the entity root, which is what makes layering possible. Every record step chains the same verbs, `select`, `clean`, `group`, `transform`, `dedupe` and `link`.
+
+A [model](#model) is the one step that is not a record step. It yields edges rather than records.
+
 ## Resolver
 
 A step that collapses a model's scored edges into clusters, one per [entity](#entity). `.resolve()` defaults to connected components. A resolver's stored output is always complete and [merge-forward](#merge-forward).
@@ -122,7 +126,7 @@ Call this a **Resolver**, or its **merge-forwarded Resolver output** if you mean
 
 ## Root
 
-The ID of a cluster a resolver produces, a hash of the sorted set of [leaf](#leaf) IDs it contains. Two runs that produce the same clustering produce the same root ID, whatever order the underlying algorithm found its clusters in. Reading a [frame](#frame) through a resolver exposes the root as the `id` column, so several records can share one `id`.
+The ID of a cluster a resolver produces, a hash of the sorted set of [leaf](#leaf) IDs it contains. Two runs that produce the same clustering produce the same root ID, whatever order the underlying algorithm found its clusters in. Reading a [record step](#record-step) through a resolver exposes the root as the `id` column, so several records can share one `id`.
 
 ## Source
 
@@ -148,7 +152,7 @@ The package checks a plan's answer two ways, because matchlab derives a record's
 
 ## Transform
 
-A step that reshapes a [frame](#frame) with a pluggable, serialisable **transformer**. `select` keeps only the named columns, `clean` derives new ones with DuckDB SQL while keeping the rest, `group` collapses each `id` to one row, and `Explode` gives one row per combination of each column's non-null values. `transform()` is the general verb they desugar to (`.clean(...)` is `.transform(Clean(...))`). `Explode` has no verb of its own, so it is reached only that way. `Transformer` is the base class. `Select`, `Clean`, `Group`, and `Explode` are the built-ins, and a custom one registers with `add_transformer_class`, the same pattern [dedupers](#deduper) and [linkers](#linker) plug in with. Its configuration is part of the plan and its [fingerprint](#fingerprint), like any [methodology](#methodology)'s settings.
+A step that reshapes a [record step](#record-step) with a pluggable, serialisable **transformer**. `select` keeps only the named columns, `clean` derives new ones with DuckDB SQL while keeping the rest, `group` collapses each `id` to one row, and `Explode` gives one row per combination of each column's non-null values. `transform()` is the general verb they desugar to (`.clean(...)` is `.transform(Clean(...))`). `Explode` has no verb of its own, so it is reached only that way. `Transformer` is the base class. `Select`, `Clean`, `Group`, and `Explode` are the built-ins, and a custom one registers with `add_transformer_class`, the same pattern [dedupers](#deduper) and [linkers](#linker) plug in with. Its configuration is part of the plan and its [fingerprint](#fingerprint), like any [methodology](#methodology)'s settings.
 
 ## True entity
 

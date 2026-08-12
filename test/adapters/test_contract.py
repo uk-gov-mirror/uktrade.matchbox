@@ -80,14 +80,14 @@ def test_store_idempotent(
 
 
 def test_store_rejects_resolver_schema(store: Adapter, fp: Fingerprints) -> None:
-    """A resolver frame missing key/source columns is refused."""
+    """A resolver table missing key/source columns is refused."""
     bad = pl.DataFrame({"root": [1], "leaf": [2]})  # missing key/source
     with pytest.raises(SchemaMismatch):
         store.store_resolver(fp.resolver, bad)
 
 
 def test_store_rejects_model_schema(store: Adapter, fp: Fingerprints) -> None:
-    """A model frame missing its score column is refused."""
+    """A model table missing its score column is refused."""
     bad = pl.DataFrame({"left_id": [1], "right_id": [2]})  # missing score
     with pytest.raises(SchemaMismatch):
         store.store_model(fp.model, bad)
