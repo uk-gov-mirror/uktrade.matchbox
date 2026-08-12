@@ -94,7 +94,7 @@ class EntityResolutionApp(App):
     """Main Textual application for entity resolution evaluation."""
 
     CSS_PATH = Path(__file__).parent / "styles.tcss"
-    TITLE = "Matchbox evaluate"
+    TITLE = "matchlab evaluate"
     SUB_TITLE = "match labelling tool"
 
     # Triggered by action_* methods

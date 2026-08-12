@@ -6,6 +6,16 @@ authors = [{ name="Department for Business and Trade" }]
 license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "adbc-driver-manager>=1.9.0",
     "duckdb>=1.1.1",
@@ -58,7 +68,7 @@ build-backend = "setuptools.build_meta"
 
 # Presence enables setuptools-scm
 [tool.setuptools_scm]
-fallback_version = "0.0.0"
+fallback_version = "0.1.0"
 
 [tool.uv]
 default-groups = ["dev", "typing"]

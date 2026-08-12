@@ -13,6 +13,8 @@ Nothing runs until `collect()`, and collecting again only does the work whose pl
 or inputs changed.
 """
 
+from importlib.metadata import version
+
 from matchlab.document import PlanDocument, dump, load
 from matchlab.locations import RelationalDBLocation
 from matchlab.models import Model
@@ -29,6 +31,8 @@ from matchlab.transformers import (
     add_transformer_class,
 )
 
+__version__ = version("matchlab")
+
 __all__ = (
     "Clean",
     "Group",
@@ -42,6 +46,7 @@ __all__ = (
     "Step",
     "Transform",
     "Transformer",
+    "__version__",
     "add_transformer_class",
     "default_adapter",
     "dump",
