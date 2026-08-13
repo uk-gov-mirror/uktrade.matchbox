@@ -27,7 +27,7 @@ from matchlab.core.dataframes import (
     qualify,
     validate_col_prefix,
 )
-from matchlab.core.hash import HashMethod, hash_arrow_table, hash_rows
+from matchlab.core.hash import HashMethod, hash_dataframe, hash_rows
 from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.resolver_output import leaf_id
@@ -263,7 +263,7 @@ class Source(RecordStep):
         never re-stored, and downstream record steps kept reading the stale value.
         """
         _, hashes = self._read_warehouse()
-        return super()._spec_key() + hash_arrow_table(hashes.to_arrow())
+        return super()._spec_key() + hash_dataframe(hashes)
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         extract, _ = self._read_warehouse()

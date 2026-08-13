@@ -6,7 +6,6 @@ from enum import StrEnum
 import polars as pl
 import polars.expr as plx
 import polars_hash as plh
-import pyarrow as pa
 
 HASH_FUNC = hashlib.sha256
 
@@ -72,7 +71,12 @@ def hash_rows(
 
     if method == HashMethod.XXH3_128:
         row_hashes = df_processed.select(
-            plh.concat_str(str_concatenation).nchash.xxh3_128().alias("row_hash")
+            # Pinned explicitly: later polars-hash versions return a u128 int here,
+            # and leaves require binary
+            plh.concat_str(str_concatenation)
+            .nchash.xxh3_128()
+            .cast(pl.Binary)
+            .alias("row_hash")
         )
         return row_hashes["row_hash"]
     elif method == HashMethod.SHA256:
@@ -87,12 +91,12 @@ def hash_rows(
         raise ValueError(f"Unsupported hash method: {method}")
 
 
-def hash_arrow_table(
-    table: pa.Table,
+def hash_dataframe(
+    df: pl.DataFrame,
     method: HashMethod = HashMethod.XXH3_128,
     as_sorted_list: list[str] | None = None,
 ) -> bytes:
-    """Content-address `table` with a hash invariant to row and column order.
+    """Content-address `df` with a hash invariant to row and column order.
 
     Pass `as_sorted_list` (2 or more column names, e.g. `["left_id", "right_id"]`) to
     hash those columns as a sorted set instead of individually, so `(1, 2)` and
@@ -104,10 +108,8 @@ def hash_arrow_table(
 
     Raises:
         ValueError: If `as_sorted_list` names fewer than two columns, or a column
-            `table` doesn't have.
+            `df` doesn't have.
     """
-    df = pl.from_arrow(table)
-
     if df.height == 0:
         return b"empty_table_hash"
 
