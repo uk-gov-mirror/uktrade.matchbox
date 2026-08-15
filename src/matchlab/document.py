@@ -181,7 +181,7 @@ def dump(root: Step) -> PlanDocument:
     position = {id(step): index for index, step in enumerate(ordered)}
     return PlanDocument(
         steps=tuple(
-            _node(step, tuple(position[id(parent)] for parent in step.upstream))
+            _node(step, tuple(position[id(parent)] for parent in step.parents))
             for step in ordered
         )
     )

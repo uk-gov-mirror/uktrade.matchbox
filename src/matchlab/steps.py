@@ -1,6 +1,6 @@
 """The lazy plan node.
 
-A `Step` holds references to its **inputs only** (`upstream`). There is no registry,
+A `Step` holds references to its **inputs only** (`parents`). There is no registry,
 no parent pointer, and no downstream list. "The DAG" is whatever is reachable
 upstream from the node you hold, and lineage operations are pure functions of a root
 node (`matchlab.lineage`).
@@ -15,6 +15,9 @@ can skip a cached step without running it. Sources are the exception. Raw data e
 there, so a source's spec key includes a content hash of the data it read.
 Constructing a fresh `Source` therefore re-reads the warehouse (the documented way to
 refresh), while an existing `Source` object memoises its read.
+
+**A step is settled once built.** Everything its spec is derived from refuses
+assignment, so a plan is changed by rebuilding it, not by editing a node in place.
 """
 
 import json
@@ -56,8 +59,17 @@ class Step(ABC):
 
     kind: ClassVar[StepKind]
 
-    def __init__(self, upstream: "tuple[Step, ...]" = ()) -> None:
-        """Initialise a plan node with its direct inputs.
+    @property
+    @abstractmethod
+    def parents(self) -> "tuple[Step, ...]":
+        """This step's direct inputs, in the order they fold into its fingerprint.
+
+        The kind-agnostic view of a step's edges.
+        """
+        ...
+
+    def __init__(self) -> None:
+        """Initialise a plan node.
 
         Steps have no names. They are identified by **position**, where they fall in
         `lineage.walk`, which is the order `collect` runs them in and the order
@@ -74,9 +86,37 @@ class Step(ABC):
         one step with a name, and it means something else again. A source's name is
         part of its output, prefixing every column it contributes and tagging its rows.
         """
-        self.upstream = tuple(upstream)
         self._fp: Fingerprint | None = None
         self._adapter: Adapter | None = None
+
+    # -- immutability -----------------------------------------------------------------
+    #
+    # A step builds what it runs from its settings at construction, so an assignment
+    # afterwards would move one attribute and nothing derived from it: setting
+    # `model_class` leaves the built methodology instance running the old class, with
+    # `spec` naming one configuration while `_execute` runs another. The cache leans on
+    # the same guarantee from the other side. `_ensure` short-circuits on a stored
+    # fingerprint *because* a settled step cannot have changed.
+
+    #: Attributes only `__init__` may write. A kind names its own and unions this, so a
+    #: `Step` subclass keeps whatever attributes it likes. The guard protects what the
+    #: plan machinery reads, not every attribute on the object. `parents` is not
+    #: here: it is a property, which refuses assignment without any help.
+    _READ_ONLY: ClassVar[frozenset[str]] = frozenset()
+
+    def __setattr__(self, name: str, value: object) -> None:
+        """Refuse writes to what a spec, or the plan's shape, is built from."""
+        if name in self._READ_ONLY:
+            raise AttributeError(
+                f"{type(self).__name__}.{name} is read-only. A step is settled once "
+                "built, so rebuild the plan to change it."
+            )
+        object.__setattr__(self, name, value)
+
+    def _set(self, **attributes: object) -> None:
+        """Write attributes past the read-only guard. `__init__` is the only caller."""
+        for name, value in attributes.items():
+            object.__setattr__(self, name, value)
 
     def __repr__(self) -> str:
         """Return a short representation showing kind and collection state."""
@@ -105,7 +145,7 @@ class Step(ABC):
         re-running (see `_fingerprint`).
 
         Specs describe a step's own settings, not its inputs'. Edges live on
-        `upstream`, and `_fingerprint` already folds in the parents' fingerprints.
+        `parents`, and `_fingerprint` already folds in their fingerprints.
         """
         ...
 
@@ -156,7 +196,7 @@ class Step(ABC):
         See PLAN.md, "Known limitations", for the full ledger.
         """
         parts: list[bytes] = [self.kind.encode(), self._spec_key()]
-        for parent in self.upstream:
+        for parent in self.parents:
             if parent._fp is None:  # collect orders upstream first
                 raise RuntimeError(
                     f"A {parent.kind} input of this {self.kind} has no fingerprint yet."
@@ -173,6 +213,11 @@ class Step(ABC):
 
     def _ensure(self, adapter: Adapter) -> StepStatus:
         """Materialise this step unless its artifact is already stored.
+
+        A step this object already collected short-circuits on its stored `_fp`, without
+        recomputing the fingerprint. A settled step cannot have changed, so recomputing
+        would only confirm the fingerprint already held. That saves a spec hash per step
+        per collect, which for a `Source` means re-hashing every row hash it memoised.
 
         This classifies the outcome but reports none of it. `collect` holds the walk,
         and therefore each step's position, the thing a record has to quote to be

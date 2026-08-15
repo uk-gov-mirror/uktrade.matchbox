@@ -31,10 +31,16 @@ class FakeStep(Step):
 
     kind: ClassVar[StepKind] = StepKind.TRANSFORM
 
-    def __init__(self, label: str = "fake", upstream: tuple[Step, ...] = ()) -> None:
-        """Create a fake step with the given label and upstream steps."""
+    def __init__(self, label: str = "fake", parents: tuple[Step, ...] = ()) -> None:
+        """Create a fake step with the given label and parent steps."""
         self.label = label
-        super().__init__(upstream=upstream)
+        self._parents = parents
+        super().__init__()
+
+    @property
+    def parents(self) -> tuple[Step, ...]:
+        """`Step` leaves each kind to name its own inputs; this one just holds them."""
+        return self._parents
 
     def __str__(self) -> str:
         """Return the label, so drawings identify nodes by it."""
@@ -52,8 +58,8 @@ class FakeStep(Step):
 def test_walk_inputs_before_consumers() -> None:
     """Walk yields every input before the step that consumes it."""
     a = FakeStep("a")
-    b = FakeStep("b", upstream=(a,))
-    c = FakeStep("c", upstream=(b,))
+    b = FakeStep("b", parents=(a,))
+    c = FakeStep("c", parents=(b,))
 
     order = [step.label for step in lineage.walk(c)]
     assert order == ["a", "b", "c"]
@@ -62,9 +68,9 @@ def test_walk_inputs_before_consumers() -> None:
 def test_walk_shared_once() -> None:
     """A diamond: shared nodes are structurally shared, not duplicated."""
     shared = FakeStep("shared")
-    left = FakeStep("left", upstream=(shared,))
-    right = FakeStep("right", upstream=(shared,))
-    root = FakeStep("root", upstream=(left, right))
+    left = FakeStep("left", parents=(shared,))
+    right = FakeStep("right", parents=(shared,))
+    root = FakeStep("root", parents=(left, right))
 
     order = [step.label for step in lineage.walk(root)]
     assert order.count("shared") == 1
@@ -77,7 +83,7 @@ def test_walk_shared_once() -> None:
 def test_walk_from_leaf() -> None:
     """Walk from a leaf is just the leaf."""
     leaf = FakeStep("leaf")
-    FakeStep("downstream", upstream=(leaf,))  # never reachable from the leaf
+    FakeStep("downstream", parents=(leaf,))  # never reachable from the leaf
     assert [step.label for step in lineage.walk(leaf)] == ["leaf"]
 
 
@@ -89,9 +95,9 @@ def test_draw_shared_refers_back() -> None:
     the back-reference readable: `↑ [0]` names a node you have already seen.
     """
     shared = FakeStep("shared")
-    left = FakeStep("left", upstream=(shared,))
-    right = FakeStep("right", upstream=(shared,))
-    root = FakeStep("root", upstream=(left, right))
+    left = FakeStep("left", parents=(shared,))
+    right = FakeStep("right", parents=(shared,))
+    root = FakeStep("root", parents=(left, right))
 
     drawing = lineage.draw(root)
 
@@ -105,7 +111,7 @@ def test_draw_shared_refers_back() -> None:
 def test_draw_nests_inputs() -> None:
     """Draw nests each step's inputs beneath it."""
     source = FakeStep("source")
-    apex = FakeStep("apex", upstream=(source,))
+    apex = FakeStep("apex", parents=(source,))
 
     drawing = lineage.draw(apex)
     assert "apex" in drawing
@@ -122,7 +128,7 @@ def test_draw_numbers_by_position() -> None:
     numbers deliberately do not ascend down the page.
     """
     source = FakeStep("source")
-    apex = FakeStep("apex", upstream=(source,))
+    apex = FakeStep("apex", parents=(source,))
 
     drawing = lineage.draw(apex)
     assert "[1] apex" in drawing  # apex is walked last
@@ -138,7 +144,7 @@ def test_number_is_read_only() -> None:
     need a position are handed it.
     """
     source = FakeStep()
-    apex = FakeStep(upstream=(source,))
+    apex = FakeStep(parents=(source,))
 
     assert lineage.number(apex) == {id(source): 0, id(apex): 1}
     assert lineage.number(source) == {id(source): 0}
@@ -149,8 +155,8 @@ def test_number_is_read_only() -> None:
 def test_step_no_downstream_ref() -> None:
     """The structural guarantee: a node exposes its inputs and nothing else."""
     source = FakeStep("source")
-    FakeStep("apex", upstream=(source,))
+    FakeStep("apex", parents=(source,))
 
-    assert source.upstream == ()
+    assert source.parents == ()
     assert not hasattr(source, "downstream")
     assert not hasattr(source, "dag")

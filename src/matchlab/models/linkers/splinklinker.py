@@ -2,6 +2,7 @@
 
 import inspect
 import json
+from copy import deepcopy
 from typing import Any
 
 import polars as pl
@@ -202,10 +203,16 @@ class SplinkLinker(Linker):
             pl.col(self.settings.right_id).cast(pl.String)
         ).to_pandas()
 
+        # A copy, because building a Splink linker writes into the settings it is
+        # given: it stamps a random `linker_uid` onto them. Handed our own object,
+        # that mutation lands in `SplinkSettings`, and so in this model's `spec` and
+        # its fingerprint, which would then be different after running than it was
+        # before. A step has to address the same artifact whether or not it has been
+        # run, and a random value could never be part of that address anyway.
         self._linker = SplinkLibLinkerClass(
             input_table_or_tables=[left_pd, right_pd],
             input_table_aliases=["l", "r"],
-            settings=self.settings.linker_settings,
+            settings=deepcopy(self.settings.linker_settings),
             db_api=DuckDBAPI(),
         )
 

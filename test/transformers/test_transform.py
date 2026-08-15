@@ -27,7 +27,7 @@ def test_select_desugars_to_transform(source: Callable[..., Source]) -> None:
     assert isinstance(step, Transform)
     assert isinstance(step.transformer, Select)
     assert step.transformer.columns == ("crn_company", "crn_town")
-    assert step.upstream == (crn,)
+    assert step.parents == (crn,)
 
 
 @pytest.mark.parametrize(

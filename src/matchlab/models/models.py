@@ -34,6 +34,11 @@ def add_model_class(model_class: type[Linker] | type[Deduper]) -> None:
     _MODEL_CLASSES[model_class.__name__] = model_class
 
 
+def _model_type_of(model_class: "type[Linker] | type[Deduper]") -> ModelType:
+    """Whether a methodology class links or dedupes."""
+    return ModelType.LINKER if issubclass(model_class, Linker) else ModelType.DEDUPER
+
+
 def normalise_model_scores(scores: pl.DataFrame) -> pl.DataFrame:
     """Validate a methodology's raw output and cast it to `SCHEMA_MODEL_EDGES`.
 
@@ -95,6 +100,17 @@ class Model(Step):
 
     kind: ClassVar[StepKind] = StepKind.MODEL
 
+    _READ_ONLY: ClassVar[frozenset[str]] = Step._READ_ONLY | frozenset(
+        {"left", "right", "model_class", "model_settings", "model_instance"}
+    )
+
+    #: Settled at construction. See `Step.parents` for why these are declared.
+    left: RecordStep
+    right: RecordStep | None
+    model_class: type[Deduper] | type[Linker]
+    model_settings: DeduperSettings | LinkerSettings
+    model_instance: Deduper | Linker
+
     def __init__(
         self,
         left: RecordStep,
@@ -110,34 +126,52 @@ class Model(Step):
             model_settings: The settings object for that class, or a dict.
             right: The right side of a link. Omit for a deduper.
         """
-        self.left = left
-        self.right = right
-
-        self.model_class = (
+        resolved_class = (
             _MODEL_CLASSES[model_class] if isinstance(model_class, str) else model_class
-        )
-        self.model_instance = self.model_class(settings=model_settings)
-        self.model_type = (
-            ModelType.LINKER
-            if issubclass(self.model_class, Linker)
-            else ModelType.DEDUPER
         )
 
         if isinstance(model_settings, dict):
-            settings_class = self.model_class.model_fields["settings"].annotation
-            self.model_settings = settings_class(**model_settings)
+            settings_class = resolved_class.model_fields["settings"].annotation
+            settings = settings_class(**model_settings)
         else:
-            self.model_settings = model_settings
+            settings = model_settings
 
-        if (self.model_type == ModelType.LINKER) != (right is not None):
+        if (_model_type_of(resolved_class) is ModelType.LINKER) != (right is not None):
             raise ValueError(
                 "A linker requires a right input; a deduper must not have one."
             )
 
-        upstream: tuple[Step, ...] = (left,) if right is None else (left, right)
-        super().__init__(upstream=upstream)
+        super().__init__()
+
+        # The instance is built from `settings`, the same object `spec` reads, rather
+        # than from the argument. Built from a settings *dict*, it would construct a
+        # second, equal settings object, and `spec` would then describe one while
+        # `_execute` ran the other. Pydantic passes a model instance through by
+        # reference, so this is genuinely shared.
+        self._set(
+            left=left,
+            right=right,
+            model_class=resolved_class,
+            model_settings=settings,
+            model_instance=resolved_class(settings=settings),
+        )
+
+    # -- inputs -----------------------------------------------------------------------
+
+    @property
+    def parents(self) -> tuple[RecordStep, ...]:
+        """The record steps this model reads: one for a deduper, two for a linker."""
+        return (self.left,) if self.right is None else (self.left, self.right)
 
     # -- Step contract ----------------------------------------------------------------
+
+    @property
+    def model_type(self) -> ModelType:
+        """Whether this model dedupes or links.
+
+        Derived from `model_class`, so it cannot drift from it.
+        """
+        return _model_type_of(self.model_class)
 
     def __str__(self) -> str:
         """A model is drawn with the class implementing it."""
@@ -173,11 +207,6 @@ class Model(Step):
             self.collect()
         adapter, fp = self._collected()
         return adapter.read_model(fp)
-
-    @property
-    def inputs(self) -> tuple[RecordStep, ...]:
-        """The record steps this model reads."""
-        return (self.left,) if self.right is None else (self.left, self.right)
 
     # -- verbs ------------------------------------------------------------------------
 

@@ -399,11 +399,11 @@ def test_rebuild_reads_resolver_as_record_step(
     reading_resolver = [
         step
         for step in lineage.walk(rebuilt)
-        if isinstance(step, Transform) and isinstance(step.upstream[0], Resolver)
+        if isinstance(step, Transform) and isinstance(step.parents[0], Resolver)
     ]
 
     assert len(reading_resolver) == 1
-    assert [s.name for s in reading_resolver[0].upstream[0].sources] == ["crn"]
+    assert [s.name for s in reading_resolver[0].parents[0].sources] == ["crn"]
 
 
 def test_rebuild_transform_chain(

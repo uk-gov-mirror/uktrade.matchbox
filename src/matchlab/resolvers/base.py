@@ -39,7 +39,7 @@ class ResolverSettings(BaseModel, ABC):
     holds a plan node. A methodology stays a pure function of edges and numbers.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class ResolverMethod(BaseModel, ABC):

@@ -1,6 +1,6 @@
 """Lineage algorithms over a plan tree.
 
-Steps hold references to their *inputs* only (`step.upstream`). There is no registry
+Steps hold references to their *inputs* only (`step.parents`). There is no registry
 and no downstream pointer. "The DAG" is therefore
 whatever is reachable upstream from the node you are holding, and every graph
 operation is a pure function of a root node.
@@ -104,7 +104,7 @@ def walk(root: "Step") -> list["Step"]:
 
     Upstream steps always precede the steps that consume them, so executing the
     returned list in order satisfies every dependency. Implemented as an iterative
-    depth-first post-order over the upstream references.
+    depth-first post-order over the parent references.
     """
     ordered: list[Step] = []
     seen: set[int] = set()
@@ -121,7 +121,7 @@ def walk(root: "Step") -> list["Step"]:
             continue
         seen.add(id(step))
         stack.append((step, True))
-        for parent in step.upstream:
+        for parent in step.parents:
             if id(parent) not in seen:
                 stack.append((parent, False))
 
@@ -225,7 +225,7 @@ def render(
             return
 
         child_prefix = prefix + ("    " if connector in ("└── ", "") else "│   ")
-        parents = step.upstream
+        parents = step.parents
         for index, parent in enumerate(parents):
             last = index == len(parents) - 1
             draw_step(parent, child_prefix, "└── " if last else "├── ")

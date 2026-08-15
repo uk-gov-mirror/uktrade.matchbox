@@ -35,6 +35,7 @@ from matchlab.core.sql import SQLQuery
 from matchlab.locations import Location
 from matchlab.recordstep import IdentifierRead, RecordStep, build_record_step
 from matchlab.specs import SourceSpec
+from matchlab.steps import Step
 
 
 class Source(RecordStep):
@@ -46,6 +47,18 @@ class Source(RecordStep):
     """
 
     kind: ClassVar[StepKind] = StepKind.SOURCE
+
+    _READ_ONLY: ClassVar[frozenset[str]] = RecordStep._READ_ONLY | frozenset(
+        {"location", "name", "extract_transform", "key_field"}
+    )
+
+    #: Settled at construction. Declared, rather than only assigned, so a reader and a
+    #: type checker can both see what a source holds: `_set` writes them past
+    #: `__setattr__`, which is invisible to static analysis.
+    location: Location
+    name: str
+    extract_transform: SQLQuery
+    key_field: str
 
     def __init__(
         self,
@@ -73,14 +86,6 @@ class Source(RecordStep):
         """
         validate_col_prefix(name)
 
-        # A source's name is not a way of finding it later, the way a published
-        # resolver output's is. It prefixes every column this source contributes and
-        # tags its rows in a resolver's output, so it is part of the output. That is
-        # why it is required, lives on the source itself, and is hashed into the
-        # fingerprint.
-        self.name = name
-        super().__init__()
-
         if not isinstance(key_field, str):
             raise ValueError(
                 f"key_field must be a column name, got {type(key_field).__name__}"
@@ -89,12 +94,23 @@ class Source(RecordStep):
         if validate_etl:
             location.validate_extract_transform(extract_transform)
 
-        self.location = location
-        self.extract_transform = extract_transform
-        self.key_field = key_field
+        super().__init__()
 
         # Memoised warehouse read: (extract, hashes). Populated on first fingerprint.
         self._read: tuple[pl.DataFrame, pl.DataFrame] | None = None
+
+        # A source's name is part of the outputs
+        self._set(
+            location=location,
+            name=name,
+            extract_transform=extract_transform,
+            key_field=key_field,
+        )
+
+    @property
+    def parents(self) -> tuple[Step, ...]:
+        """A source is a leaf in a plan."""
+        return ()
 
     # -- spec -------------------------------------------------------------------------
 

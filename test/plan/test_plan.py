@@ -19,15 +19,18 @@ from collections.abc import Callable
 
 import polars as pl
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import Engine, text
 
-from matchlab import Model, Resolver, Source, Transform, lineage
+from matchlab import Model, Resolver, Source, Step, Transform, lineage
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import StepNotFound
+from matchlab.core.kinds import StepKind
 from matchlab.locations import RelationalDBLocation
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
-from matchlab.transformers import Explode
+from matchlab.specs import ModelType, SourceSpec
+from matchlab.transformers import Explode, Select
 
 # `warehouse`, `adapter` and the `source` factory come from `test/conftest.py`. The
 # module-level `_apex`/`_fan_out_plan` builders take that factory, so this file holds no
@@ -68,7 +71,7 @@ def _ids_by_key(matches: pl.DataFrame, column: str) -> dict[str, int]:
 def test_plan_needs_no_dag(source: Callable[..., Source]) -> None:
     """A plan is reachable purely through upstream references, with no DAG object."""
     crn = source("crn")
-    assert crn.upstream == ()
+    assert crn.parents == ()
     assert not crn.is_collected
 
     deduped = _dedupe_crn(crn)
@@ -131,6 +134,15 @@ def _sabotage(step) -> None:  # noqa: ANN001 - any Step
         raise AssertionError(f"{step!r} re-ran instead of being read from cache")
 
     step._execute = boom
+
+
+def _seal(source) -> None:  # noqa: ANN001 - any Source
+    """Make any further warehouse read fail, leaving the memoised one usable."""
+
+    def boom(*_a: object, **_k: object) -> None:
+        raise AssertionError(f"{source!r} re-read the warehouse")
+
+    source.fetch = boom
 
 
 def test_collect_recollect_noop(source: Callable[..., Source]) -> None:
@@ -277,15 +289,160 @@ def test_source_keys_are_strings(warehouse: Engine) -> None:
 
 
 def test_source_memoises_read(warehouse: Engine, source: Callable[..., Source]) -> None:
-    """Re-collecting an existing Source must not re-read the warehouse."""
+    """Re-collecting an existing Source must not re-read the warehouse.
+
+    Asserted against `fetch`, the call that actually goes to the warehouse, rather than
+    against `_read_warehouse`, which is the memo itself. `_ensure` recomputes every
+    fingerprint on every collect, so a source's `_spec_key` does run again and does
+    re-hash the rows. What it must not do is fetch them again.
+    """
     crn = source("crn")
     crn.collect()
 
-    def boom() -> None:
-        raise AssertionError("the warehouse was re-read")
+    _seal(crn)
+    crn.collect()  # the memoised read carries the fingerprint
 
-    crn._read_warehouse = boom
-    crn.collect()  # memoised fingerprint short-circuits
+
+# -- immutability ---------------------------------------------------------------------
+
+
+def test_spec_attributes_read_only(source: Callable[..., Source]) -> None:
+    """Everything a spec is built from refuses assignment, saying what to do instead."""
+    crn = source("crn")
+    model = crn.dedupe(
+        model_class=NaiveDeduper, model_settings={"unique_fields": ["crn_company"]}
+    )
+    resolver = model.resolve()
+
+    # Non-comprenehsinve list of read-only attributes
+    for step, attribute, value in [
+        (crn, "extract_transform", "select pk from crn"),
+        (model, "model_settings", None),
+        (resolver, "resolver_settings", None),
+    ]:
+        with pytest.raises(AttributeError, match="read-only"):
+            setattr(step, attribute, value)
+
+    # The settings objects are frozen too, so there is no way round the guard.
+    with pytest.raises(ValidationError):
+        model.model_settings.unique_fields = ["crn_town"]
+    with pytest.raises(ValidationError):
+        resolver.resolver_settings.thresholds = {0: 0.9}
+
+
+def test_parents(source: Callable[..., Source]) -> None:
+    """`parents` is derived for all step kinds."""
+    crn, dh = source("crn"), source("dh")
+    transform = crn.clean({"crn_company": "lower(crn_company)"})
+    dedupe = transform.dedupe(NaiveDeduper, {"unique_fields": ["crn_company"]})
+    link = crn.link(
+        dh,
+        model_class=DeterministicLinker,
+        model_settings={"comparisons": "l.crn_company = r.dh_company"},
+    )
+    resolver = dedupe.resolve()
+
+    assert crn.parents == ()  # a source is a leaf
+    assert transform.parents == (crn,)
+    assert dedupe.parents == (transform,)  # a deduper reads one
+    assert link.parents == (crn, dh)  # a linker reads two, left then right
+    assert resolver.parents == (dedupe,)  # a resolver reads models
+
+    # Derived, so there is nothing to assign to.
+    for step in (crn, transform, dedupe, resolver):
+        with pytest.raises(AttributeError):
+            step.parents = ()
+
+
+def test_editable_step_attributes() -> None:
+    """The read-only guard does not cover every attribute."""
+
+    class Custom(Step):
+        kind = StepKind.SOURCE
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.label = "mine"
+
+        @property
+        def parents(self) -> tuple[Step, ...]:
+            return ()
+
+        @property
+        def spec(self) -> SourceSpec:  # pragma: no cover - never collected
+            raise NotImplementedError
+
+        def _execute(self, adapter: object, fp: bytes) -> None:  # pragma: no cover
+            raise NotImplementedError
+
+    assert Custom().label == "mine"
+
+
+def test_rebuilding_unchanged_cache(source: Callable[..., Source]) -> None:
+    """Rebuilding is how a plan changes, and it costs only the steps that moved.
+
+    The source and the transform above the edit address the same artifacts as before,
+    so they are cache hits. Only the model and the resolver run again. That is what
+    makes rebuilding an acceptable price for immutability.
+    """
+    crn = source("crn")
+
+    def build(unique_fields: list[str]) -> Resolver:
+        return (
+            crn.clean({"crn_company": "lower(crn_company)"})
+            .dedupe(model_class=NaiveDeduper, model_settings={"unique_fields": unique})
+            .resolve()
+        )
+
+    unique = ["crn_company"]
+    first = build(unique)
+    first.collect()
+    before = [step._fp for step in first.lineage()]
+
+    unique = ["crn_town"]  # the edit
+    second = build(unique)
+    second.collect()
+    after = [step._fp for step in second.lineage()]
+
+    # source, transform unchanged; model, resolver moved.
+    assert before[:2] == after[:2]
+    assert before[2:] != after[2:]
+
+
+def test_derived_class_attributes_drift(source: Callable[..., Source]) -> None:
+    """`transformer_class` and `model_type` are read off what they describe."""
+    crn = source("crn")
+    transform = crn.clean({"crn_company": "lower(crn_company)"})
+    model = crn.dedupe(
+        model_class=NaiveDeduper, model_settings={"unique_fields": ["crn_company"]}
+    )
+
+    assert transform.transformer_class is type(transform.transformer)
+    assert transform.spec.transformer_class == "Clean"
+    assert model.model_type is ModelType.DEDUPER
+
+    # Neither is a stored attribute, so neither can be written out of agreement.
+    with pytest.raises(AttributeError):
+        transform.transformer_class = Select
+    with pytest.raises(AttributeError):
+        model.model_type = ModelType.LINKER
+
+
+def test_model_settings_one_object(source: Callable[..., Source]) -> None:
+    """`spec` and `_execute` must read the same settings, however they were passed.
+
+    Built from a dict, `Model` used to construct the settings twice: once for the
+    methodology instance and once for itself. Two objects that start equal are two
+    objects that can stop being equal.
+    """
+    crn = source("crn")
+    model = crn.dedupe(
+        model_class=NaiveDeduper, model_settings={"unique_fields": ["crn_company"]}
+    )
+    assert model.model_settings is model.model_instance.settings
+
+    resolver = model.resolve()
+    assert resolver.resolver_settings is resolver.resolver_instance.settings
 
 
 # -- Record step storage ---------------------------------------------------------
@@ -467,7 +624,7 @@ def test_read_identifiers_once_per_source(
 ) -> None:
     """Once per source, not once per model: the quadratic the resolver collapses."""
     apex, models = _fan_out_plan(source)
-    assert sum(len(model.inputs) for model in apex.inputs) == 4  # the pairs it walks
+    assert sum(len(model.parents) for model in apex.parents) == 4  # the pairs it walks
 
     # Collect the models first so their own reads are done and cleared. What the apex
     # collect records is then the resolver's alone.
@@ -875,7 +1032,7 @@ def test_read_direct_and_through_resolver_distinct(
     deduped = first.resolve()  # a resolver, and a record step reading crn at id=root
     second = deduped.dedupe(model_class=NaiveDeduper, model_settings=settings)
 
-    assert crn.upstream == ()  # a source read directly is a leaf
+    assert crn.parents == ()  # a source read directly is a leaf
     assert second.left is deduped  # the model reads the resolver directly, no wrapper
 
     second.resolve().collect()
@@ -1025,7 +1182,8 @@ def test_edges_keyed_by_position(
             seen.update({position: len(df) for position, df in model_edges.items()})
             return self.wrapped.compute_clusters(model_edges=model_edges)
 
-    resolver.resolver_instance = Spy(resolver.resolver_instance)
+    # Past the read-only guard: a test double, not a configuration change.
+    object.__setattr__(resolver, "resolver_instance", Spy(resolver.resolver_instance))
     resolver.collect()
 
     assert set(seen) == {0, 1}

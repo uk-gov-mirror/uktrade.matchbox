@@ -39,36 +39,56 @@ class Transform(RecordStep):
 
     kind: ClassVar[StepKind] = StepKind.TRANSFORM
 
+    _READ_ONLY: ClassVar[frozenset[str]] = RecordStep._READ_ONLY | frozenset(
+        {"transformer", "_input"}
+    )
+
+    #: Settled at construction. See `Step.parents` for why this is declared.
+    transformer: Transformer
+
     def __init__(
         self,
-        upstream: RecordStep,
+        parent: RecordStep,
         transformer: Transformer | type[Transformer] | str,
         transformer_settings: dict | None = None,
     ) -> None:
         """Define a transform.
 
         Args:
-            upstream: The record step to reshape.
+            parent: The record step to reshape.
             transformer: A `Transformer` instance, or a subclass / its registered name
                 to build from `transformer_settings`.
             transformer_settings: The configuration dict, when `transformer` is a class
                 or a name. Ignored when it is already an instance.
         """
         if isinstance(transformer, Transformer):
-            self.transformer = transformer
+            built = transformer
         else:
             transformer_class = (
                 _TRANSFORMER_CLASSES[transformer]
                 if isinstance(transformer, str)
                 else transformer
             )
-            self.transformer = transformer_class(**(transformer_settings or {}))
+            built = transformer_class(**(transformer_settings or {}))
 
-        self.transformer_class = type(self.transformer)
-        self._input = upstream
-        super().__init__(upstream=(upstream,))
+        super().__init__()
+        self._set(_input=parent)
+        self._set(transformer=built)
+
+    #: Settled at construction. The record step this transform reshapes.
+    _input: RecordStep
+
+    @property
+    def parents(self) -> tuple[RecordStep, ...]:
+        """The record step this transform reshapes. See `Model.parents` on the type."""
+        return (self._input,)
 
     # -- Step contract ----------------------------------------------------------------
+
+    @property
+    def transformer_class(self) -> type[Transformer]:
+        """The class implementing this transform."""
+        return type(self.transformer)
 
     def __str__(self) -> str:
         """A transform is drawn with the transformer implementing it."""

@@ -224,6 +224,37 @@ Sources are the exception. They hash the data they read, which is how a plan not
 
 Because the key is configuration-derived, it is also conservative. Editing a cleaning expression in a way that doesn't change the data still re-runs everything below it.
 
+### Changing a plan
+
+**A step is settled once it's built.** To change one, rebuild the plan:
+
+```python
+def build(unique_fields):
+    return (
+        crn.clean({"name": "lower(crn_company)"})
+        .dedupe(
+            model_class=NaiveDeduper, model_settings={"unique_fields": unique_fields}
+        )
+        .resolve()
+    )
+
+
+entities = build(["name"]).collect()
+entities = build(["name", "crn_town"]).collect()  # only the model and resolver re-run
+```
+
+The source and the clean above the edit address the same artifacts as before, so they're cache hits. Only the changed step and what's below it run.
+
+Editing in place isn't offered:
+
+```python
+model.model_settings = {"unique_fields": ["crn_town"]}
+# AttributeError: Model.model_settings is read-only. A step is settled once built,
+# so rebuild the plan to change it.
+```
+
+Note that the old artifacts stay in the store. See [Reclaiming storage](#reclaiming-storage).
+
 To collect somewhere other than the default store:
 
 ```python

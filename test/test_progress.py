@@ -58,11 +58,17 @@ class StoringStep(Step):
 
     kind: ClassVar[StepKind] = StepKind.TRANSFORM
 
-    def __init__(self, label: str = "fake", upstream: tuple[Step, ...] = ()) -> None:
-        """Create a fake step with the given label and upstream steps."""
+    def __init__(self, label: str = "fake", parents: tuple[Step, ...] = ()) -> None:
+        """Create a fake step with the given label and parent steps."""
         self.label = label
-        super().__init__(upstream=upstream)
+        self._parents = parents
         self.executions = 0
+        super().__init__()
+
+    @property
+    def parents(self) -> tuple[Step, ...]:
+        """`Step` leaves each kind to name its own inputs; this one just holds them."""
+        return self._parents
 
     def __str__(self) -> str:
         """Return the label, so drawings identify nodes by it."""
@@ -118,8 +124,8 @@ def terminal(monkeypatch: pytest.MonkeyPatch) -> io.StringIO:
 def _plan() -> tuple[StoringStep, StoringStep, StoringStep]:
     """A source, a view over it, and an apex. Every step stores."""
     source = StoringStep("source")
-    view = StoringStep("view", upstream=(source,))
-    apex = StoringStep("apex", upstream=(view,))
+    view = StoringStep("view", parents=(source,))
+    apex = StoringStep("apex", parents=(view,))
     return apex, source, view
 
 
@@ -127,7 +133,7 @@ def _tall_plan(depth: int) -> StoringStep:
     """A chain `depth` steps deep, which draws one row per step. Apex last."""
     step = StoringStep("step0")
     for level in range(1, depth):
-        step = StoringStep(f"step{level}", upstream=(step,))
+        step = StoringStep(f"step{level}", parents=(step,))
     return step
 
 
@@ -202,7 +208,7 @@ def test_report_warm_store_all_cached(store: DuckDBAdapter) -> None:
 def test_report_failure_reraised(store: DuckDBAdapter) -> None:
     """A failing step is marked failed and the error re-raised."""
     source = StoringStep("source")
-    apex = FailingStep("apex", upstream=(source,))
+    apex = FailingStep("apex", parents=(source,))
 
     with pytest.raises(RuntimeError, match="boom"):
         apex.collect(adapter=store, interactive=False)
@@ -379,7 +385,7 @@ def test_log_attributes_step_records(
             mlog.logger.info("Round 1: Found 13,336 matches")
             super()._execute(adapter, fp)
 
-    apex = ChattyStep("apex", upstream=(StoringStep("source"),))
+    apex = ChattyStep("apex", parents=(StoringStep("source"),))
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
         apex.collect(adapter=store, interactive=False)
@@ -405,7 +411,7 @@ def test_log_nested_restores_positions(
             mlog.logger.info("after")
             super()._execute(adapter, fp)
 
-    apex = NestingStep("apex", upstream=(StoringStep("source"),))
+    apex = NestingStep("apex", parents=(StoringStep("source"),))
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
         apex.collect(adapter=store, interactive=False)
@@ -436,7 +442,7 @@ def test_log_prefix_outside_collection(
             mlog.logger.info("Reading from the warehouse", prefix="hmrc")
             super()._execute(adapter, fp)
 
-    apex = NamedStep("apex", upstream=(StoringStep("source"),))
+    apex = NamedStep("apex", parents=(StoringStep("source"),))
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
         mlog.logger.info("Reading from the warehouse", prefix="hmrc")
@@ -465,7 +471,7 @@ def test_log_prefix_released(
 
 def test_log_prefix_released_on_failure(store: DuckDBAdapter) -> None:
     """The raise skips `end`, so releasing has to happen on the way out too."""
-    apex = FailingStep("apex", upstream=(StoringStep("source"),))
+    apex = FailingStep("apex", parents=(StoringStep("source"),))
 
     with pytest.raises(RuntimeError, match="boom"):
         apex.collect(adapter=store, interactive=False)
@@ -482,7 +488,7 @@ def test_log_level_per_outcome(
     # A fresh plan over the warm store with one new step on top, so a single collect
     # produces both outcomes: everything below is cached, only the new apex runs.
     warm, _source, _view = _plan()
-    top = StoringStep("top", upstream=(warm,))
+    top = StoringStep("top", parents=(warm,))
     positions = lineage.number(top)
 
     with caplog.at_level(logging.DEBUG, logger="matchlab"):
@@ -637,7 +643,7 @@ def test_log_console_handler_shares_terminal(
             mlog.logger.info(long_record)
             super()._execute(adapter, fp)
 
-    apex = ChattyStep("apex", upstream=(StoringStep("source"),))
+    apex = ChattyStep("apex", parents=(StoringStep("source"),))
     handler = mlog.ConsoleHandler()
     logging.getLogger("matchlab").addHandler(handler)
     try:

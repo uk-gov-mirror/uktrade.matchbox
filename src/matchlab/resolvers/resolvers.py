@@ -40,6 +40,16 @@ class Resolver(RecordStep):
 
     kind: ClassVar[StepKind] = StepKind.RESOLVER
 
+    _READ_ONLY: ClassVar[frozenset[str]] = RecordStep._READ_ONLY | frozenset(
+        {"_inputs", "resolver_class", "resolver_settings", "resolver_instance"}
+    )
+
+    #: Settled at construction. See `Step.parents` for why these are declared.
+    _inputs: tuple[Model, ...]
+    resolver_class: type[ResolverMethod]
+    resolver_settings: ResolverSettings
+    resolver_instance: ResolverMethod
+
     def __init__(
         self,
         *models: Model,
@@ -63,27 +73,36 @@ class Resolver(RecordStep):
         if not deduped:
             raise ValueError("A resolver needs at least one model")
 
-        self.inputs = tuple(deduped)
+        super().__init__()
+        self._set(_inputs=tuple(deduped))
 
-        self.resolver_class = (
+        resolved = (
             _RESOLVER_CLASSES[resolver_class]
             if isinstance(resolver_class, str)
             else resolver_class
         )
         settings = resolver_settings if resolver_settings is not None else {}
         if isinstance(settings, dict):
-            settings_class = self.resolver_class.model_fields["settings"].annotation
-            self.resolver_settings = settings_class(
+            settings_class = resolved.model_fields["settings"].annotation
+            settings = settings_class(
                 **{
                     field: self._positions(field, value)
                     for field, value in settings.items()
                 }
             )
-        else:
-            self.resolver_settings = settings
-        self.resolver_instance = self.resolver_class(settings=self.resolver_settings)
 
-        super().__init__(upstream=self.inputs)
+        # The instance is built from `settings`, the object `spec` reads, so the two
+        # cannot describe different configurations
+        self._set(
+            resolver_class=resolved,
+            resolver_settings=settings,
+            resolver_instance=resolved(settings=settings),
+        )
+
+    @property
+    def parents(self) -> tuple[Model, ...]:
+        """The models this resolver reads."""
+        return self._inputs
 
     def _positions(self, field: str, value: Any) -> Any:  # noqa: ANN401 - any setting
         """Replace `Model` keys in a setting with the position of that input.
@@ -106,7 +125,7 @@ class Resolver(RecordStep):
         if not isinstance(value, dict):
             return value
 
-        position = {id(model): index for index, model in enumerate(self.inputs)}
+        position = {id(model): index for index, model in enumerate(self.parents)}
         translated: dict[Any, Any] = {}
         for key, setting in value.items():
             if not isinstance(key, Model):
@@ -115,8 +134,8 @@ class Resolver(RecordStep):
             if id(key) not in position:
                 raise ValueError(
                     f"'{field}' has an entry for a model this resolver does not read. "
-                    f"It resolves {len(self.inputs)} model(s), and a setting may only "
-                    "point at one of those."
+                    f"It resolves {len(self.parents)} model(s), and a setting may "
+                    "only point at one of those."
                 )
             translated[position[id(key)]] = setting
         return translated
@@ -184,7 +203,7 @@ class Resolver(RecordStep):
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         edges = {
             position: adapter.read_model(model._fp)
-            for position, model in enumerate(self.inputs)
+            for position, model in enumerate(self.parents)
         }
         clusters = self.resolver_instance.compute_clusters(model_edges=edges)
 
@@ -200,8 +219,8 @@ class Resolver(RecordStep):
         # step is built the same way every run.
         reads = dict.fromkeys(
             read
-            for model in self.inputs
-            for record_step in model.inputs
+            for model in self.parents
+            for record_step in model.parents
             for read in record_step._identifier_reads
         )
         upstream = pl.concat(
