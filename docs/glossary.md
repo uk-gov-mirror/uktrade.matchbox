@@ -64,7 +64,9 @@ A [methodology](#methodology) that finds candidate matches between two [record s
 
 ## Location
 
-matchlab's handle on the warehouse a [source](#source) reads from: a database, plus the client that reaches it. `RelationalDBLocation` is the reference implementation, wrapping a SQLAlchemy or ADBC client. The warehouse is the external database itself; the location is the handle, and it is where a source's rows come *from* — distinct from the [store](#store), where a plan's [artifacts](#artifact) are kept once collected. A location resolves nothing and stores nothing; it only answers a query.
+A generic way of getting a [source](#source)'s rows, and a [methodology](#methodology) like any other: a registered class plus settings. `RelationalDB` takes the SQL to run and a client to run it through; `DataFrame` takes a frame and needs no query, since you shape the frame yourself. A custom one subclasses `Location` and registers with `add_location_class`.
+
+The location is where a source's rows come *from* — distinct from the [store](#store), where a plan's [artifacts](#artifact) are kept once collected. A location resolves nothing and stores nothing; it only allows to read. Its [settings](#settings) are hashed into the source's [fingerprint](#fingerprint), so editing a query re-runs the source; its [resources](#resource) are not, so renaming a warehouse changes nothing.
 
 ## Matcher
 
@@ -94,7 +96,7 @@ Where something falls in an ordered sequence, used instead of a name. The reposi
 
 A step's place in `collect()`'s run order is one sense. `draw()` shows it in brackets, and logs quote it (`[step 5]`). Steps have no names, so position is how a log line, a drawn tree, and `plan.lineage()` all refer to the same step. Positions are relative to the step a plan or drawing starts from, so a sub-plan numbers its steps differently from the full plan it came from.
 
-A setting that must point at one of a step's own inputs uses the other sense. It names that input by its index among the step's own inputs, not by that input's place in the whole plan. `ComponentsSettings.thresholds` keys a per-model threshold this way. A model can sit at plan position 5 while still being resolver-input position 0.
+A setting that must point at one of a step's own inputs uses the other sense. It names that input by its index among the step's own inputs, not by that input's place in the whole plan. `Components.thresholds` keys a per-model threshold this way. A model can sit at plan position 5 while still being resolver-input position 0.
 
 ## Prune
 
@@ -124,13 +126,25 @@ A step that collapses a model's scored edges into clusters, one per [entity](#en
 
 Call this a **Resolver**, or its **merge-forwarded Resolver output** if you mean the stored table specifically. Don't call it "a resolution". That noun has been retired.
 
+## Resource
+
+A named object that can't be serialised, but that is needed by a node to run. Passed in a step's `*_resources` argument — never among its [settings](#settings) — and wrapped in `Resource("warehouse", engine)` to give it the name a document records. It must be supplied when loading a document into a node object (de-serialising a plan).
+
+For sources, resources are the data-generating mechanism, which affects the [fingerprint](#fingerprint). For all other types of node, resources cannot influence the output of the node because they're ignored by the fingerprint.
+
 ## Root
 
 The ID of a cluster a resolver produces, a hash of the sorted set of [leaf](#leaf) IDs it contains. Two runs that produce the same clustering produce the same root ID, whatever order the underlying algorithm found its clusters in. Reading a [record step](#record-step) through a resolver exposes the root as the `id` column, so several records can share one `id`.
 
+## Settings
+
+A step's serialisable configuration. Passed in a step's `*_settings` argument, carried in a plan document, and hashed into the step's [fingerprint](#fingerprint).
+
+That last part is what makes settings the opposite of a [resource](#resource): **editing settings re-runs the step and everything below it**, whether or not the output would differ.
+
 ## Source
 
-The warehouse query a plan starts from, plus the column that keys it. Every column the query returns is part of a record's identity, so two rows are the same record exactly when the query returns identical values for both.
+The leaf a plan starts from: a [location](#location) to read, plus the column that keys it. Every column the location returns is part of a record's identity, so two rows are the same record exactly when it returns identical values for both. Build one with `read_db` or `read_df`.
 
 ## Step
 

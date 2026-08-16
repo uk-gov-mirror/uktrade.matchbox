@@ -30,6 +30,7 @@ nav:
   - Storage:
     - Adapters: api/adapters.md
     - Locations: api/locations.md
+    - Resources: api/resources.md
   - Evaluation:
     - Sampling: api/eval-sampling.md
     - Judgements: api/eval-judgements.md

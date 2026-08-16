@@ -16,10 +16,9 @@ from splink import comparison_library as cl
 
 from matchlab.models import Model
 from matchlab.models.linkers.base import Linker
-from matchlab.models.linkers.splinklinker import SplinkLinker, SplinkSettings
+from matchlab.models.linkers.splinklinker import SplinkLinker
 from matchlab.models.linkers.weighteddeterministic import (
     WeightedDeterministicLinker,
-    WeightedDeterministicSettings,
 )
 from matchlab.sources import Source
 from matchlab.testkit.features import (
@@ -39,7 +38,7 @@ LinkerConfigurator = Callable[[GeneratedSource, GeneratedSource], dict[str, Any]
 def configure_weighted_scored(
     left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
-    """Build validated `WeightedDeterministicSettings` with geometric per-field weights.
+    """Build validated `WeightedDeterministicLinker` with geometric per-field weights.
 
     Each field's weight is half the previous one's, so no two fields matter equally and
     the resulting scores spread out instead of collapsing to a single value.
@@ -74,7 +73,7 @@ def configure_weighted_scored(
         "threshold": 0.0,
     }
 
-    WeightedDeterministicSettings.model_validate(settings_dict)
+    WeightedDeterministicLinker.model_validate(settings_dict)
 
     return settings_dict
 
@@ -82,7 +81,7 @@ def configure_weighted_scored(
 def configure_splink_scored(
     left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
-    """Build validated `SplinkSettings`, choosing comparisons by each field's type."""
+    """Build validated `SplinkLinker`, choosing comparisons by each field's type."""
     left_fields = {
         name for name in left_testkit.field_names if name not in ("key", "id")
     }
@@ -142,7 +141,7 @@ def configure_splink_scored(
         "threshold": 0.01,
     }
 
-    SplinkSettings.model_validate(settings_dict)
+    SplinkLinker.model_validate(settings_dict)
 
     return settings_dict
 
@@ -194,8 +193,7 @@ def test_probabilistic_scores_vary(
     )
 
     linked = linked_sources_factory(source_parameters=configs, seed=42)
-    for _testkit in linked.sources.values():
-        _testkit.write_to_location()
+    linked.write_to_location()
     left_source = linked.sources["source_left"]
     right_source = linked.sources["source_right"]
 

@@ -6,6 +6,7 @@ import polars as pl
 import pytest
 
 from matchlab.core.schemas import SCHEMA_MODEL_EDGES
+from matchlab.locations import RelationalDB
 from matchlab.sources import Source
 from matchlab.testkit.entities import Cluster
 from matchlab.testkit.linked import linked_sources_factory
@@ -433,5 +434,7 @@ def test_default_linker_sources_share_one_warehouse() -> None:
     sources = [step for step in testkit.model.lineage() if isinstance(step, Source)]
     assert {source.name for source in sources} == {"crn", "cdms"}
 
-    clients = {id(source.location.client) for source in sources}
+    locations = [source.location for source in sources]
+    assert all(isinstance(loc, RelationalDB) for loc in locations)
+    clients = {id(loc.client) for loc in locations}
     assert len(clients) == 1, "linked sources must share one warehouse"

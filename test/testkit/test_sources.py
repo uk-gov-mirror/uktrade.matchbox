@@ -6,6 +6,7 @@ import pytest
 from faker import Faker
 from sqlalchemy import Engine
 
+from matchlab.locations import RelationalDB
 from matchlab.testkit._generate import generate_rows
 from matchlab.testkit.entities import TrueEntity
 from matchlab.testkit.features import FeatureConfig, ReplaceRule, SuffixRule
@@ -120,12 +121,14 @@ def test_source_factory_mock_properties(sqlite_in_memory_warehouse: Engine) -> N
     )
     source_spec = source_testkit.source.spec
 
-    assert source_testkit.source.location.name == location_name
+    assert source_testkit.source.location_resources["client"].name == location_name
 
-    # Every generated feature is selected by the extract, so it's part of identity
+    # Every generated feature is selected by the query, so it's part of identity.
+    location = source_testkit.source.location
+    assert isinstance(location, RelationalDB)
     assert source_testkit.field_names == [feature.name for feature in features]
     for feature in features:
-        assert feature.name in source_spec.extract_transform
+        assert feature.name in location.sql
 
     assert source_testkit.source.name == name
     assert source_spec.key_field == "key"

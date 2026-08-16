@@ -22,13 +22,22 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import Engine, text
 
-from matchlab import Model, Resolver, Source, Step, Transform, lineage
+from matchlab import (
+    Model,
+    Resolver,
+    Source,
+    Step,
+    Transform,
+    lineage,
+    read_db,
+    read_df,
+)
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.kinds import StepKind
-from matchlab.locations import RelationalDBLocation
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
+from matchlab.resources import Resource
 from matchlab.specs import ModelType, SourceSpec
 from matchlab.transformers import Explode, Select
 
@@ -226,23 +235,21 @@ def test_source_name_must_prefix(warehouse: Engine, name: str) -> None:
     A source's name qualifies every column it contributes, and those land in clean and
     select SQL. `crn-x_company` parses as subtraction, `crn.x_company` as table.column.
     """
-    location = RelationalDBLocation(name="warehouse", client=warehouse)
     with pytest.raises(ValueError, match="can't prefix a column name"):
-        Source(
-            location=location,
-            name=name,
-            extract_transform="select pk, company from crn",
+        read_db(
+            name,
+            sql="select pk, company from crn",
+            client=Resource("warehouse", warehouse),
             key_field="pk",
         )
 
 
 def test_source_name_reserved_word(warehouse: Engine) -> None:
     """The name is only ever a prefix, so `select_company` is unambiguous."""
-    location = RelationalDBLocation(name="warehouse", client=warehouse)
-    source = Source(
-        location=location,
-        name="select",
-        extract_transform="select pk, company from crn",
+    source = read_db(
+        "select",
+        sql="select pk, company from crn",
+        client=Resource("warehouse", warehouse),
         key_field="pk",
     )
     cleaned = source.clean({"name": f"lower({source.f('company')})"})
@@ -264,6 +271,26 @@ def test_source_no_rows_raises(source: Callable[..., Source]) -> None:
         empty.collect()
 
 
+def test_source_missing_key_field(warehouse: Engine) -> None:
+    """A missing key column is explained, including where the name came from."""
+    client = Resource("warehouse", warehouse)
+
+    with pytest.raises(ValueError, match="has no column 'id'") as caught:
+        read_db("crn", sql="select pk, company from crn", client=client).collect()
+    assert "It returned: pk, company" in str(caught.value)
+    assert "defaults to 'id'" in str(caught.value)
+
+    # A frame reaches the same check by the same route.
+    with pytest.raises(ValueError, match="has no column 'id'"):
+        read_df("dh", df=pl.DataFrame({"pk": ["b1"], "company": ["acme"]})).collect()
+
+    # And so does an explicit key that the location does not return.
+    with pytest.raises(ValueError, match="has no column 'pak'"):
+        read_db(
+            "crn", sql="select pk, company from crn", client=client, key_field="pak"
+        ).collect()
+
+
 def test_source_null_keys_raises(source: Callable[..., Source]) -> None:
     """A null key can't anchor a record, so it's rejected at read time."""
     null_keyed = source("crn", "select null as pk, company from crn")
@@ -277,22 +304,52 @@ def test_source_keys_are_strings(warehouse: Engine) -> None:
         conn.execute(text("CREATE TABLE nums (id INTEGER, company TEXT)"))
         conn.execute(text("INSERT INTO nums VALUES (1,'acme'),(2,'beta')"))
 
-    location = RelationalDBLocation(name="warehouse", client=warehouse)
-    source = Source(
-        location=location,
-        name="nums",
-        extract_transform="select id, company from nums",
-        key_field="id",
+    source = read_db(
+        "nums", sql="select id, company from nums", client=Resource("wh", warehouse)
     )
     source.collect()
     assert sorted(source.leaves()["key"].to_list()) == ["1", "2"]
+
+
+def test_plan_over_dataframes(adapter: DuckDBAdapter) -> None:
+    """A whole plan can run with nothing but dataframes."""
+    crn = read_df(
+        "crn",
+        df=pl.DataFrame(
+            {
+                "pk": ["a1", "a2", "a3"],
+                "company": ["acme", "acme", "beta"],
+                "town": ["london", "leeds", "hull"],
+            }
+        ),
+        key_field="pk",
+    )
+    dh = read_df(
+        "dh",
+        df=pl.DataFrame(
+            {"pk": ["b1", "b2"], "company": ["acme", "gamma"], "town": ["a", "b"]}
+        ),
+        key_field="pk",
+    )
+
+    resolved = crn.link(
+        dh,
+        model_class=DeterministicLinker,
+        model_settings={"comparisons": ["l.crn_company = r.dh_company"]},
+    ).resolve()
+    resolved.collect(adapter)
+
+    lookup = resolved.get_lookup()
+    # Every key on both sides is reachable, including the ones nothing matched.
+    assert set(lookup["crn_pk"].drop_nulls()) == {"a1", "a2", "a3"}
+    assert set(lookup["dh_pk"].drop_nulls()) == {"b1", "b2"}
 
 
 def test_source_memoises_read(warehouse: Engine, source: Callable[..., Source]) -> None:
     """Re-collecting an existing Source must not re-read the warehouse.
 
     Asserted against `fetch`, the call that actually goes to the warehouse, rather than
-    against `_read_warehouse`, which is the memo itself. `_ensure` recomputes every
+    against `_read_origin`, which is the memo itself. `_ensure` recomputes every
     fingerprint on every collect, so a source's `_spec_key` does run again and does
     re-hash the rows. What it must not do is fetch them again.
     """
@@ -316,7 +373,7 @@ def test_spec_attributes_read_only(source: Callable[..., Source]) -> None:
 
     # Non-comprenehsinve list of read-only attributes
     for step, attribute, value in [
-        (crn, "extract_transform", "select pk from crn"),
+        (crn, "location", None),
         (model, "model_settings", None),
         (resolver, "resolver_settings", None),
     ]:
@@ -325,9 +382,9 @@ def test_spec_attributes_read_only(source: Callable[..., Source]) -> None:
 
     # The settings objects are frozen too, so there is no way round the guard.
     with pytest.raises(ValidationError):
-        model.model_settings.unique_fields = ["crn_town"]
+        model.model_instance.unique_fields = ["crn_town"]
     with pytest.raises(ValidationError):
-        resolver.resolver_settings.thresholds = {0: 0.9}
+        resolver.resolver_instance.thresholds = {0: 0.9}
 
 
 def test_parents(source: Callable[..., Source]) -> None:
@@ -428,21 +485,55 @@ def test_derived_class_attributes_drift(source: Callable[..., Source]) -> None:
         model.model_type = ModelType.LINKER
 
 
-def test_model_settings_one_object(source: Callable[..., Source]) -> None:
-    """`spec` and `_execute` must read the same settings, however they were passed.
+def test_mistyped_settings(source: Callable[..., Source]) -> None:
+    """A setting no methodology declares is an error, at every kind of step."""
+    crn = source("crn")
 
-    Built from a dict, `Model` used to construct the settings twice: once for the
-    methodology instance and once for itself. Two objects that start equal are two
-    objects that can stop being equal.
+    with pytest.raises(ValidationError, match="typo"):
+        Source(
+            location_class=crn.location_class,
+            name="crn",
+            location_settings={"sql": "select pk from crn", "typo": 1},
+            location_resources=crn.location_resources,
+        )
+
+    with pytest.raises(ValidationError, match="max_combinatons"):
+        crn.transform(Explode, {"max_combinatons": 5})
+
+    with pytest.raises(ValidationError, match="unique_feilds"):
+        crn.dedupe(model_class=NaiveDeduper, model_settings={"unique_feilds": ["x"]})
+
+    deduped = crn.dedupe(
+        model_class=NaiveDeduper, model_settings={"unique_fields": [crn.f("company")]}
+    )
+    with pytest.raises(ValidationError, match="threshold"):
+        deduped.resolve(resolver_settings={"threshold": 0.5})
+
+
+def test_settings_vs_methodology_attr(
+    source: Callable[..., Source],
+) -> None:
+    """`spec` describes the object `_execute` runs, so the two cannot disagree.
+
+    A step used to hold settings passed separately from the instance built out of them,
+    which is two things that start equal and can stop being equal. A step now keeps one
+    instance and reads its settings back off it.
+
+    That also normalises defaults: a field the call site omitted is still part of the
+    configuration, so it belongs in the key. Otherwise the same methodology, written two
+    ways, would fingerprint differently and re-run for nothing.
     """
     crn = source("crn")
     model = crn.dedupe(
         model_class=NaiveDeduper, model_settings={"unique_fields": ["crn_company"]}
     )
-    assert model.model_settings is model.model_instance.settings
+    assert model.model_settings == model.model_instance.model_dump(mode="json")
+    assert model.model_settings["id"] == "id"  # defaulted, never passed
 
     resolver = model.resolve()
-    assert resolver.resolver_settings is resolver.resolver_instance.settings
+    assert resolver.resolver_settings == resolver.resolver_instance.model_dump(
+        mode="json"
+    )
 
 
 # -- Record step storage ---------------------------------------------------------
@@ -1009,7 +1100,7 @@ def test_spec_no_upstream_settings(source: Callable[..., Source]) -> None:
     apex, crn, _dh = _apex(source)
 
     resolver_spec = apex.spec.model_dump(mode="json")
-    assert "extract_transform" not in json.dumps(resolver_spec)
+    assert "sql" not in json.dumps(resolver_spec)
     # No upstream reference at all: inputs arrive as parent fingerprints, and a
     # setting that points at one uses its position.
     assert set(resolver_spec) == {"resolver_class", "resolver_settings"}
@@ -1140,7 +1231,7 @@ def test_threshold_stored_as_position(
         second, resolver_settings={"thresholds": {second: 0.8, first: 0.5}}
     )
 
-    assert resolver.resolver_settings.thresholds == {0: 0.5, 1: 0.8}
+    assert resolver.resolver_instance.thresholds == {0: 0.5, 1: 0.8}
 
 
 def test_threshold_must_name_input(source: Callable[..., Source]) -> None:
@@ -1183,9 +1274,10 @@ def test_edges_keyed_by_position(
             return self.wrapped.compute_clusters(model_edges=model_edges)
 
     # Past the read-only guard: a test double, not a configuration change.
-    object.__setattr__(resolver, "resolver_instance", Spy(resolver.resolver_instance))
+    methodology = resolver.resolver_instance
+    object.__setattr__(resolver, "resolver_instance", Spy(methodology))
     resolver.collect()
 
     assert set(seen) == {0, 1}
-    assert resolver.resolver_settings.thresholds == {1: 0.8}
+    assert methodology.thresholds == {1: 0.8}
     assert seen[1] == len(second.edges())

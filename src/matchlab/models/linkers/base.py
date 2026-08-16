@@ -7,25 +7,6 @@ import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class LinkerSettings(BaseModel):
-    """Settings shared by every Linker methodology.
-
-    Frozen, because a `Model` is settled once built and these are hashed into its
-    fingerprint. Writing into a settings object would move that fingerprint without
-    the model or its methodology instance knowing, leaving the step running one
-    configuration under a key naming another.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    left_id: Literal["id"] = Field(
-        default="id", description="The unique ID field in the left data"
-    )
-    right_id: Literal["id"] = Field(
-        default="id", description="The unique ID field in the right data"
-    )
-
-
 class Linker(BaseModel, ABC):
     """A methodology that finds candidate matches between two record steps.
 
@@ -36,7 +17,14 @@ class Linker(BaseModel, ABC):
     casts that table to `SCHEMA_MODEL_EDGES`.
     """
 
-    settings: LinkerSettings
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    left_id: Literal["id"] = Field(
+        default="id", description="The unique ID field in the left data"
+    )
+    right_id: Literal["id"] = Field(
+        default="id", description="The unique ID field in the right data"
+    )
 
     @abstractmethod
     def prepare(self, left: pl.DataFrame, right: pl.DataFrame) -> None:

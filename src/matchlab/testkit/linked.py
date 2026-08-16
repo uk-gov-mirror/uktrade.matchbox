@@ -12,7 +12,7 @@ answer hangs off it. Build a plan with `dedupe()`/`link()` and score one with
 import warnings
 from collections.abc import Callable, Iterable
 from functools import cache
-from typing import Any, Self
+from typing import Self
 
 import polars as pl
 from faker import Faker
@@ -21,11 +21,11 @@ from sqlalchemy import Engine, create_engine
 from sqlglot import cast, select
 from sqlglot.expressions import column
 
-from matchlab.locations import RelationalDBLocation
 from matchlab.models.models import Model
 from matchlab.recordstep import RecordStep
 from matchlab.resolvers import Resolver
-from matchlab.sources import Source
+from matchlab.resources import Resource
+from matchlab.sources import read_db
 from matchlab.testkit._generate import generate_entities, generate_source
 from matchlab.testkit.compare import (
     diff_entities,
@@ -37,9 +37,7 @@ from matchlab.testkit.features import FeatureConfig, SourceParameters, SuffixRul
 from matchlab.testkit.matchers import (
     AnswerKey,
     PerfectDeduper,
-    PerfectDeduperSettings,
     PerfectLinker,
-    PerfectLinkerSettings,
 )
 from matchlab.testkit.models import GeneratedModel, generate_entity_scores
 from matchlab.testkit.sources import GeneratedSource
@@ -162,17 +160,14 @@ class LinkedSources(BaseModel):
             actual=list(resolver_output_to_clusters(resolver_output)),
         )
 
-    def write_to_location(self, client: Any | None = None) -> Self:  # noqa: ANN401
+    def write_to_location(self) -> Self:
         """Write every source's data to its location.
 
-        Args:
-            client: Write through this client instead of each source's own, repointing
-                the whole linked set at one warehouse. Mirrors
-                `GeneratedSource.write_to_location`, so callers don't need to loop over
-                `sources` by hand.
+        Mirrors `GeneratedSource.write_to_location`, so callers don't need to loop over
+        `sources` by hand.
         """
         for source_testkit in self.sources.values():
-            source_testkit.write_to_location(client=client)
+            source_testkit.write_to_location()
 
         return self
 
@@ -306,17 +301,13 @@ def _build_model(
 
     if right_testkit is not None:
         model_class: type[PerfectLinker] | type[PerfectDeduper] = PerfectLinker
-        model_settings: PerfectLinkerSettings | PerfectDeduperSettings = (
-            PerfectLinkerSettings(truth_id=truth_id)
-        )
     else:
         model_class = PerfectDeduper
-        model_settings = PerfectDeduperSettings(truth_id=truth_id)
 
     return GeneratedModel(
         model=Model(
             model_class=model_class,
-            model_settings=model_settings,
+            model_settings={"truth_id": truth_id},
             left=left,
             right=right,
         ),
@@ -496,18 +487,18 @@ def linked_sources_factory(
         # Create source config. Resolve the engine here rather than relying on a field
         # default, so sources that were given none still share this call's warehouse
         # and can therefore be linked to each other.
-        source = Source(
-            location=RelationalDBLocation(
-                name=str(parameters.name),
-                client=parameters.engine or engine or default_engine,
-            ),
-            name=parameters.name,
-            extract_transform=select(
+        source = read_db(
+            parameters.name,
+            sql=select(
                 cast(column("key"), "string").as_("key"),
                 *[column(feature.name) for feature in parameters.features],
             )
             .from_(parameters.name)
             .sql(),
+            client=Resource(
+                str(parameters.name),
+                parameters.engine or engine or default_engine,
+            ),
             key_field="key",
         )
 

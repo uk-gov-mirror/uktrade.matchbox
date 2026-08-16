@@ -34,8 +34,8 @@ if TYPE_CHECKING:
     # Each of these modules imports this one. Only for annotations, so importing the
     # real classes (rather than typing them `Any`) costs nothing at runtime.
     from matchlab.models import Model
-    from matchlab.models.dedupers.base import Deduper, DeduperSettings
-    from matchlab.models.linkers.base import Linker, LinkerSettings
+    from matchlab.models.dedupers.base import Deduper
+    from matchlab.models.linkers.base import Linker
     from matchlab.resolvers import Resolver
     from matchlab.sources import Source
     from matchlab.transformers import Transform, Transformer
@@ -130,11 +130,12 @@ class RecordStep(Step):
         self,
         transformer: "Transformer | type[Transformer] | str",
         transformer_settings: dict | None = None,
+        transformer_resources: dict | None = None,
     ) -> "Transform":
         """Reshape this record step with a transformer."""
         from matchlab.transformers import Transform  # noqa: PLC0415 - avoids a cycle
 
-        return Transform(self, transformer, transformer_settings)
+        return Transform(self, transformer, transformer_settings, transformer_resources)
 
     def select(self, *columns: str) -> "Transform":
         """Keep only the named columns, plus `id`."""
@@ -157,18 +158,25 @@ class RecordStep(Step):
     def dedupe(
         self,
         model_class: "type[Deduper] | str",
-        model_settings: "DeduperSettings | dict",
+        model_settings: dict | None = None,
+        model_resources: dict | None = None,
     ) -> "Model":
         """Deduplicate this record step."""
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle
 
-        return Model(left=self, model_class=model_class, model_settings=model_settings)
+        return Model(
+            left=self,
+            model_class=model_class,
+            model_settings=model_settings,
+            model_resources=model_resources,
+        )
 
     def link(
         self,
         other: "RecordStep",
         model_class: "type[Linker] | str",
-        model_settings: "LinkerSettings | dict",
+        model_settings: dict | None = None,
+        model_resources: dict | None = None,
     ) -> "Model":
         """Link this record step to another. A `Source` is one, needing no wrapping."""
         from matchlab.models import Model  # noqa: PLC0415 - avoids a cycle
@@ -178,4 +186,5 @@ class RecordStep(Step):
             right=other,
             model_class=model_class,
             model_settings=model_settings,
+            model_resources=model_resources,
         )

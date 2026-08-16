@@ -21,12 +21,10 @@ from matchlab.models import Model
 from matchlab.models.linkers.base import Linker
 from matchlab.models.linkers.deterministic import (
     DeterministicLinker,
-    DeterministicSettings,
 )
-from matchlab.models.linkers.splinklinker import SplinkLinker, SplinkSettings
+from matchlab.models.linkers.splinklinker import SplinkLinker
 from matchlab.models.linkers.weighteddeterministic import (
     WeightedDeterministicLinker,
-    WeightedDeterministicSettings,
 )
 from matchlab.sources import Source
 from matchlab.testkit.features import FeatureConfig, SourceParameters
@@ -41,7 +39,7 @@ LinkerConfigurator = Callable[[GeneratedSource, GeneratedSource], dict[str, Any]
 def configure_deterministic_linker(
     left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
-    """Build validated `DeterministicSettings` comparing every shared field."""
+    """Build validated `DeterministicLinker` comparing every shared field."""
     left_fields = {
         name for name in left_testkit.field_names if name not in ("key", "id")
     }
@@ -63,7 +61,7 @@ def configure_deterministic_linker(
         "comparisons": comparisons,
     }
 
-    DeterministicSettings.model_validate(settings_dict)
+    DeterministicLinker.model_validate(settings_dict)
 
     return settings_dict
 
@@ -100,7 +98,7 @@ def configure_deterministic_linker_sequential(
     # More than one round, or this configurator isn't testing sequential rounds at all.
     assert len(comparisons) > 1
 
-    DeterministicSettings.model_validate(settings_dict)
+    DeterministicLinker.model_validate(settings_dict)
 
     return settings_dict
 
@@ -108,7 +106,7 @@ def configure_deterministic_linker_sequential(
 def configure_weighted_deterministic_linker(
     left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
-    """Build validated `WeightedDeterministicSettings` with equal weight per field."""
+    """Build validated `WeightedDeterministicLinker` with equal weight per field."""
     left_fields = {
         name for name in left_testkit.field_names if name not in ("key", "id")
     }
@@ -133,7 +131,7 @@ def configure_weighted_deterministic_linker(
         "threshold": 1,  # Require all comparisons to match
     }
 
-    WeightedDeterministicSettings.model_validate(settings_dict)
+    WeightedDeterministicLinker.model_validate(settings_dict)
 
     return settings_dict
 
@@ -141,7 +139,7 @@ def configure_weighted_deterministic_linker(
 def configure_splink_linker(
     left_testkit: GeneratedSource, right_testkit: GeneratedSource
 ) -> dict[str, Any]:
-    """Build validated `SplinkSettings`, pinned to certainty for deterministic runs."""
+    """Build validated `SplinkLinker`, pinned to certainty for deterministic runs."""
     left_fields = {
         name for name in left_testkit.field_names if name not in ("key", "id")
     }
@@ -196,7 +194,7 @@ def configure_splink_linker(
         "threshold": None,
     }
 
-    SplinkSettings.model_validate(settings_dict)
+    SplinkLinker.model_validate(settings_dict)
 
     return settings_dict
 
@@ -253,8 +251,7 @@ def test_link_exact_match(
     )
 
     linked = linked_sources_factory(source_parameters=configs, seed=42)
-    for _testkit in linked.sources.values():
-        _testkit.write_to_location()
+    linked.write_to_location()
     left_source = linked.sources["source_left"]
     right_source = linked.sources["source_right"]
 
@@ -316,8 +313,7 @@ def test_link_exact_with_duplicates(
     )
 
     linked = linked_sources_factory(source_parameters=configs, seed=42)
-    for _testkit in linked.sources.values():
-        _testkit.write_to_location()
+    linked.write_to_location()
     left_source = linked.sources["source_left"]
     right_source = linked.sources["source_right"]
 
@@ -377,8 +373,7 @@ def test_link_partial_overlap(
     )
 
     linked = linked_sources_factory(source_parameters=configs, seed=42)
-    for _testkit in linked.sources.values():
-        _testkit.write_to_location()
+    linked.write_to_location()
     left_source = linked.sources["source_left"]
     right_source = linked.sources["source_right"]
 
@@ -422,8 +417,7 @@ def test_link_no_matches(
     )
 
     linked = linked_sources_factory(source_parameters=configs, seed=314)
-    for _testkit in linked.sources.values():
-        _testkit.write_to_location()
+    linked.write_to_location()
     left_source = linked.sources["source_left"]
     right_source = source_factory(
         name="source_right", features=features, n_true_entities=10, seed=159

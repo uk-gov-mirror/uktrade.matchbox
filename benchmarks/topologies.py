@@ -29,7 +29,14 @@ from typing import cast
 
 from sqlalchemy import create_engine
 
-from matchlab import Model, RecordStep, RelationalDBLocation, Resolver, Source
+from matchlab import (
+    Model,
+    RecordStep,
+    Resolver,
+    Resource,
+    Source,
+    read_db,
+)
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
 
@@ -78,14 +85,12 @@ def declare(path: Path, names: Sequence[str]) -> list[Source]:
     One engine for all of them, because they are one database and a connection per
     source would measure SQLite's connection handling rather than matchlab's.
     """
-    location = RelationalDBLocation(
-        name="warehouse", client=create_engine(f"sqlite:///{path}")
-    )
+    client = Resource("warehouse", create_engine(f"sqlite:///{path}"))
     return [
-        Source(
-            location=location,
-            name=name,
-            extract_transform=f"select key, name, postcode from {name}",
+        read_db(
+            name,
+            sql=f"select key, name, postcode from {name}",
+            client=client,
             key_field="key",
         )
         for name in names

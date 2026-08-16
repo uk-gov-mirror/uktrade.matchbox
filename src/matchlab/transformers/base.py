@@ -24,9 +24,13 @@ class Transformer(BaseModel, ABC):
     Concrete transformers (`Select`, `Clean`, `Group`, `Explode`) carry their
     configuration as flat fields, so `MyTransformer(...)` reads naturally, and
     `model_dump(mode="json")` is the whole of its serialisation.
+
+    Frozen, and `extra="forbid"` so a mistyped setting is refused rather than silently
+    ignored — which would leave the transform running a default under a fingerprint that
+    never mentioned the field.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     @abstractmethod
     def apply(self, data: pl.DataFrame) -> pl.DataFrame:

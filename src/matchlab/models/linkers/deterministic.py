@@ -9,11 +9,17 @@ from pydantic import Field, field_validator
 from matchlab.core.logging import logger
 from matchlab.core.sql import SQLCondition, SQLQuery
 from matchlab.models import comparison
-from matchlab.models.linkers.base import Linker, LinkerSettings
+from matchlab.models.linkers.base import Linker
 
 
-class DeterministicSettings(LinkerSettings):
-    """Settings for `DeterministicLinker`."""
+class DeterministicLinker(Linker):
+    """A deterministic linker that links based on a set of boolean conditions.
+
+    Uses DuckDB as the SQL backend, enabling rich SQL operations while maintaining
+    a Polars DataFrame interface. Supports both parallel matching (single round)
+    and sequential matching (multiple rounds where matched records are removed
+    after each round).
+    """
 
     comparisons: list[SQLCondition] | list[list[SQLCondition]] = Field(
         description="""
@@ -68,18 +74,6 @@ class DeterministicSettings(LinkerSettings):
             "comparisons must be a string, list of strings, or list of lists"
         )
 
-
-class DeterministicLinker(Linker):
-    """A deterministic linker that links based on a set of boolean conditions.
-
-    Uses DuckDB as the SQL backend, enabling rich SQL operations while maintaining
-    a Polars DataFrame interface. Supports both parallel matching (single round)
-    and sequential matching (multiple rounds where matched records are removed
-    after each round).
-    """
-
-    settings: DeterministicSettings
-
     def prepare(self, left: pl.DataFrame, right: pl.DataFrame) -> None:
         """No preparation needed."""
         pass
@@ -96,9 +90,7 @@ class DeterministicLinker(Linker):
             all_matches: list[pl.DataFrame] = []
             remaining_left, remaining_right = left, right
 
-            for round_num, round_comparisons in enumerate(
-                self.settings.comparisons, start=1
-            ):
+            for round_num, round_comparisons in enumerate(self.comparisons, start=1):
                 if remaining_left.is_empty() or remaining_right.is_empty():
                     logger.info(f"Round {round_num}: Skipping - no records remaining")
                     break
@@ -120,13 +112,13 @@ class DeterministicLinker(Linker):
                     matched_right = matches.select("right_id").unique()
                     remaining_left = remaining_left.join(
                         matched_left,
-                        left_on=self.settings.left_id,
+                        left_on=self.left_id,
                         right_on="left_id",
                         how="anti",
                     )
                     remaining_right = remaining_right.join(
                         matched_right,
-                        left_on=self.settings.right_id,
+                        left_on=self.right_id,
                         right_on="right_id",
                         how="anti",
                     )
@@ -151,8 +143,8 @@ class DeterministicLinker(Linker):
         for condition in comparisons:
             subquery: SQLQuery = f"""
                 SELECT
-                    l.{self.settings.left_id} AS left_id,
-                    r.{self.settings.right_id} AS right_id,
+                    l.{self.left_id} AS left_id,
+                    r.{self.right_id} AS right_id,
                     1.0 AS score
                 FROM left_df l
                 INNER JOIN right_df r

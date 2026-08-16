@@ -4,21 +4,15 @@ import duckdb
 import polars as pl
 from pydantic import Field
 
-from matchlab.models.dedupers.base import Deduper, DeduperSettings
-
-
-class NaiveSettings(DeduperSettings):
-    """Settings for `NaiveDeduper`."""
-
-    unique_fields: list[str] = Field(
-        description="A list of fields that will form a unique, deduplicated record"
-    )
+from matchlab.models.dedupers.base import Deduper
 
 
 class NaiveDeduper(Deduper):
     """Groups records that match exactly on every field in `unique_fields`."""
 
-    settings: NaiveSettings
+    unique_fields: list[str] = Field(
+        description="A list of fields that will form a unique, deduplicated record"
+    )
 
     _id_dtype: pl.DataType
 
@@ -28,12 +22,12 @@ class NaiveDeduper(Deduper):
 
     def dedupe(self, data: pl.DataFrame) -> pl.DataFrame:
         """Deduplicate the dataframe. Every match scores 1.0."""
-        self._id_dtype = data[self.settings.id].dtype
+        self._id_dtype = data[self.id].dtype
 
         df = data.clone()
 
         join_clause = []
-        for field in self.settings.unique_fields:
+        for field in self.unique_fields:
             join_clause.append(f"l.{field} = r.{field}")
         join_clause_compiled = " and ".join(join_clause)
 
@@ -51,8 +45,8 @@ class NaiveDeduper(Deduper):
                 1.0 as score
             from (
                 select
-                    l.{self.settings.id} as left_id,
-                    r.{self.settings.id} as right_id
+                    l.{self.id} as left_id,
+                    r.{self.id} as right_id
                 from
                     df l
                 inner join df r on

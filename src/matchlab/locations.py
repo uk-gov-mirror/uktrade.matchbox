@@ -1,32 +1,34 @@
-"""Interface to locations where source data is stored.
+"""Interface to the places source data is read from.
 
-Location classes are registered by name.
+A `Location` is a methodology, exactly as a `Deduper` or a `Transformer` is: a
+registered class plus settings. A `Source` names one and hands it settings and
+resources separately, so the query travels in a document and the client never does.
+See `matchlab.resources`.
 """
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from enum import StrEnum
-from typing import Any, ClassVar, Literal, overload
+from typing import TypeAlias, cast
 
 import polars as pl
-import sqlglot
 from adbc_driver_manager.dbapi import Connection as AdbcConnection
 from pandas import DataFrame as PandasDataFrame
 from polars import DataFrame as PolarsDataFrame
-from pyarrow import Table as ArrowTable
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Connection, Engine
-from sqlalchemy.exc import OperationalError
-from sqlglot.errors import ParseError
 
 from matchlab.core.dataframes import (
     DataFrameClass,
     DataFrameType,
     sql_to_df,
+    to_dataframe,
 )
-from matchlab.core.exceptions import ExtractTransformError
-from matchlab.core.logging import logger
 from matchlab.core.sql import SQLQuery
+
+DBClient: TypeAlias = Engine | AdbcConnection
+"""What a `RelationalDB` reads through: a SQLAlchemy engine or an ADBC connection."""
 
 
 class ClientType(StrEnum):
@@ -46,121 +48,76 @@ def add_location_class(location_class: "type[Location]") -> None:
     _LOCATION_CLASSES[location_class.__name__] = location_class
 
 
-def build_location(location_class: str, name: str, client: Any) -> "Location":  # noqa: ANN401
-    """Build a registered location class, bound to a name and a client.
+def resolve_location_class(location_class: "str | type[Location]") -> "type[Location]":
+    """Return a location class, looking a name up in the registry.
 
-    How `matchlab.document` rebuilds the locations a plan reads. Both arguments come
-    from outside any spec: the class because a `SourceSpec` deliberately says
-    nothing about where its rows came from, the client because a document carries no
-    credentials.
+    How `Source` accepts either the class or its registered name, and how
+    `matchlab.document` rebuilds the locations a plan reads.
 
     Raises:
         ValueError: If no location class of that name is registered here.
     """
+    if not isinstance(location_class, str):
+        return location_class
     if location_class not in _LOCATION_CLASSES:
         raise ValueError(
             f"No location class named '{location_class}' is registered. Register it "
             "with `add_location_class` before loading a document that names it."
         )
-    return _LOCATION_CLASSES[location_class](name=name, client=client)
+    return _LOCATION_CLASSES[location_class]
 
 
-class Location(ABC):
-    """A named place data is read from, bound to the client that reads it."""
+class Location(BaseModel, ABC):
+    """A place data is read from, holding everything needed to read it."""
 
-    client_classes: ClassVar[tuple[type, ...]]
-    """The client types this location can be driven by, checked on construction."""
-
-    def __init__(self, name: str, client: Any) -> None:  # noqa: ANN401
-        """Initialise a location.
-
-        Args:
-            name: How a plan refers to this location. A handle for the client, not a
-                setting. It never reaches a fingerprint.
-            client: The already-configured client to read through. Required: a location
-                without one can answer nothing, not even which SQL dialect it speaks.
-
-        Raises:
-            ValueError: If the client is not a type this location can use.
-        """
-        if not isinstance(client, self.client_classes):
-            raise ValueError(
-                f"{type(client).__name__} is not a valid client for "
-                f"{type(self).__name__}. Expected one of: "
-                f"{', '.join(accepted.__name__ for accepted in self.client_classes)}."
-            )
-        self.name = name
-        self._client = client
+    model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
 
     def __str__(self) -> str:
-        """Identify the location by class and name."""
-        return f"{type(self).__name__} '{self.name}'"
-
-    @property
-    def client(self) -> Any:  # noqa: ANN401
-        """The client this location reads through. Set once, at construction."""
-        return self._client
+        """Identify the location by class."""
+        return type(self).__name__
 
     @abstractmethod
-    def connect(self) -> bool:
-        """Check the location can actually be reached."""
-        ...
-
-    @abstractmethod
-    def validate_extract_transform(self, extract_transform: SQLQuery) -> None:
-        """Validate ET logic against this location's query language.
-
-        Raises:
-            ExtractTransformError: If the ET logic is invalid.
-        """
-        ...
-
-    @abstractmethod
-    def execute(
+    def read(
         self,
-        extract_transform: SQLQuery,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
         return_type: DataFrameType = DataFrameType.POLARS,
-        keys: tuple[str, list[str]] | None = None,
         schema_overrides: dict[str, pl.DataType] | None = None,
     ) -> Iterator[DataFrameClass]:
-        """Execute ET logic against location and return batches.
+        """Get this location's rows, in batches.
 
         Args:
-            extract_transform: The ET logic to execute.
-            batch_size: The size used for internal batching. Overrides environment
-                variable if set.
-            rename: Renaming to apply after the ET logic is executed.
+            batch_size: The size used for internal batching.
+            rename: Renaming to apply to the rows that come back.
 
                 * If a dictionary is provided, it will be used to rename the columns.
                 * If a callable is provided, it will take the old name as input and
                     return the new name.
             return_type: The type of data to return. Defaults to "polars".
-            keys: Rule to only retrieve rows by specific keys.
-                The key of the dictionary is a field name on which to filter.
-                Filters source entries where the key field is in the dict values.
-            schema_overrides: Types to force on the columns that come back, rather
-                than letting the client infer them.
+            schema_overrides: Types to force on the columns that come back, rather than
+                letting the location infer them.
         """
         ...
 
 
-class RelationalDBLocation(Location):
-    """A location for a relational database."""
+class RelationalDB(Location):
+    """A relational database, and the query that extracts a source's rows from it."""
 
-    client_classes: ClassVar[tuple[type, ...]] = (Engine, AdbcConnection)
+    sql: SQLQuery
+    """SQL producing the rows to read, in whatever dialect the client speaks."""
 
-    @property
-    def client(self) -> Engine | AdbcConnection:
-        """The SQLAlchemy engine or ADBC connection this location reads through."""
-        return self._client
+    client: DBClient
+    """The SQLAlchemy engine or ADBC connection to read through.
+
+    A resource: pass it in a source's `location_resources`, not its settings, so a
+    document names it rather than carrying it.
+    """
 
     @property
     def client_type(self) -> ClientType:
         """Which client type this location was built with.
 
-        One `isinstance` decides it, because `client_classes` has already rejected
+        One `isinstance` decides it, because the field's type has already rejected
         anything that is neither an `Engine` nor an ADBC connection.
         """
         return (
@@ -184,129 +141,16 @@ class RelationalDBLocation(Location):
             finally:
                 connection.close()
 
-    def connect(self) -> bool:  # noqa: D102
-        try:
-            with self._get_connection() as conn:
-                _ = sql_to_df(stmt="select 1", connection=conn)
-                return True
-        except OperationalError:
-            return False
-
-    @property
-    def _sqlglot_dialect(self) -> str | None:
-        """The dialect to parse extract/transform SQL as, if we recognise it."""
-        if self.client_type == ClientType.SQLALCHEMY:
-            client_dialect = self.client.dialect.name
-        else:
-            vendor = self.client.adbc_get_info().get("vendor_name")
-            client_dialect = vendor.lower() if vendor else None
-
-        match client_dialect:
-            case "postgresql":
-                return "postgres"
-            case "sqlite":
-                return "sqlite"
-            case _:
-                logger.warning("Could not validate specific dialect.")
-                return None
-
-    def validate_extract_transform(self, extract_transform: SQLQuery) -> None:
-        """Check that the SQL statement only contains a single data-extracting command.
-
-        This does not fully sanitise the SQL statement. Validation only guards
-        against accidental mistakes, not malicious actors. Only run indexing using
-        sources you trust and have read, with least-privilege credentials.
-
-        Args:
-            extract_transform: The SQL statement to validate.
-
-        Raises:
-            ParseError: If the SQL statement cannot be parsed.
-            ExtractTransformError: If validation requirements are not met.
-        """
-        if not extract_transform.strip():
-            raise ExtractTransformError(
-                "SQL statement is empty or only contains whitespace."
-            )
-
-        try:
-            expressions = sqlglot.parse(
-                extract_transform, dialect=self._sqlglot_dialect
-            )
-        except ParseError as e:
-            raise ExtractTransformError("SQL statement could not be parsed.") from e
-
-        if len(expressions) > 1:
-            raise ExtractTransformError("SQL statement contains multiple commands.")
-
-        if not expressions:
-            raise ExtractTransformError(
-                "SQL statement does not contain any valid expressions."
-            )
-
-        expr = expressions[0]
-
-        if not isinstance(expr, sqlglot.expressions.Select | sqlglot.expressions.Union):
-            raise ExtractTransformError(
-                "SQL statement must start with a SELECT or WITH command."
-            )
-
-        forbidden = (
-            sqlglot.expressions.DDL,
-            sqlglot.expressions.DML,
-            sqlglot.expressions.Into,
-        )
-
-        if len(list(expr.find_all(forbidden))) > 0:
-            raise ExtractTransformError(
-                "SQL statement must not contain DDL or DML commands."
-            )
-
-    @overload
-    def execute(
+    def read(  # noqa: D102
         self,
-        extract_transform: SQLQuery,
-        batch_size: int | None = None,
-        rename: dict[str, str] | Callable | None = None,
-        return_type: Literal[DataFrameType.POLARS] = ...,
-        keys: tuple[str, list[str]] | None = None,
-        schema_overrides: dict[str, pl.DataType] | None = None,
-    ) -> Generator[PolarsDataFrame, None, None]: ...
-
-    @overload
-    def execute(
-        self,
-        extract_transform: SQLQuery,
-        batch_size: int | None = None,
-        rename: dict[str, str] | Callable | None = None,
-        return_type: Literal[DataFrameType.PANDAS] = ...,
-        keys: tuple[str, list[str]] | None = None,
-        schema_overrides: dict[str, pl.DataType] | None = None,
-    ) -> Generator[PandasDataFrame, None, None]: ...
-
-    @overload
-    def execute(
-        self,
-        extract_transform: SQLQuery,
-        batch_size: int | None = None,
-        rename: dict[str, str] | Callable | None = None,
-        return_type: Literal[DataFrameType.ARROW] = ...,
-        keys: tuple[str, list[str]] | None = None,
-        schema_overrides: dict[str, pl.DataType] | None = None,
-    ) -> Generator[ArrowTable, None, None]: ...
-
-    def execute(  # noqa: D102
-        self,
-        extract_transform: SQLQuery,
         batch_size: int | None = None,
         rename: dict[str, str] | Callable | None = None,
         return_type: DataFrameType = DataFrameType.POLARS,
-        keys: tuple[str, list[str]] | None = None,
         schema_overrides: dict[str, pl.DataType] | None = None,
     ) -> Generator[DataFrameClass, None, None]:
         # Strip semicolon, as it can block extended query protocol
         # and slow some engines down
-        extract_transform = extract_transform.replace(";", "")
+        statement = self.sql.replace(";", "")
 
         # We always work in batches to simplify higher level logic
         batch_size: int = batch_size or 10_000
@@ -317,24 +161,12 @@ class RelationalDBLocation(Location):
         # it calls `fetch_record_batch()` with no size and the driver chunks however
         # it likes. In-process drivers return the whole result in one batch.
         # `Source.sample(n)` takes the first batch and so can return the entire
-        # source, and `_read_warehouse`'s stream-to-Parquet stops bounding memory.
+        # source, and `_read_origin`'s stream-to-Parquet stops bounding memory.
         # Fix by slicing the record-batch stream to `batch_size` in `sql_to_df`.
 
         with self._get_connection() as conn:
-            if keys:
-                key_field, filter_values = keys
-                quoted_key_values = [f"'{key_val}'" for key_val in filter_values]
-                # Only filter original SQL if keys are provided
-                if quoted_key_values:
-                    comma_separated_values = ", ".join(quoted_key_values)
-                    # This "IN" expression is a SQL standard, though that is hard to
-                    # prove, since the standard is behind a paywall.
-                    extract_transform = (
-                        f"select * from ({extract_transform}) as sub "
-                        f"where {key_field} in ({comma_separated_values})"
-                    )
             yield from sql_to_df(
-                stmt=extract_transform,
+                stmt=statement,
                 schema_overrides=schema_overrides,
                 connection=conn,
                 rename=rename,
@@ -344,4 +176,49 @@ class RelationalDBLocation(Location):
             )
 
 
-add_location_class(RelationalDBLocation)
+class DataFrame(Location):
+    """A dataframe already in memory."""
+
+    df: DataFrameClass
+    """The rows to read.
+
+    A resource: pass it in a source's `location_resources`, not its settings.
+    """
+
+    @property
+    def _polars(self) -> PolarsDataFrame:
+        """The frame as polars, whatever it was handed as."""
+        if isinstance(self.df, PolarsDataFrame):
+            return self.df
+        if isinstance(self.df, PandasDataFrame):
+            return pl.from_pandas(self.df)
+        # An arrow `Table` always converts to a frame; only a `ChunkedArray` would
+        # give a `Series`, and the field type excludes one.
+        return cast(PolarsDataFrame, pl.from_arrow(self.df))
+
+    def read(  # noqa: D102
+        self,
+        batch_size: int | None = None,
+        rename: dict[str, str] | Callable | None = None,
+        return_type: DataFrameType = DataFrameType.POLARS,
+        schema_overrides: dict[str, pl.DataType] | None = None,
+    ) -> Generator[DataFrameClass, None, None]:
+        frame = self._polars
+
+        if schema_overrides:
+            frame = frame.with_columns(
+                pl.col(column).cast(dtype)
+                for column, dtype in schema_overrides.items()
+                if column in frame.columns
+            )
+
+        if rename:
+            frame = frame.rename(rename)
+
+        batch_size = batch_size or 10_000
+        for offset in range(0, frame.height, batch_size):
+            yield to_dataframe(frame.slice(offset, batch_size), return_type)
+
+
+add_location_class(RelationalDB)
+add_location_class(DataFrame)

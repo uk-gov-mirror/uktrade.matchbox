@@ -164,23 +164,38 @@ class Step(ABC):
         The key is derived from the *plan*, not from the step's output. That is what
         makes it computable before the step runs, which is what lets `_ensure` skip
         work. An output digest would only be knowable once the work was already done.
-        Sources are the exception. They fold a hash of the data they read into
-        `_spec_key`, because no spec reveals that the warehouse moved.
 
-        The trade-off is that the key can disagree with the bytes in both directions.
+        **A step's output must be a deterministic function of its inputs and its
+        settings.** `_ensure` skips a step whose fingerprint is stored, and a
+        fingerprint is exactly kind + spec + parent fingerprints. Parent fingerprints
+        stand in for the inputs, the spec for the settings.
+        Same fingerprint must therefore mean same output.
+
+        Three things break that rule, and they are one defect in different clothes:
+
+        * **Resources.** Anything passed in a step's `*_resources` reaches no spec, so
+          it must be something the step reads *through* and never data it reads. See
+          `matchlab.resources`.
+        * **Randomness.** A methodology that samples is not a function of its settings
+          unless it is seeded. `SplinkLinker` without a `seed` in a sampling training
+          function's arguments is the live example.
+        * **Ambient state.** A library version, a locale, a clock. Upgrade a matcher and
+          the same settings produce different edges under the same key.
+
+        A **source** is a special case. It has no parents, so its
+        inputs live outside matchlab; `_spec_key` reads the rows and hashes them to make
+        them an input. That is why computing a source's key always costs a read.
+
+        Break the rule and the key disagrees with the bytes, in one of two directions.
 
         * the spec omits something that changes the output, a **stale hit**, because
-          `_ensure` never runs the step and reads the old artifact. `SplinkLinker`
-          without an explicit seed is a live example. The only defence is that every
-          `_spec_key` covers everything its step's output depends on. Treat that as
-          the invariant to protect when adding a step or a setting.
+          `_ensure` never runs the step and reads the old artifact. This is the
+          dangerous direction: it is silent, and it hands back wrong results. All three
+          breakers above land here.
         * the spec includes something that doesn't change the output, a **spurious
-          miss**, re-running the step and everything below it. No spec does this
-          today, and the way to keep it that way is to record settings only. A spec
-          that described an *input* would, since identity already arrives via the
-          parent fingerprint. A setting that must point at an input points at its
-          position, which is not redundant. It decides which input the setting
-          applies to.
+          miss**, re-running the step and everything below it for nothing. Wasteful and
+          safe. For example, in `SourceSpec.location_settings` the query is hashed
+          even though the data hash already covers anything it could change.
 
         There is also no early cutoff. A `Transform` whose SQL is reformatted but
         semantically unchanged invalidates the whole subtree beneath it.

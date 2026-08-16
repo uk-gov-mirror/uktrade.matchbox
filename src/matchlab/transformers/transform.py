@@ -6,13 +6,14 @@ and runs it on collect. Its single input is a `RecordStep`, so transforms chain,
 its own cached artifact.
 """
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import polars as pl
 
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.kinds import StepKind
 from matchlab.recordstep import IdentifierRead, RecordStep
+from matchlab.resources import Resource, as_resources, values_of
 from matchlab.specs import TransformSpec
 from matchlab.transformers.base import Transformer
 from matchlab.transformers.clean import Clean
@@ -40,28 +41,47 @@ class Transform(RecordStep):
     kind: ClassVar[StepKind] = StepKind.TRANSFORM
 
     _READ_ONLY: ClassVar[frozenset[str]] = RecordStep._READ_ONLY | frozenset(
-        {"transformer", "_input"}
+        {"transformer", "transformer_settings", "transformer_resources", "_input"}
     )
 
     #: Settled at construction. See `Step.parents` for why this is declared.
     transformer: Transformer
+    transformer_settings: dict[str, Any]
+    transformer_resources: dict[str, Resource]
 
     def __init__(
         self,
         parent: RecordStep,
         transformer: Transformer | type[Transformer] | str,
         transformer_settings: dict | None = None,
+        transformer_resources: dict[str, Any] | None = None,
     ) -> None:
         """Define a transform.
 
         Args:
             parent: The record step to reshape.
             transformer: A `Transformer` instance, or a subclass / its registered name
-                to build from `transformer_settings`.
+                to build from `transformer_settings`. The instance form is what
+                `select`, `clean` and `group` use.
             transformer_settings: The configuration dict, when `transformer` is a class
                 or a name. Ignored when it is already an instance.
+            transformer_resources: Fields of the transformer that cannot be serialised,
+                on the same terms as `matchlab.models.Model`: resources only, never
+                data. No built-in transformer takes one.
+
+        Raises:
+            ValueError: If resources are given alongside an already-built instance,
+                which has nowhere left to put them.
         """
+        resources = as_resources(transformer_resources)
+
         if isinstance(transformer, Transformer):
+            if resources:
+                raise ValueError(
+                    "Resources need a transformer class to be built into. Pass "
+                    "`transformer=SomeTransformer` with `transformer_settings`, rather "
+                    "than an already-built instance."
+                )
             built = transformer
         else:
             transformer_class = (
@@ -69,11 +89,23 @@ class Transform(RecordStep):
                 if isinstance(transformer, str)
                 else transformer
             )
-            built = transformer_class(**(transformer_settings or {}))
+            built = transformer_class(
+                **(transformer_settings or {}), **values_of(resources)
+            )
+
+        # The settings as the transformer *resolved* them. Dumping the instance
+        # normalises defaults, so a field left out at the call site still reaches the
+        # spec; excluding the resources keeps an engine out of it. See `Source`, which
+        # follows the same rule.
+        settings = built.model_dump(mode="json", exclude=set(resources))
 
         super().__init__()
         self._set(_input=parent)
-        self._set(transformer=built)
+        self._set(
+            transformer=built,
+            transformer_settings=settings,
+            transformer_resources=resources,
+        )
 
     #: Settled at construction. The record step this transform reshapes.
     _input: RecordStep
@@ -99,7 +131,7 @@ class Transform(RecordStep):
         """The serialisable spec for this transform."""
         return TransformSpec(
             transformer_class=self.transformer_class.__name__,
-            transformer_settings=self.transformer.model_dump(mode="json"),
+            transformer_settings=self.transformer_settings,
         )
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:

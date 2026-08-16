@@ -20,9 +20,8 @@ import pytest
 from rich.console import Console
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import Source, set_default_adapter
+from matchlab import Resource, Source, read_db, set_default_adapter
 from matchlab.adapters import DuckDBAdapter
-from matchlab.locations import RelationalDBLocation
 
 TEST_ROOT = Path(__file__).resolve().parent
 
@@ -84,10 +83,10 @@ def source(warehouse: Engine) -> SourceFactory:
     """
 
     def _make(name: str, extract: str | None = None) -> Source:
-        return Source(
-            location=RelationalDBLocation(name="warehouse", client=warehouse),
-            name=name,
-            extract_transform=extract or f"select pk, company, town from {name}",
+        return read_db(
+            name,
+            sql=extract or f"select pk, company, town from {name}",
+            client=Resource("warehouse", warehouse),
             key_field="pk",
         )
 

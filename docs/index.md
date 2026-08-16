@@ -12,12 +12,12 @@ Record matching is a chore. You match with Splink and pandas, measure with `er-e
 matchlab is one library for all of it, and it runs on your machine.
 
 ```python
-from matchlab import Source
+from matchlab import read_db
 
-crn = Source(
-    location=warehouse,
-    name="crn",
-    extract_transform="select pk, company, town from crn",
+crn = read_db(
+    "crn",
+    sql="select pk, company, town from crn",
+    client=warehouse,
     key_field="pk",
 )
 

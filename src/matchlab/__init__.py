@@ -16,11 +16,12 @@ or inputs changed.
 from importlib.metadata import version
 
 from matchlab.document import PlanDocument, dump, load
-from matchlab.locations import RelationalDBLocation
+from matchlab.locations import DataFrame, RelationalDB
 from matchlab.models import Model
 from matchlab.recordstep import RecordStep
 from matchlab.resolvers import Resolver
-from matchlab.sources import Source
+from matchlab.resources import Resource
+from matchlab.sources import Source, read_db, read_df
 from matchlab.steps import Step, default_adapter, set_default_adapter
 from matchlab.transformers import (
     Clean,
@@ -35,11 +36,13 @@ __version__ = version("matchlab")
 
 __all__ = (
     "Clean",
+    "DataFrame",
     "Group",
     "Model",
+    "Resource",
     "PlanDocument",
     "RecordStep",
-    "RelationalDBLocation",
+    "RelationalDB",
     "Resolver",
     "Select",
     "Source",
@@ -51,5 +54,7 @@ __all__ = (
     "default_adapter",
     "dump",
     "load",
+    "read_db",
+    "read_df",
     "set_default_adapter",
 )

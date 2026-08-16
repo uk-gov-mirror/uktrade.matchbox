@@ -16,8 +16,7 @@ from matchlab.cli import _load_target, main
 PIPELINE = """
 from sqlalchemy import create_engine, text
 
-from matchlab import Source
-from matchlab.locations import RelationalDBLocation
+from matchlab import Resource, read_db
 from matchlab.models.dedupers import NaiveDeduper
 
 _engine = create_engine("sqlite:///{db}")
@@ -25,11 +24,10 @@ with _engine.begin() as conn:
     conn.execute(text("CREATE TABLE crn (pk TEXT, company TEXT)"))
     conn.execute(text("INSERT INTO crn VALUES ('a1','acme'),('a2','acme')"))
 
-_location = RelationalDBLocation(name="warehouse", client=_engine)
-_source = Source(
-    location=_location,
-    name="crn",
-    extract_transform="select pk, company from crn",
+_source = read_db(
+    "crn",
+    sql="select pk, company from crn",
+    client=Resource("warehouse", _engine),
     key_field="pk",
 )
 entities = _source.dedupe(

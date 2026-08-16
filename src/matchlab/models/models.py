@@ -10,16 +10,17 @@ from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.schemas import SCHEMA_MODEL_EDGES
 from matchlab.models import dedupers, linkers
-from matchlab.models.dedupers.base import Deduper, DeduperSettings
-from matchlab.models.linkers.base import Linker, LinkerSettings
+from matchlab.models.dedupers.base import Deduper
+from matchlab.models.linkers.base import Linker
 from matchlab.recordstep import RecordStep
+from matchlab.resources import Resource, as_resources, values_of
 from matchlab.specs import ModelSpec, ModelType
 from matchlab.steps import Step
 
 if TYPE_CHECKING:
     # `matchlab.resolvers` imports this module
     from matchlab.resolvers import Resolver
-    from matchlab.resolvers.base import ResolverMethod, ResolverSettings
+    from matchlab.resolvers.base import ResolverMethod
 
 _MODEL_CLASSES: dict[str, type[Linker] | type[Deduper]] = {
     **dict(inspect.getmembers(dedupers, inspect.isclass)),
@@ -101,59 +102,83 @@ class Model(Step):
     kind: ClassVar[StepKind] = StepKind.MODEL
 
     _READ_ONLY: ClassVar[frozenset[str]] = Step._READ_ONLY | frozenset(
-        {"left", "right", "model_class", "model_settings", "model_instance"}
+        {
+            "left",
+            "right",
+            "model_class",
+            "model_settings",
+            "model_instance",
+            "model_resources",
+        }
     )
 
     #: Settled at construction. See `Step.parents` for why these are declared.
     left: RecordStep
     right: RecordStep | None
     model_class: type[Deduper] | type[Linker]
-    model_settings: DeduperSettings | LinkerSettings
+    model_settings: dict[str, Any]
+    model_resources: dict[str, Resource]
     model_instance: Deduper | Linker
 
     def __init__(
         self,
         left: RecordStep,
         model_class: type[Deduper] | type[Linker] | str,
-        model_settings: DeduperSettings | LinkerSettings | dict,
+        model_settings: dict[str, Any] | None = None,
         right: RecordStep | None = None,
+        model_resources: dict[str, Any] | None = None,
     ) -> None:
         """Define a model.
 
         Args:
             left: The record step to deduplicate, or the left side of a link.
             model_class: A `Deduper`/`Linker` subclass, or its registered name.
-            model_settings: The settings object for that class, or a dict.
+            model_settings: That class's configuration, as a dict.
             right: The right side of a link. Omit for a deduper.
+            model_resources: Fields of the methodology that cannot be serialised, keyed
+                by field name. Reaches neither a document's settings nor a fingerprint,
+                so it must hold resources a model reads *through* — a connection, a
+                credential — something that cannot affect a model's output.
+
+                No built-in methodology takes one, and `Deduper`/`Linker` therefore do
+                not permit arbitrary field types. A methodology that wants a resource
+                opts in for itself, which keeps the loosening scoped to the class that
+                needs it:
+
+                ```python
+                class MyDeduper(Deduper):
+                    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+                    unique_fields: list[str]  # a setting
+                    session: Engine  # a resource
+                ```
         """
         resolved_class = (
             _MODEL_CLASSES[model_class] if isinstance(model_class, str) else model_class
         )
-
-        if isinstance(model_settings, dict):
-            settings_class = resolved_class.model_fields["settings"].annotation
-            settings = settings_class(**model_settings)
-        else:
-            settings = model_settings
 
         if (_model_type_of(resolved_class) is ModelType.LINKER) != (right is not None):
             raise ValueError(
                 "A linker requires a right input; a deduper must not have one."
             )
 
+        resources = as_resources(model_resources)
+        instance = resolved_class(**dict(model_settings or {}), **values_of(resources))
+
         super().__init__()
 
-        # The instance is built from `settings`, the same object `spec` reads, rather
-        # than from the argument. Built from a settings *dict*, it would construct a
-        # second, equal settings object, and `spec` would then describe one while
-        # `_execute` ran the other. Pydantic passes a model instance through by
-        # reference, so this is genuinely shared.
+        # The settings as the methodology *resolved* them, read back off the one
+        # instance `_execute` runs. A defaulted field left out at the call site is still
+        # part of the configuration, so it belongs in the spec; the resources are
+        # excluded, so nothing injected reaches a fingerprint. `Source` and `Transform`
+        # follow the same rule.
         self._set(
             left=left,
             right=right,
             model_class=resolved_class,
-            model_settings=settings,
-            model_instance=resolved_class(settings=settings),
+            model_settings=instance.model_dump(mode="json", exclude=set(resources)),
+            model_resources=resources,
+            model_instance=instance,
         )
 
     # -- inputs -----------------------------------------------------------------------
@@ -183,7 +208,7 @@ class Model(Step):
         return ModelSpec(
             model_type=self.model_type,
             model_class=self.model_class.__name__,
-            model_settings=self.model_settings.model_dump(mode="json"),
+            model_settings=self.model_settings,
         )
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
@@ -214,7 +239,8 @@ class Model(Step):
         self,
         *other_models: "Model",
         resolver_class: "type[ResolverMethod] | str" = "Components",
-        resolver_settings: "ResolverSettings | dict[str, Any] | None" = None,
+        resolver_settings: dict[str, Any] | None = None,
+        resolver_resources: dict[str, Any] | None = None,
     ) -> "Resolver":
         """Resolve this model (and any others) into clusters."""
         from matchlab.resolvers import Resolver  # noqa: PLC0415 - avoids a cycle
@@ -224,4 +250,5 @@ class Model(Step):
             *other_models,
             resolver_class=resolver_class,
             resolver_settings=resolver_settings,
+            resolver_resources=resolver_resources,
         )

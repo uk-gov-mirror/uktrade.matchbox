@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from matchlab.core.sql import SQLCondition
 from matchlab.models import comparison
-from matchlab.models.linkers.base import Linker, LinkerSettings
+from matchlab.models.linkers.base import Linker
 
 
 class WeightedComparison(BaseModel):
@@ -36,19 +36,8 @@ class WeightedComparison(BaseModel):
         return comp_val
 
 
-class WeightedDeterministicSettings(LinkerSettings):
-    """Settings for `WeightedDeterministicLinker`.
-
-    Example:
-        >>> {
-        ...     weighted_comparisons: [
-        ...         ("l.company_name = r.company_name", 0.7),
-        ...         ("l.postcode = r.postcode", 0.7),
-        ...         ("l.company_id = r.company_id", 1),
-        ...     ],
-        ...     threshold: 0.8,
-        ... }
-    """
+class WeightedDeterministicLinker(Linker):
+    """Scores a pair by the weighted share of comparisons it matches on."""
 
     weighted_comparisons: list[WeightedComparison] = Field(
         description="A list of tuples in the form of a comparison, and a weight."
@@ -64,12 +53,6 @@ class WeightedDeterministicSettings(LinkerSettings):
         le=1,
     )
 
-
-class WeightedDeterministicLinker(Linker):
-    """Scores a pair by the weighted share of comparisons it matches on."""
-
-    settings: WeightedDeterministicSettings
-
     _id_dtype_l: pl.DataType
     _id_dtype_r: pl.DataType
 
@@ -82,8 +65,8 @@ class WeightedDeterministicLinker(Linker):
 
         Keeps only pairs scoring at or above `settings.threshold`.
         """
-        self._id_dtype_l = left[self.settings.left_id].dtype
-        self._id_dtype_r = right[self.settings.right_id].dtype
+        self._id_dtype_l = left[self.left_id].dtype
+        self._id_dtype_r = right[self.right_id].dtype
 
         # Used below but ruff can't detect
         left_df = left.clone()  # noqa: F841
@@ -92,7 +75,7 @@ class WeightedDeterministicLinker(Linker):
         match_subquery = []
         weights = []
 
-        for weighted_comparison in self.settings.weighted_comparisons:
+        for weighted_comparison in self.weighted_comparisons:
             match_subquery.append(
                 f"""
                     select distinct on (list_sort([raw.left_id, raw.right_id]))
@@ -101,8 +84,8 @@ class WeightedDeterministicLinker(Linker):
                         1.0 * {weighted_comparison.weight} as score
                     from (
                         select
-                            l.{self.settings.left_id} as left_id,
-                            r.{self.settings.right_id} as right_id,
+                            l.{self.left_id} as left_id,
+                            r.{self.right_id} as right_id,
                         from
                             left_df l
                         inner join right_df r on
@@ -127,7 +110,7 @@ class WeightedDeterministicLinker(Linker):
                 matches.right_id
             having
                 sum(matches.score) / 
-                    {total_weight} >= {self.settings.threshold};
+                    {total_weight} >= {self.threshold};
         """
 
         return (
