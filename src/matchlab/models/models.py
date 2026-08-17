@@ -13,12 +13,7 @@ from matchlab.models import dedupers, linkers
 from matchlab.models.dedupers.base import Deduper
 from matchlab.models.linkers.base import Linker
 from matchlab.recordstep import RecordStep
-from matchlab.resources import (
-    Resource,
-    as_resources,
-    check_resource_split,
-    values_of,
-)
+from matchlab.resources import Resource
 from matchlab.specs import ModelSpec, ModelType
 from matchlab.steps import Step
 
@@ -156,24 +151,17 @@ class Model(Step):
                 "A linker requires a right input; a deduper must not have one."
             )
 
-        resources = as_resources(model_resources)
-        check_resource_split(
-            resolved_class, model_settings or {}, resources, prefix="model"
+        instance, settings, resources = self._build_methodology(
+            resolved_class, model_settings, model_resources
         )
-        instance = resolved_class(**dict(model_settings or {}), **values_of(resources))
 
         super().__init__()
 
-        # The settings as the methodology *resolved* them, read back off the one
-        # instance `_execute` runs. A defaulted field left out at the call site is still
-        # part of the configuration, so it belongs in the spec; the resources are
-        # excluded, so nothing injected reaches a fingerprint. `Source` and `Transform`
-        # follow the same rule.
         self._set(
             left=left,
             right=right,
             model_class=resolved_class,
-            model_settings=instance.model_dump(mode="json", exclude=set(resources)),
+            model_settings=settings,
             model_resources=resources,
             model_instance=instance,
         )

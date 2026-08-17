@@ -20,19 +20,27 @@ refresh), while an existing `Source` object memoises its read.
 assignment, so a plan is changed by rebuilding it, not by editing a node in place.
 """
 
+import inspect
 import json
 from abc import ABC, abstractmethod
-from typing import ClassVar, Self
+from typing import Any, ClassVar, Self
 
 from platformdirs import user_cache_path
 from pydantic import BaseModel
 
 from matchlab import lineage
 from matchlab.adapters import Adapter, DuckDBAdapter, Fingerprint
+from matchlab.core.exceptions import ResourceError
 from matchlab.core.hash import HASH_FUNC
 from matchlab.core.kinds import StepKind
 from matchlab.lineage import StepStatus
 from matchlab.progress import report
+from matchlab.resources import (
+    Resource,
+    as_resources,
+    resource_fields,
+    values_of,
+)
 
 CACHE_DIR = user_cache_path("matchlab")
 
@@ -58,6 +66,98 @@ class Step(ABC):
     """A node in a lazy plan."""
 
     kind: ClassVar[StepKind]
+
+    #: The prefix on this kind's `*_settings` and `*_resources` arguments.
+    # `_build_methodology` quotes it when a field was passed in the wrong one, so it
+    # has to name arguments the step really takes
+    _METHODOLOGY: ClassVar[str]
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Derive `_METHODOLOGY` from the `*_resources` parameter `__init__` declares.
+
+        A step that takes no such parameter builds no methodology, so it keeps whatever
+        it inherits. That covers `RecordStep` and any test double subclassing `Step`
+        directly.
+
+        Raises:
+            TypeError: If `__init__` declares more than one `*_resources` parameter,
+                which leaves no single prefix to quote back at a caller.
+        """
+        super().__init_subclass__(**kwargs)
+
+        prefixes = [
+            parameter.removesuffix("_resources")
+            for parameter in inspect.signature(cls.__init__).parameters
+            if parameter.endswith("_resources")
+        ]
+        if len(prefixes) > 1:
+            raise TypeError(
+                f"{cls.__name__}.__init__ declares more than one resources argument "
+                f"({', '.join(f'{prefix}_resources' for prefix in prefixes)}), so "
+                "there is no single prefix to name in an error. A step runs one "
+                "methodology."
+            )
+        if prefixes:
+            cls._METHODOLOGY = prefixes[0]
+
+    @classmethod
+    def _build_methodology(
+        cls,
+        methodology_class: type[BaseModel],
+        settings: dict[str, Any] | None,
+        resources: dict[str, Any] | None,
+    ) -> tuple[BaseModel, dict[str, Any], dict[str, Resource]]:
+        """Build the one methodology this step runs, and split its configuration.
+
+        The settings come back as the methodology *resolved* them, read off the
+        instance. A defaulted field left out at the call site is still part of the
+        configuration, so it belongs in the spec. The resources are excluded, so nothing
+        injected reaches a fingerprint.
+
+        Args:
+            methodology_class: The location or methodology to build.
+            settings: The `*_settings` argument, as passed.
+            resources: The `*_resources` argument, as passed.
+
+        Returns:
+            The built instance, its resolved settings, and its wrapped resources.
+
+        Raises:
+            ResourceError: If a marked field appears in the settings, or an unmarked
+                field appears in the resources.
+        """
+        settings = settings or {}
+        wrapped = as_resources(resources)
+
+        name = methodology_class.__name__
+        prefix = cls._METHODOLOGY
+        declared = resource_fields(methodology_class)
+
+        if misplaced := sorted(set(settings) & declared):
+            fields = ", ".join(f"'{field}'" for field in misplaced)
+            raise ResourceError(
+                f"{fields} on {name} {'are' if len(misplaced) > 1 else 'is'} marked "
+                f"`FromResources`, so must be passed in `{prefix}_resources` rather "
+                f"than `{prefix}_settings`. A document then records the name rather "
+                "than the value, and no credential is serialised."
+            )
+
+        for field in sorted(set(wrapped) - declared):
+            if field not in methodology_class.model_fields:
+                raise ResourceError(f"{name} has no field '{field}'.")
+            raise ResourceError(
+                f"'{field}' on {name} is a setting, not a resource, so must be passed "
+                f"in `{prefix}_settings`. Only a field marked `FromResources` may go "
+                f"in `{prefix}_resources`: a step excludes its resources from the "
+                "settings it hashes, so this one would change with no re-run."
+            )
+
+        instance = methodology_class(**settings, **values_of(wrapped))
+        return (
+            instance,
+            instance.model_dump(mode="json", exclude=set(wrapped)),
+            wrapped,
+        )
 
     @property
     @abstractmethod

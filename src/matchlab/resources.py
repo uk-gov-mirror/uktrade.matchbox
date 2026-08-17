@@ -21,7 +21,6 @@ A step's constructor brings the two together. It records the name for the docume
 passes the value into the marked field.
 """
 
-from collections.abc import Mapping
 from typing import Annotated, Any, Final, Generic, TypeAlias, TypeVar
 
 from pydantic import BaseModel
@@ -120,56 +119,10 @@ Pydantic cannot validate most resource types. Add
 def resource_fields(methodology_class: type[BaseModel]) -> frozenset[str]:
     """The fields marked `FromResources`, inherited ones included."""
     return frozenset(
-        name
-        for name, field in methodology_class.model_fields.items()
+        field_name
+        for field_name, field in methodology_class.model_fields.items()
         if any(isinstance(entry, _IsResource) for entry in field.metadata)
     )
-
-
-def check_resource_split(
-    methodology_class: type[BaseModel],
-    settings: Mapping[str, Any],
-    resources: Mapping[str, Any],
-    prefix: str,
-) -> None:
-    """Check each field was passed in the argument its class declares for it.
-
-    Every step calls this before it builds its methodology. Without it a step would
-    trust the caller to say which fields are resources. A setting passed as a resource
-    would then drop out of the settings the step hashes, and two steps doing different
-    work would share a fingerprint.
-
-    Args:
-        methodology_class: The location or methodology about to be built.
-        settings: The `*_settings` argument, as passed.
-        resources: The `*_resources` argument, as passed.
-        prefix: The argument prefix for this step kind, such as `"location"`.
-
-    Raises:
-        ResourceError: If a marked field appears in the settings, or an unmarked field
-            appears in the resources.
-    """
-    name = methodology_class.__name__
-    declared = resource_fields(methodology_class)
-
-    if misplaced := sorted(set(settings) & declared):
-        fields = ", ".join(f"'{field}'" for field in misplaced)
-        raise ResourceError(
-            f"{fields} on {name} {'are' if len(misplaced) > 1 else 'is'} marked "
-            f"`FromResources`, so must be passed in `{prefix}_resources` rather than "
-            f"`{prefix}_settings`. A document then records the name rather than the "
-            "value, and no credential is serialised."
-        )
-
-    for field in sorted(set(resources) - declared):
-        if field not in methodology_class.model_fields:
-            raise ResourceError(f"{name} has no field '{field}'.")
-        raise ResourceError(
-            f"'{field}' on {name} is a setting, not a resource, so must be passed in "
-            f"`{prefix}_settings`. Only a field marked `FromResources` may go in "
-            f"`{prefix}_resources`: a step excludes its resources from the settings it "
-            "hashes, so this one would change with no re-run."
-        )
 
 
 def as_resources(supplied: dict[str, Any] | None) -> dict[str, Resource]:

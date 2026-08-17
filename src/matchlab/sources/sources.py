@@ -27,12 +27,7 @@ from matchlab.core.logging import logger
 from matchlab.core.resolver_output import leaf_id
 from matchlab.core.sql import SQLQuery
 from matchlab.recordstep import IdentifierRead, RecordStep, build_record_step
-from matchlab.resources import (
-    Resource,
-    as_resources,
-    check_resource_split,
-    values_of,
-)
+from matchlab.resources import Resource
 from matchlab.sources.base import Location
 from matchlab.sources.dataframe import DataFrame
 from matchlab.sources.relational import DBClient, RelationalDB
@@ -140,17 +135,9 @@ class Source(RecordStep):
             )
 
         resolved_class = resolve_location_class(location_class)
-        resources = as_resources(location_resources)
-        check_resource_split(
-            resolved_class, location_settings or {}, resources, prefix="location"
+        built, settings, resources = self._build_methodology(
+            resolved_class, location_settings, location_resources
         )
-        built = resolved_class(**(location_settings or {}), **values_of(resources))
-
-        # The settings as the location *resolved* them, not as they were passed. A
-        # defaulted field left out at the call site is still part of the configuration,
-        # so it belongs in the spec: otherwise two identical locations, one written with
-        # a default spelled out, would fingerprint differently and re-run for nothing.
-        settings = built.model_dump(mode="json", exclude=set(resources))
 
         super().__init__()
 

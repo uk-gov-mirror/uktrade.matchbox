@@ -13,12 +13,7 @@ from matchlab.models import Model
 from matchlab.recordstep import IdentifierRead, RecordStep, build_record_step
 from matchlab.resolvers.base import ResolverMethod
 from matchlab.resolvers.components import Components
-from matchlab.resources import (
-    Resource,
-    as_resources,
-    check_resource_split,
-    values_of,
-)
+from matchlab.resources import Resource
 from matchlab.sources import Source
 from matchlab.specs import ResolverSpec
 
@@ -101,23 +96,20 @@ class Resolver(RecordStep):
             if isinstance(resolver_class, str)
             else resolver_class
         )
-        resources = as_resources(resolver_resources)
-        check_resource_split(
-            resolved, resolver_settings or {}, resources, prefix="resolver"
-        )
-        instance = resolved(
-            **{
+        # `_positions` runs first: a setting may name one of this resolver's inputs by
+        # object, and only the built methodology's own position form belongs in a spec.
+        instance, settings, resources = self._build_methodology(
+            resolved,
+            {
                 field: self._positions(field, value)
                 for field, value in (resolver_settings or {}).items()
             },
-            **values_of(resources),
+            resolver_resources,
         )
 
-        # The settings as the methodology resolved them, read off the one instance
-        # `_execute` runs, with resources excluded. See `matchlab.models.Model`.
         self._set(
             resolver_class=resolved,
-            resolver_settings=instance.model_dump(mode="json", exclude=set(resources)),
+            resolver_settings=settings,
             resolver_resources=resources,
             resolver_instance=instance,
         )

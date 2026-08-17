@@ -13,12 +13,7 @@ import polars as pl
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.kinds import StepKind
 from matchlab.recordstep import IdentifierRead, RecordStep
-from matchlab.resources import (
-    Resource,
-    as_resources,
-    check_resource_split,
-    values_of,
-)
+from matchlab.resources import Resource
 from matchlab.specs import TransformSpec
 from matchlab.transformers.base import Transformer
 from matchlab.transformers.clean import Clean
@@ -79,37 +74,27 @@ class Transform(RecordStep):
             ResourceError: If a field was passed in the wrong one of
                 `transformer_settings` and `transformer_resources`.
         """
-        resources = as_resources(transformer_resources)
-
         if isinstance(transformer, Transformer):
-            if resources:
+            # An instance is already built, so there is nothing left to build resources
+            # into, and its settings are simply what it resolved them to.
+            if transformer_resources:
                 raise ValueError(
                     "Resources need a transformer class to be built into. Pass "
                     "`transformer=SomeTransformer` with `transformer_settings`, rather "
                     "than an already-built instance."
                 )
             built = transformer
+            settings = built.model_dump(mode="json")
+            resources: dict[str, Resource] = {}
         else:
             transformer_class = (
                 _TRANSFORMER_CLASSES[transformer]
                 if isinstance(transformer, str)
                 else transformer
             )
-            check_resource_split(
-                transformer_class,
-                transformer_settings or {},
-                resources,
-                prefix="transformer",
+            built, settings, resources = self._build_methodology(
+                transformer_class, transformer_settings, transformer_resources
             )
-            built = transformer_class(
-                **(transformer_settings or {}), **values_of(resources)
-            )
-
-        # The settings as the transformer *resolved* them. Dumping the instance
-        # normalises defaults, so a field left out at the call site still reaches the
-        # spec; excluding the resources keeps an engine out of it. See `Source`, which
-        # follows the same rule.
-        settings = built.model_dump(mode="json", exclude=set(resources))
 
         super().__init__()
         self._set(_input=parent)
