@@ -76,8 +76,11 @@ class Resolver(RecordStep):
                 serialised, keyed by field name. See `matchlab.resources`.
 
         Raises:
+            ValueError: If an input is not a model, if there are none, or if the models
+                bring two different sources under one name.
             ResourceError: If a field was passed in the wrong one of
-                `resolver_settings` and `resolver_resources`.
+                `resolver_settings` and `resolver_resources`, or if the models bring
+                one resource name over two different objects.
         """
         deduped: list[Model] = []
         for model in models:
@@ -113,6 +116,7 @@ class Resolver(RecordStep):
             resolver_resources=resources,
             resolver_instance=instance,
         )
+        self._check_names()
 
     @property
     def parents(self) -> tuple[Model, ...]:

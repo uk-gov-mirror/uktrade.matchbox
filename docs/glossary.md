@@ -122,7 +122,7 @@ Re-publishing the same label at the same resolver output is a no-op. Aiming an e
 
 ## Qualify
 
-Prefix a column name with its [source](#source)'s name (`first_name` becomes `crn_first_name`), so the same field from two sources can sit side by side without colliding. A qualified column's prefix must parse as a valid identifier, which is why a source's `name` is restricted to safe characters.
+Prefix a column name with its [source](#source)'s name (`first_name` becomes `crn_first_name`), so the same field from two sources can sit side by side without colliding. A qualified column's prefix must parse as a valid identifier, which is why a source's `name` is restricted to safe characters, and it is why two different sources in one plan cannot share a name.
 
 ## Record step
 
@@ -145,6 +145,8 @@ A named object a node needs to run that can't be serialised. Pass one in a step'
 For sources, resources are the data-generating mechanism, which affects the [fingerprint](#fingerprint). For all other types of node, resources cannot influence the output of the node because they're ignored by the fingerprint.
 
 A location or methodology marks its resource fields `FromResources`. Every other field is a setting. Passing a field in the wrong argument raises an error that names the field.
+
+Sharing a resource name means sharing a resource. Two steps of different kinds can't share a resource.
 
 ## Root
 

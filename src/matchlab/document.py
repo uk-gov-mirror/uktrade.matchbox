@@ -169,8 +169,9 @@ def dump(root: Step) -> PlanDocument:
         The document. It holds no resource, no credentials and no data.
 
     Raises:
-        ResourceError: If one resource name covers two different objects across the
-            plan, or if a resource was passed without a name.
+        ResourceError: If a resource was passed without a name, so there is nothing for
+            a document to record. A name covering two different objects is refused
+            earlier, when the plan is built.
     """
     ordered = walk(root)
     _check_resources(ordered)
@@ -183,55 +184,20 @@ def dump(root: Step) -> PlanDocument:
     )
 
 
-def _resources_of(step: Step) -> dict[str, Resource]:
-    """The resources a step was given, whatever kind it is.
-
-    One attribute per kind, named for its methodology, so this is where the four names
-    are reconciled into the one map a `StepNode` carries.
-    """
-    for attribute in (
-        "location_resources",
-        "model_resources",
-        "transformer_resources",
-        "resolver_resources",
-    ):
-        found = getattr(step, attribute, None)
-        if found is not None:
-            return found
-    return {}
-
-
 def _check_resources(steps: list[Step]) -> None:
-    """Reject a plan whose resources cannot be described unambiguously.
-
-    Two failures, both silent otherwise. An **unnamed** resource has nothing for a
-    document to record, so the plan could be dumped but never rebuilt. A **name covering
-    two objects** would dump to one hole, load with one object, and hand back a plan
-    that is not the one dumped — visible only as wrong results much later. Compared by
-    identity, since the same object under one name is the intended case: two locations
-    sharing a warehouse is exactly what names are for.
+    """Reject a plan whose resources have no names to record.
 
     Raises:
-        ResourceError: If a resource is unnamed, or a name covers two different objects.
+        ResourceError: If a resource is unnamed.
     """
-    seen: dict[str, Any] = {}
     for position, step in enumerate(steps):
-        for field, resource in _resources_of(step).items():
+        for field, resource in step._resources().items():
             if resource.name is None:
                 raise ResourceError(
                     f"Step {position} ({step.kind}) was given an unnamed resource for "
                     f"'{field}', so this plan cannot be described. Wrap it: "
                     f'{field}=Resource("some_name", ...).'
                 )
-            if resource.name in seen and seen[resource.name] is not resource.value:
-                raise ResourceError(
-                    f"Resource '{resource.name}' covers two different objects in this "
-                    f"plan ({type(seen[resource.name]).__name__} and "
-                    f"{type(resource.value).__name__}). A document records only the "
-                    "name, so both would be loaded as one. Give them different names, "
-                    "or pass the same object to both."
-                )
-            seen[resource.name] = resource.value
 
 
 def _node(step: Step, inputs: tuple[int, ...]) -> StepNode:
@@ -246,7 +212,7 @@ def _node(step: Step, inputs: tuple[int, ...]) -> StepNode:
         kind=step.kind,
         spec=cast(StepSpec, step.spec),
         inputs=inputs,
-        resources=names_of(_resources_of(step)),
+        resources=names_of(step._resources()),
     )
 
 

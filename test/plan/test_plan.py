@@ -15,16 +15,16 @@ a3/b2, reachable but matched by nothing, must stay singletons (merge-forward).
 """
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import polars as pl
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, create_engine, text
 
 import matchlab as mb
 from matchlab import lineage
-from matchlab.core.exceptions import StepNotFound
+from matchlab.core.exceptions import ResourceError, StepNotFound
 from matchlab.core.kinds import StepKind
 from matchlab.specs import ModelType, SourceSpec
 
@@ -174,6 +174,27 @@ def test_collect_only_new_steps(
     assert apex.get_lookup().height > 0
 
 
+def test_renaming_resource(warehouse: Engine, adapter: mb.DuckDBAdapter) -> None:
+    """Renaming a resource keeps the fingerprint stable."""
+
+    def apex(resource_name: str) -> mb.Resolver:
+        crn = mb.read_database(
+            "crn",
+            sql="select pk, company from crn",
+            client=mb.Resource(resource_name, warehouse),
+            key_field="pk",
+        )
+        return crn.dedupe(
+            model_class="NaiveDeduper",
+            model_settings={"unique_fields": ["crn_company"]},
+        ).resolve()
+
+    original = apex("warehouse").collect(adapter, interactive=False)
+    renamed = apex("something_else_entirely").collect(adapter, interactive=False)
+
+    assert renamed.fingerprints() == original.fingerprints()
+
+
 def test_source_column_change_invalidates(
     warehouse: Engine, source: Callable[..., mb.Source]
 ) -> None:
@@ -242,6 +263,121 @@ def test_source_name_reserved_word(warehouse: Engine) -> None:
     cleaned = source.clean({"name": f"lower({source.f('company')})"})
     cleaned.collect()
     assert sorted(cleaned.data()["name"].to_list()) == ["acme", "acme", "beta"]
+
+
+def test_repeated_source_name(source: Callable[..., mb.Source]) -> None:
+    """Two sources in one plan cannot share a name, and the join is where that shows."""
+    left = source("crn")
+    right = source("crn", "select pk, company, town from dh")
+
+    with pytest.raises(ValueError, match="covers two different steps"):
+        left.link(
+            right,
+            model_class=mb.DeterministicLinker,
+            model_settings={"comparisons": ["l.crn_company = r.crn_company"]},
+        )
+
+
+def test_resource_sharing(warehouse: Engine) -> None:
+    """Two locations can share one warehouse via resources.
+
+    Sharing a name means sharing the object, which is what makes
+    `test_repeated_resource_name` a refusal rather than the normal case.
+    """
+    client = mb.Resource("wh", warehouse)
+    left = mb.read_database("crn", sql="select pk, company from crn", client=client)
+    right = mb.read_database("dh", sql="select pk, company from dh", client=client)
+    plan = left.link(
+        right,
+        model_class="DeterministicLinker",
+        model_settings={"comparisons": ["l.crn_company = r.dh_company"]},
+    ).resolve()
+
+    assert mb.dump(plan).required_resources() == {"wh"}
+
+
+def test_repeated_resource_name(
+    source: Callable[..., mb.Source],
+    warehouse: Engine,
+    sqlite_in_memory_warehouse: Engine,
+) -> None:
+    """One resource name over two objects is refused wherever the branches meet."""
+    left = source("crn", client=mb.Resource("wh", warehouse)).clean(
+        {"company": "lower(crn_company)"}
+    )
+    right = source("dh", client=mb.Resource("wh", sqlite_in_memory_warehouse))
+
+    with pytest.raises(ResourceError, match="covers two different objects"):
+        left.link(
+            right,
+            model_class=mb.DeterministicLinker,
+            model_settings={"comparisons": ["l.company = r.dh_company"]},
+        )
+
+
+class _TwoClientLocation(mb.Location):
+    """A location holding two clients it never reads through.
+
+    No shipped location takes two resources, and one that does is the only way a leaf
+    can conflict with itself.
+    """
+
+    reader: mb.FromResources[Engine]
+    writer: mb.FromResources[Engine]
+
+    def read(self, *args: object, **kwargs: object) -> Iterator[pl.DataFrame]:
+        """Never called: this source is built, not collected."""
+        raise NotImplementedError
+
+
+def test_leaf_conflicts_with_itself(
+    warehouse: Engine, sqlite_in_memory_warehouse: Engine
+) -> None:
+    """A source has no inputs, but its own two fields can still collide."""
+    with pytest.raises(ResourceError, match="covers two different objects"):
+        mb.Source(
+            location_class=_TwoClientLocation,
+            name="crn",
+            location_resources={
+                "reader": mb.Resource("session", warehouse),
+                "writer": mb.Resource("session", sqlite_in_memory_warehouse),
+            },
+            key_field="pk",
+        )
+
+
+def test_resource_name_reuse(
+    source: Callable[..., mb.Source],
+    warehouse: Engine,
+    sqlite_in_memory_warehouse: Engine,
+) -> None:
+    """A name is a promise to the steps that can see it, and no further.
+
+    A plan is what is reachable upstream, so two that never meet are two namespaces and
+    both may name an engine 'wh'.
+    """
+    left = source("crn", client=mb.Resource("wh", warehouse))
+    right = source("dh", client=mb.Resource("wh", sqlite_in_memory_warehouse))
+
+    assert mb.dump(left).required_resources() == {"wh"}
+    assert mb.dump(right).required_resources() == {"wh"}
+
+
+def test_anonymous_resources_do_not_collide(
+    source: Callable[..., mb.Source], warehouse: Engine
+) -> None:
+    """A bare object has no name, so two different ones in a plan are no conflict.
+
+    `test_resources.py::test_bare_value` covers `dump` refusing them afterwards.
+    """
+    left = source("crn", client=warehouse)
+    right = source("dh", client=create_engine("sqlite://"))
+
+    assert left.link(
+        right,
+        model_class=mb.DeterministicLinker,
+        model_settings={"comparisons": ["l.crn_company = r.dh_company"]},
+    ).parents == (left, right)
 
 
 def test_source_key_only_rejected(source: Callable[..., mb.Source]) -> None:

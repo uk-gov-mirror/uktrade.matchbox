@@ -12,10 +12,20 @@ engine does not, and `load` is handed a client on the other side.
 from collections.abc import Callable
 from pathlib import Path
 
+import polars as pl
 import pytest
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import PlanDocument, Source, dump, lineage, load
+from matchlab import (
+    PlanDocument,
+    Resource,
+    Source,
+    dump,
+    lineage,
+    load,
+    read_database,
+    read_dataframe,
+)
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import ResourceError
 from matchlab.models import Model
@@ -182,6 +192,16 @@ def test_document_preserves_sharing(plan: Resolver, warehouse: Engine) -> None:
     assert linkers[0].left is linkers[1].left
 
 
+def test_bare_value(warehouse: Engine) -> None:
+    """A bare value can be used instead of a resource, until dump is attemped."""
+    source = read_database("crn", sql="select pk, company from crn", client=warehouse)
+
+    assert source.sample().height > 0  # usable here
+
+    with pytest.raises(ResourceError, match="unnamed resource for 'client'"):
+        dump(source)
+
+
 def test_document_carries_no_client(plan: Resolver) -> None:
     """Locations describe where data lives; connecting is the target's business."""
     document = dump(plan)
@@ -230,6 +250,26 @@ def test_resource_rename_keeps_fingerprint(plan: Resolver, warehouse: Engine) ->
     }
 
 
+def test_required_resources_list(warehouse: Engine) -> None:
+    """A caller can see what to supply before trying to load."""
+    frame = pl.DataFrame({"pk": ["b1"], "company": ["acme"]})
+    db = read_database(
+        "crn", sql="select pk, company from crn", client=Resource("wh", warehouse)
+    )
+    memory = read_dataframe("dh", df=Resource("dh_frame", frame), key_field="pk")
+    plan = db.link(
+        memory,
+        model_class="DeterministicLinker",
+        model_settings={"comparisons": ["l.crn_company = r.dh_company"]},
+    ).resolve()
+
+    document = dump(plan)
+    assert document.required_resources() == {"wh", "dh_frame"}
+
+    with pytest.raises(ResourceError, match="needs resource 'dh_frame'"):
+        load(document, resources={"wh": warehouse})
+
+
 def test_document_custom_location(plan: Resolver, warehouse: Engine) -> None:
     """Documents can represent custom locations."""
     document = dump(plan)
@@ -268,6 +308,17 @@ def test_edges_point_backwards(plan: Resolver) -> None:
     assert document.steps[-1].kind == "resolver"
     for position, node in enumerate(document.steps):
         assert all(target < position for target in node.inputs)
+
+
+def test_settings_vs_resources(warehouse: Engine) -> None:
+    """A node keeps the query in its spec and the client's *name* beside it."""
+    source = read_database(
+        "ch", sql="select id, c from ch", client=Resource("wh", warehouse)
+    )
+    node = dump(source).steps[0]
+
+    assert node.spec.location_settings == {"sql": "select id, c from ch"}
+    assert node.resources == {"client": "wh"}
 
 
 def test_spec_has_settings_not_edges(plan: Resolver) -> None:

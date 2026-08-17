@@ -72,7 +72,8 @@ class Transform(RecordStep):
             ValueError: If resources are given alongside an already-built instance,
                 which has nowhere left to put them.
             ResourceError: If a field was passed in the wrong one of
-                `transformer_settings` and `transformer_resources`.
+                `transformer_settings` and `transformer_resources`, or if this
+                transformer's resources conflict with one already in the plan.
         """
         if isinstance(transformer, Transformer):
             # An instance is already built, so there is nothing left to build resources
@@ -103,6 +104,7 @@ class Transform(RecordStep):
             transformer_settings=settings,
             transformer_resources=resources,
         )
+        self._check_names()
 
     #: Settled at construction. The record step this transform reshapes.
     _input: RecordStep

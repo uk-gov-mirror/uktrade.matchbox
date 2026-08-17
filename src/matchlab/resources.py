@@ -34,8 +34,7 @@ class Resource(Generic[T]):
     """A value paired with the name a document records for it.
 
     Share one `Resource` between steps that need the same object. Give two locations
-    reading one warehouse the same `Resource`. `dump` refuses a name that covers two
-    different objects.
+    reading one warehouse the same `Resource`.
     """
 
     __slots__ = ("name", "value")

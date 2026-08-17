@@ -91,13 +91,8 @@ dh = mb.read_database(
 )
 ```
 
-Sharing a name means sharing the object. Give two sources reading one warehouse the same `Resource`. `dump()` refuses a plan where one name covers two different objects, because loading it would return a plan you never had:
+Sharing a name means sharing the object. Give two sources reading one warehouse the same `Resource`. One name covering two different objects is refused.
 
-```
-ResourceError: Resource 'warehouse' covers two different objects in this plan
-(Engine and Engine). A document records only the name, so both would be loaded as
-one. Give them different names, or pass the same object to both.
-```
 
 A bare engine works for the whole life of the process. Only `dump()` needs the name:
 

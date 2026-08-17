@@ -67,10 +67,11 @@ class Step(ABC):
 
     kind: ClassVar[StepKind]
 
-    #: The prefix on this kind's `*_settings` and `*_resources` arguments.
+    #: The prefix on this kind's `*_settings` and `*_resources` arguments. Empty for a
+    #: step that runs no methodology, which is `RecordStep` and any test double.
     # `_build_methodology` quotes it when a field was passed in the wrong one, so it
     # has to name arguments the step really takes
-    _METHODOLOGY: ClassVar[str]
+    _METHODOLOGY: ClassVar[str] = ""
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Derive `_METHODOLOGY` from the `*_resources` parameter `__init__` declares.
@@ -217,6 +218,49 @@ class Step(ABC):
         """Write attributes past the read-only guard. `__init__` is the only caller."""
         for name, value in attributes.items():
             object.__setattr__(self, name, value)
+
+    def _resources(self) -> dict[str, Resource]:
+        """The resources this step was given, whatever kind it is."""
+        if not self._METHODOLOGY:
+            return {}
+        return getattr(self, f"{self._METHODOLOGY}_resources", {})
+
+    @property
+    def _claimed_name(self) -> str | None:
+        """The name this step claims across its plan, or `None`, as steps have none."""
+        return None
+
+    def _check_names(self) -> None:
+        """Reject a plan where one name means two objects.
+
+        Raises:
+            ResourceError: If one resource name covers two different objects.
+            ValueError: If one step name covers two different steps.
+        """
+        resources: dict[str, Any] = {}
+        names: dict[str, Step] = {}
+
+        # Resource names
+        for step in lineage.walk(self):
+            for resource in step._resources().values():
+                if resource.name is None:  # anonymous; only a document needs a name
+                    continue
+                seen = resources.setdefault(resource.name, resource.value)
+                if seen is not resource.value:
+                    raise ResourceError(
+                        f"Resource '{resource.name}' covers two different objects in "
+                        f"this plan ({type(seen).__name__} and "
+                        f"{type(resource.value).__name__}). A document records only "
+                        "the name, so both would be loaded as one. Give them different "
+                        "names, or pass the same object to both."
+                    )
+
+            # Other claims made by upstream steps
+            name = step._claimed_name
+            if name is not None and names.setdefault(name, step) is not step:
+                raise ValueError(
+                    f"Name '{name}' covers two different steps in this plan."
+                )
 
     def __repr__(self) -> str:
         """Return a short representation showing kind and collection state."""

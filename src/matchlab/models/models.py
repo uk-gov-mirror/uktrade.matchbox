@@ -139,8 +139,11 @@ class Model(Step):
                 keyed by field name. See `matchlab.resources`.
 
         Raises:
+            ValueError: If a linker was given no right input or a deduper was given
+                one, or if the two inputs bring two different sources under one name.
             ResourceError: If a field was passed in the wrong one of `model_settings`
-                and `model_resources`.
+                and `model_resources`, or if the two inputs bring one resource name
+                over two different objects.
         """
         resolved_class = (
             _MODEL_CLASSES[model_class] if isinstance(model_class, str) else model_class
@@ -165,6 +168,7 @@ class Model(Step):
             model_resources=resources,
             model_instance=instance,
         )
+        self._check_names()
 
     # -- inputs -----------------------------------------------------------------------
 

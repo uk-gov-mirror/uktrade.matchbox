@@ -81,15 +81,20 @@ def source(warehouse: Engine) -> SourceFactory:
     or a different shape. This is the one way the suite turns the `warehouse` into a
     `Source`, so tests and plan builders take it rather than hand-rolling a location.
 
-    The client is named because `test_document.py` dumps plans built here and loads
-    them with `resources={"warehouse": ...}`. Elsewhere, pass the engine bare.
+    The client defaults to a `Resource` named `warehouse`. Pass
+    `client=` for the tests that vary it: a bare engine, a second warehouse, or one
+    deliberately sharing a name with another object.
     """
 
-    def _make(name: str, extract: str | None = None) -> Source:
+    def _make(
+        name: str,
+        extract: str | None = None,
+        client: Engine | Resource[Engine] | None = None,
+    ) -> Source:
         return read_database(
             name,
             sql=extract or f"select pk, company, town from {name}",
-            client=Resource("warehouse", warehouse),
+            client=Resource("warehouse", warehouse) if client is None else client,
             key_field="pk",
         )
 

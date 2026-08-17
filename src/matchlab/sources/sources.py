@@ -125,7 +125,8 @@ class Source(RecordStep):
             ValueError: If the name could not prefix a SQL identifier, or if
                 `key_field` is not a column name.
             ResourceError: If a field was passed in the wrong one of
-                `location_settings` and `location_resources`.
+                `location_settings` and `location_resources`, or if one resource name
+                covers two different objects.
         """
         validate_col_prefix(name)
 
@@ -154,10 +155,18 @@ class Source(RecordStep):
             key_field=key_field,
         )
 
+        # A leaf checks too: one location can put two fields under one resource name.
+        self._check_names()
+
     @property
     def parents(self) -> tuple[Step, ...]:
         """A source is a leaf in a plan."""
         return ()
+
+    @property
+    def _claimed_name(self) -> str:
+        """A source's name is part of its output, so no two in one plan may share it."""
+        return self.name
 
     # -- spec -------------------------------------------------------------------------
 
