@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from enum import StrEnum
-from typing import TypeAlias, cast
+from typing import TypeAlias
 
 import polars as pl
 from adbc_driver_manager.dbapi import Connection as AdbcConnection
@@ -188,9 +188,7 @@ class DataFrame(Location):
             return self.df
         if isinstance(self.df, PandasDataFrame):
             return pl.from_pandas(self.df)
-        # An arrow `Table` always converts to a frame; only a `ChunkedArray` would
-        # give a `Series`, and the field type excludes one.
-        return cast(PolarsDataFrame, pl.from_arrow(self.df))
+        return pl.DataFrame(self.df)
 
     def read(  # noqa: D102
         self,
