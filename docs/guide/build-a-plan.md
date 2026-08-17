@@ -6,7 +6,7 @@ Nothing runs until you call `collect()`.
 
 ## Sources
 
-A source is a leaf: a location to read from, plus the column that keys it.
+A source is a leaf: where to read rows from, plus the column that keys them.
 
 ```python
 import matchlab as mb
@@ -21,13 +21,11 @@ crn = mb.read_database(
 )
 ```
 
-The **location** holds everything about how the rows are obtained, here the database connection and the query. The source holds only what the rows *are*, their name in the plan and their key.
-
-Several sources can share one engine. Pass the same object to each. An engine is never written into a plan, which is what lets a plan move between environments. See [Serialise a plan](./serialise.md).
+Several sources can share one engine. Pass the same object to each. The engine is *how* the rows are obtained rather than part of what they are, so it's never written into a plan, which is what lets a plan move between environments. See [Serialise a plan](./serialise.md).
 
 !!! warning "Your query is run as written"
 
-    matchlab does not parse or sanitise the SQL you give a `RelationalDB` location. It goes to your client in whatever dialect that client speaks, and a malformed one fails when the source is read, with the database's own error message.
+    matchlab does not parse or sanitise the SQL you give `read_database`. It goes to your client in whatever dialect that client speaks, and a malformed one fails when the source is read, with the database's own error message.
 
 Reading a dataframe you've already shaped needs no query at all:
 
@@ -35,11 +33,11 @@ Reading a dataframe you've already shaped needs no query at all:
 dh = mb.read_dataframe("dh", df=my_polars_df)
 ```
 
-`key_field` is the identifier you'll get back in results. It's read as a string whatever the location stores it as, so an integer primary key needs no ceremony.
+`key_field` is the identifier you'll get back in results. It's read as a string whatever type it has in the data, so an integer primary key needs no ceremony.
 
 `name` qualifies every column this source contributes. `company` becomes `crn_company`. Those names end up in cleaning SQL, so a name must start with a letter or underscore, then hold only letters, digits and underscores. A hyphen or a dot would parse as arithmetic or as a table reference. This means matchlab rejects an invalid name when you build the source, rather than letting it fail three steps later. SQL keywords are fine, since the name is only ever a prefix.
 
-**What the location returns is the whole declaration.** Every column becomes part of the record, and so part of that record's identity. Two rows are the same record exactly when the location returns identical values for both. Above, a company appearing twice with the same name and town is one record. Change the town, and it's two. With `read_dataframe` the same rule applies to whatever columns the frame carries, so shape it before you hand it over.
+**What a source returns is the whole declaration.** Every column becomes part of the record, and so part of that record's identity. Two rows are the same record exactly when every column comes back identical for both. Above, a company appearing twice with the same name and town is one record. Change the town, and it's two. With `read_dataframe` the same rule applies to whatever columns the frame carries, so shape it before you hand it over.
 
 There's no separate list of fields to index. That means:
 
@@ -48,7 +46,7 @@ There's no separate list of fields to index. That means:
 * **Changing the data behind any returned column invalidates the source**, and everything downstream of it.
 * **How the rows were fetched *is* part of the plan.** The query is hashed alongside the rows, so editing it re-runs the source and everything below, even if the rows come back identical. The client is not hashed. Point the same query at a second engine holding the same rows and you get the same source.
 
-You can still return a column purely to look at. `view_entity` and the evaluation samplers show every column the location returned, reading it back from the copy cached at collect time, but selecting it still makes it count.
+You can still return a column purely to look at. `view_entity` and the evaluation samplers show every column the source returned, reading it back from the copy cached at collect time, but selecting it still makes it count.
 
 ## Verbs
 
