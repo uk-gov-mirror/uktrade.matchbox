@@ -5,7 +5,7 @@ import pytest
 from pydantic import ConfigDict
 from sqlalchemy import Engine, create_engine
 
-from matchlab import Resource, dump, load, read_db, read_df
+from matchlab import FromResources, Resource, Source, dump, load, read_db, read_df
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import ResourceError
 from matchlab.core.kinds import StepKind
@@ -160,7 +160,7 @@ class NeedyDeduper(Deduper):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     unique_fields: list[str]
-    session: Engine
+    session: FromResources[Engine]
 
     def prepare(self, data: pl.DataFrame) -> None:
         """Never called: this plan is inspected, not collected."""
@@ -175,7 +175,7 @@ class NeedySelect(Select):
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
-    session: Engine
+    session: FromResources[Engine]
 
 
 class NeedyComponents(Components):
@@ -183,7 +183,7 @@ class NeedyComponents(Components):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    session: Engine
+    session: FromResources[Engine]
 
 
 #: Where each kind of spec keeps its serialised settings.
@@ -219,3 +219,32 @@ def test_resource_not_in_spec(warehouse: Engine) -> None:
         assert not set(node.resources) & set(settings), (
             f"{node.kind} leaked a resource field into its settings"
         )
+
+
+# -- which argument a field belongs in ------------------------------------------------
+
+
+def test_resource_marked_field(warehouse: Engine) -> None:
+    """A marked field must be a resource."""
+    with pytest.raises(ResourceError, match="'client' on RelationalDB is marked"):
+        Source(
+            location_class="RelationalDB",
+            name="crn",
+            location_settings={"sql": "select pk from crn", "client": warehouse},
+        )
+
+
+def test_resource_unmarked_field(warehouse: Engine) -> None:
+    """An unmarked field must be a setting."""
+    source = read_db("crn", sql="select pk, company from crn", client=warehouse)
+
+    with pytest.raises(ResourceError, match="'columns' on Select is a setting"):
+        source.transform(Select, transformer_resources={"columns": ("crn_company",)})
+
+
+def test_unknown_field(warehouse: Engine) -> None:
+    """A field the methodology doesn't have says so."""
+    source = read_db("crn", sql="select pk, company from crn", client=warehouse)
+
+    with pytest.raises(ResourceError, match="Select has no field 'nonexistent'"):
+        source.transform(Select, transformer_resources={"nonexistent": 1})

@@ -199,6 +199,20 @@ there is no container it could be serialised or hashed from. A plan document rec
 a resource's *name*, which is why credentials never travel, and renaming one moves no
 cache key.
 
+Which argument a field belongs in is declared by the class, not left to the caller. A
+field is a setting unless it is marked `FromResources`, and passing one the wrong way
+round is an error naming the field:
+
+```python
+class RelationalDB(Location):
+    sql: SQLQuery  # a setting: serialised, hashed
+    client: FromResources[DBClient]  # a resource: named, never serialised
+```
+
+Your own methodologies declare theirs the same way. The mark is what lets a step exclude
+its resources from the settings it hashes without taking the caller's word for which
+fields those are.
+
 The corollary is that a location's *settings* — the query — **are** hashed. Reformatting
 SQL re-runs the source and everything below it, even when the rows come back identical.
 

@@ -138,7 +138,7 @@ The ID of a cluster a resolver produces, a hash of the sorted set of [leaf](#lea
 
 ## Settings
 
-A step's serialisable configuration. Passed in a step's `*_settings` argument, carried in a plan document, and hashed into the step's [fingerprint](#fingerprint).
+A step's serialisable configuration. Passed in a step's `*_settings` argument, carried in a plan document, and hashed into the step's [fingerprint](#fingerprint). Every field of a location or methodology is a setting unless the class marks it as a [resource](#resource).
 
 That last part is what makes settings the opposite of a [resource](#resource): **editing settings re-runs the step and everything below it**, whether or not the output would differ.
 

@@ -13,7 +13,12 @@ from matchlab.models import dedupers, linkers
 from matchlab.models.dedupers.base import Deduper
 from matchlab.models.linkers.base import Linker
 from matchlab.recordstep import RecordStep
-from matchlab.resources import Resource, as_resources, values_of
+from matchlab.resources import (
+    Resource,
+    as_resources,
+    check_resource_split,
+    values_of,
+)
 from matchlab.specs import ModelSpec, ModelType
 from matchlab.steps import Step
 
@@ -135,13 +140,13 @@ class Model(Step):
             model_class: A `Deduper`/`Linker` subclass, or its registered name.
             model_settings: That class's configuration, as a dict.
             right: The right side of a link. Omit for a deduper.
-            model_resources: Fields of the methodology that cannot be serialised, keyed
-                by field name. Reaches neither a document's settings nor a fingerprint,
-                so it must hold resources a model reads *through* — a connection, a
+            model_resources: The methodology's `FromResources` fields, keyed by field
+                name. Reaches neither a document's settings nor a fingerprint, so it
+                must hold resources a model reads *through* — a connection, a
                 credential — something that cannot affect a model's output.
 
-                No built-in methodology takes one, and `Deduper`/`Linker` therefore do
-                not permit arbitrary field types. A methodology that wants a resource
+                No built-in methodology declares one, and `Deduper`/`Linker` therefore
+                do not permit arbitrary field types. A methodology that wants a resource
                 opts in for itself, which keeps the loosening scoped to the class that
                 needs it:
 
@@ -150,8 +155,12 @@ class Model(Step):
                     model_config = ConfigDict(arbitrary_types_allowed=True)
 
                     unique_fields: list[str]  # a setting
-                    session: Engine  # a resource
+                    session: FromResources[Engine]  # a resource
                 ```
+
+        Raises:
+            ResourceError: If a field was passed in the wrong one of `model_settings`
+                and `model_resources`.
         """
         resolved_class = (
             _MODEL_CLASSES[model_class] if isinstance(model_class, str) else model_class
@@ -163,6 +172,9 @@ class Model(Step):
             )
 
         resources = as_resources(model_resources)
+        check_resource_split(
+            resolved_class, model_settings or {}, resources, prefix="model"
+        )
         instance = resolved_class(**dict(model_settings or {}), **values_of(resources))
 
         super().__init__()

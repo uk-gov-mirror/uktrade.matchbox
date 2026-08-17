@@ -27,6 +27,8 @@ A [`Resource`](../api/resources.md) names something a plan document can't carry,
 
 This principle holds for every kind of step: **settings** are serialised and hashed into the step's cache key, **resources** are neither. Changing settings invalidates cache.
 
+Every field of a location or methodology is a setting unless its class marks it [`FromResources`](../api/resources.md), the way `RelationalDB` marks `client`.
+
 !!! warning "Your query is run as written"
 
     matchlab does not parse or sanitise the SQL you give a `RelationalDB` location. It goes to your client in whatever dialect that client speaks, and a malformed one fails when the source is read, with the database's own error message.

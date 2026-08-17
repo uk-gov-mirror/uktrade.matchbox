@@ -34,7 +34,12 @@ from matchlab.locations import (
     resolve_location_class,
 )
 from matchlab.recordstep import IdentifierRead, RecordStep, build_record_step
-from matchlab.resources import Resource, as_resources, values_of
+from matchlab.resources import (
+    Resource,
+    as_resources,
+    check_resource_split,
+    values_of,
+)
 from matchlab.specs import SourceSpec
 from matchlab.steps import Step
 
@@ -87,17 +92,18 @@ class Source(RecordStep):
             location_settings: That location's configuration — the query, for a
                 `RelationalDB`. Serialisable, carried in a document, and hashed into
                 this source's fingerprint.
-            location_resources: The location's fields that cannot be serialised, keyed
-                by field name: `{"client": Resource("warehouse", engine)}`. A document
-                records only the name, and a fingerprint records nothing at all, so
-                renaming one changes no cache key. A bare value is accepted and refused
-                at `dump()`.
+            location_resources: The location's `FromResources` fields, keyed by field
+                name: `{"client": Resource("warehouse", engine)}`. A document records
+                only the name, and a fingerprint records nothing at all, so renaming one
+                changes no cache key. A bare value is accepted and refused at `dump()`.
             key_field: The name of the unique identifier field. Read as a string
                 whatever the location returns it as.
 
         Raises:
             ValueError: If the name could not prefix a SQL identifier, or if
                 `key_field` is not a column name.
+            ResourceError: If a field was passed in the wrong one of
+                `location_settings` and `location_resources`.
         """
         validate_col_prefix(name)
 
@@ -108,6 +114,9 @@ class Source(RecordStep):
 
         resolved_class = resolve_location_class(location_class)
         resources = as_resources(location_resources)
+        check_resource_split(
+            resolved_class, location_settings or {}, resources, prefix="location"
+        )
         built = resolved_class(**(location_settings or {}), **values_of(resources))
 
         # The settings as the location *resolved* them, not as they were passed. A

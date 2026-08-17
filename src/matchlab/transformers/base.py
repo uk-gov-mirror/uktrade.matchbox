@@ -28,6 +28,10 @@ class Transformer(BaseModel, ABC):
     Frozen, and `extra="forbid"` so a mistyped setting is refused rather than silently
     ignored — which would leave the transform running a default under a fingerprint that
     never mentioned the field.
+
+    Every field is a setting unless marked `matchlab.resources.FromResources`. No
+    built-in transformer has one, since reshaping a frame needs nothing a document
+    cannot carry.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

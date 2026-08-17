@@ -13,7 +13,12 @@ from matchlab.models import Model
 from matchlab.recordstep import IdentifierRead, RecordStep, build_record_step
 from matchlab.resolvers.base import ResolverMethod
 from matchlab.resolvers.components import Components
-from matchlab.resources import Resource, as_resources, values_of
+from matchlab.resources import (
+    Resource,
+    as_resources,
+    check_resource_split,
+    values_of,
+)
 from matchlab.sources import Source
 from matchlab.specs import ResolverSpec
 
@@ -72,8 +77,12 @@ class Resolver(RecordStep):
             resolver_class: A `ResolverMethod` subclass or its registered name.
                 Defaults to connected components.
             resolver_settings: Settings for that methodology.
-            resolver_resources: Fields of the methodology that cannot be serialised:
-                resources only, never data. No built-in methodology takes one.
+            resolver_resources: The methodology's `FromResources` fields: resources
+                only, never data. No built-in methodology declares one.
+
+        Raises:
+            ResourceError: If a field was passed in the wrong one of
+                `resolver_settings` and `resolver_resources`.
         """
         deduped: list[Model] = []
         for model in models:
@@ -93,6 +102,9 @@ class Resolver(RecordStep):
             else resolver_class
         )
         resources = as_resources(resolver_resources)
+        check_resource_split(
+            resolved, resolver_settings or {}, resources, prefix="resolver"
+        )
         instance = resolved(
             **{
                 field: self._positions(field, value)

@@ -13,7 +13,12 @@ import polars as pl
 from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.kinds import StepKind
 from matchlab.recordstep import IdentifierRead, RecordStep
-from matchlab.resources import Resource, as_resources, values_of
+from matchlab.resources import (
+    Resource,
+    as_resources,
+    check_resource_split,
+    values_of,
+)
 from matchlab.specs import TransformSpec
 from matchlab.transformers.base import Transformer
 from matchlab.transformers.clean import Clean
@@ -65,13 +70,14 @@ class Transform(RecordStep):
                 `select`, `clean` and `group` use.
             transformer_settings: The configuration dict, when `transformer` is a class
                 or a name. Ignored when it is already an instance.
-            transformer_resources: Fields of the transformer that cannot be serialised,
-                on the same terms as `matchlab.models.Model`: resources only, never
-                data. No built-in transformer takes one.
+            transformer_resources: The transformer's `FromResources` fields: resources
+                only, never data. No built-in transformer declares one.
 
         Raises:
             ValueError: If resources are given alongside an already-built instance,
                 which has nowhere left to put them.
+            ResourceError: If a field was passed in the wrong one of
+                `transformer_settings` and `transformer_resources`.
         """
         resources = as_resources(transformer_resources)
 
@@ -88,6 +94,12 @@ class Transform(RecordStep):
                 _TRANSFORMER_CLASSES[transformer]
                 if isinstance(transformer, str)
                 else transformer
+            )
+            check_resource_split(
+                transformer_class,
+                transformer_settings or {},
+                resources,
+                prefix="transformer",
             )
             built = transformer_class(
                 **(transformer_settings or {}), **values_of(resources)

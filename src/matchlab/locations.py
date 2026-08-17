@@ -26,6 +26,7 @@ from matchlab.core.dataframes import (
     to_dataframe,
 )
 from matchlab.core.sql import SQLQuery
+from matchlab.resources import FromResources
 
 DBClient: TypeAlias = Engine | AdbcConnection
 """What a `RelationalDB` reads through: a SQLAlchemy engine or an ADBC connection."""
@@ -68,7 +69,12 @@ def resolve_location_class(location_class: "str | type[Location]") -> "type[Loca
 
 
 class Location(BaseModel, ABC):
-    """A place data is read from, holding everything needed to read it."""
+    """A place data is read from, holding everything needed to read it.
+
+    Every field is a setting, carried in a document and hashed into the source's
+    fingerprint, unless it is marked `FromResources`, in which case it is supplied
+    through a source's `location_resources` and a document records only its name.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
 
@@ -106,12 +112,8 @@ class RelationalDB(Location):
     sql: SQLQuery
     """SQL producing the rows to read, in whatever dialect the client speaks."""
 
-    client: DBClient
-    """The SQLAlchemy engine or ADBC connection to read through.
-
-    A resource: pass it in a source's `location_resources`, not its settings, so a
-    document names it rather than carrying it.
-    """
+    client: FromResources[DBClient]
+    """The SQLAlchemy engine or ADBC connection to read through."""
 
     @property
     def client_type(self) -> ClientType:
@@ -179,11 +181,8 @@ class RelationalDB(Location):
 class DataFrame(Location):
     """A dataframe already in memory."""
 
-    df: DataFrameClass
-    """The rows to read.
-
-    A resource: pass it in a source's `location_resources`, not its settings.
-    """
+    df: FromResources[DataFrameClass]
+    """The rows to read."""
 
     @property
     def _polars(self) -> PolarsDataFrame:

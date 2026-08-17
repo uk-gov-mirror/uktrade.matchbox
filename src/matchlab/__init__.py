@@ -20,7 +20,7 @@ from matchlab.locations import DataFrame, RelationalDB
 from matchlab.models import Model
 from matchlab.recordstep import RecordStep
 from matchlab.resolvers import Resolver
-from matchlab.resources import Resource
+from matchlab.resources import FromResources, Resource
 from matchlab.sources import Source, read_db, read_df
 from matchlab.steps import Step, default_adapter, set_default_adapter
 from matchlab.transformers import (
@@ -37,6 +37,7 @@ __version__ = version("matchlab")
 __all__ = (
     "Clean",
     "DataFrame",
+    "FromResources",
     "Group",
     "Model",
     "Resource",
