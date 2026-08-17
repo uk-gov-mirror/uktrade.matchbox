@@ -29,9 +29,8 @@ class Transformer(BaseModel, ABC):
     ignored — which would leave the transform running a default under a fingerprint that
     never mentioned the field.
 
-    Every field is a setting unless marked `matchlab.resources.FromResources`. No
-    built-in transformer has one, since reshaping a frame needs nothing a document
-    cannot carry.
+    Every field is a setting unless marked `matchlab.resources.FromResources`. A
+    fingerprint ignores a resource, so a marked field must not change the output.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

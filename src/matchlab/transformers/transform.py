@@ -70,8 +70,8 @@ class Transform(RecordStep):
                 `select`, `clean` and `group` use.
             transformer_settings: The configuration dict, when `transformer` is a class
                 or a name. Ignored when it is already an instance.
-            transformer_resources: The transformer's `FromResources` fields: resources
-                only, never data. No built-in transformer declares one.
+            transformer_resources: Resources the transformer needs that cannot be
+                serialised, keyed by field name. See `matchlab.resources`.
 
         Raises:
             ValueError: If resources are given alongside an already-built instance,

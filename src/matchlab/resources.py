@@ -1,20 +1,24 @@
-"""Resources — the non-serialisable parameters to steps.
+"""Resources, the parts of a step that cannot be serialised.
 
-With the exception of sources, resources cannot influence the output of a step, as they
-are not part of a node's spec and thus don't affect the fingerprint.
+Every step is built from a class, a settings dict, and a resources dict. Settings reach
+the plan document and the step's fingerprint. Resources reach neither. A document
+records a resource's name, never its value, so a plan travels without its credentials
+and `matchlab.document.load` asks for the named objects again.
 
-Two names appear here, in two different places, and they are easy to confuse:
+A fingerprint cannot see a resource, so a resource must not change what a step computes.
+A source is the exception. Its resource is where the rows come from. A source
+fingerprint hashes those rows, so a change at the origin still moves it.
 
-* `Resource` is an **object you make**, at a call site: a value plus the name a document
-  records for it. `Resource("warehouse", engine)`.
-* `FromResources` is a **note on a field**, in a methodology's class body. It holds
-  nothing; it declares that the field is filled through the step's `*_resources`
-  argument rather than its `*_settings`. `client: FromResources[DBClient]`.
+Two names in this module are easy to confuse.
 
-They meet when a step is built: the constructor opens the box, records
-`resource.name` for the document and passes `resource.value` into the marked field. By
-the time the methodology exists the wrapper is gone, which is why a marked field is
-typed as the value it ends up holding.
+`Resource` is an object you build at a call site. It pairs a value with the name a
+document records for it.
+
+`FromResources` marks a field in a methodology's class body. It declares that the field
+is filled from the step's `*_resources` argument.
+
+A step's constructor brings the two together. It records the name for the document and
+passes the value into the marked field.
 """
 
 from collections.abc import Mapping
@@ -28,17 +32,17 @@ T = TypeVar("T")
 
 
 class Resource(Generic[T]):
-    """A named object supplied at load time rather than serialised.
+    """A value paired with the name a document records for it.
 
-    The name is what a document records and what `matchlab.document.load` looks up.
-    Share one `Resource` freely: two locations reading the same warehouse should be
-    given the same object, and `dump` checks that one name never covers two.
+    Share one `Resource` between steps that need the same object. Give two locations
+    reading one warehouse the same `Resource`. `dump` refuses a name that covers two
+    different objects.
     """
 
     __slots__ = ("name", "value")
 
-    #: The name a document records. `None` only for an anonymous resource, which is
-    #: usable in-process and refused by `dump`.
+    #: What a document records. `None` for an anonymous resource, which works in this
+    #: process and is refused by `dump`.
     name: str | None
     value: T
 
@@ -46,8 +50,7 @@ class Resource(Generic[T]):
         """Name a value so a document can ask for it again.
 
         Args:
-            name: What `load` looks this up by. Distinct from a source's `key_field`,
-                which identifies a record rather than a resource.
+            name: What `matchlab.document.load` looks this up by.
             value: The real object, used as-is in this process.
 
         Raises:
@@ -62,9 +65,10 @@ class Resource(Generic[T]):
 
     @classmethod
     def anonymous(cls, value: T) -> "Resource[T]":
-        """Wrap a value that was passed without a name.
+        """Wrap a value passed without a name.
 
-        Usable for the whole life of the process, and refused by `dump`.
+        The step works for the whole life of the process. Only `dump` refuses it,
+        because a document has no name to record.
         """
         resource: Resource[T] = cls.__new__(cls)
         resource.name = None
@@ -88,19 +92,16 @@ class _IsResource:
     __slots__ = ()
 
     def __repr__(self) -> str:
-        """Read as `FromResources[Engine]` wherever an annotation is rendered."""
+        """Keeps the rendered annotation readable as `FromResources[Engine]`."""
         return "resource"
 
 
 IS_RESOURCE: Final = _IsResource()
 
 FromResources: TypeAlias = Annotated[T, IS_RESOURCE]
-"""Mark a methodology's field as a resource rather than a setting.
+"""Mark a field as a resource rather than a setting.
 
-Every field of a location, transformer, deduper, linker or resolver methodology is a
-setting — serialised into a document, hashed into the fingerprint — unless it is marked
-with this, in which case it is supplied through the step's `*_resources` argument and a
-document records only its name:
+Every field of a location or methodology is a setting unless you mark it:
 
 ```python
 class RelationalDB(Location):
@@ -108,14 +109,16 @@ class RelationalDB(Location):
     client: FromResources[DBClient]  # a resource
 ```
 
-A field typed as anything pydantic cannot validate also needs
-`model_config = ConfigDict(arbitrary_types_allowed=True)` on the class, which keeps that
-loosening scoped to the methodology that needs it.
+The mark is what a step reads to decide which fields to leave out of the settings it
+serialises and hashes. Passing a field in the wrong argument raises `ResourceError`.
+
+Pydantic cannot validate most resource types. Add
+`model_config = ConfigDict(arbitrary_types_allowed=True)` to the class that needs it.
 """
 
 
 def resource_fields(methodology_class: type[BaseModel]) -> frozenset[str]:
-    """The fields of a methodology marked `FromResources`, including inherited ones."""
+    """The fields marked `FromResources`, inherited ones included."""
     return frozenset(
         name
         for name, field in methodology_class.model_fields.items()
@@ -129,22 +132,22 @@ def check_resource_split(
     resources: Mapping[str, Any],
     prefix: str,
 ) -> None:
-    """Check each field was passed in the argument its declaration calls for.
+    """Check each field was passed in the argument its class declares for it.
 
-    Called by every step before it builds its methodology. Without it, `*_resources`
-    would be taken on trust: a step excludes those fields when dumping its settings, so
-    a setting passed as a resource would vanish from the spec and two steps doing
-    different work would share a fingerprint.
+    Every step calls this before it builds its methodology. Without it a step would
+    trust the caller to say which fields are resources. A setting passed as a resource
+    would then drop out of the settings the step hashes, and two steps doing different
+    work would share a fingerprint.
 
     Args:
         methodology_class: The location or methodology about to be built.
         settings: The `*_settings` argument, as passed.
         resources: The `*_resources` argument, as passed.
-        prefix: The argument prefix for this step kind, e.g. `"location"`.
+        prefix: The argument prefix for this step kind, such as `"location"`.
 
     Raises:
-        ResourceError: If a resource was passed among the settings, or a field that is
-            not a declared resource was passed among the resources.
+        ResourceError: If a marked field appears in the settings, or an unmarked field
+            appears in the resources.
     """
     name = methodology_class.__name__
     declared = resource_fields(methodology_class)
@@ -172,8 +175,7 @@ def check_resource_split(
 def as_resources(supplied: dict[str, Any] | None) -> dict[str, Resource]:
     """Normalise a `*_resources` argument, wrapping any bare values.
 
-    Lets a caller pass `client=engine` as readily as `client=Resource("wh", engine)`.
-    The bare form works in this process and is refused by `dump`.
+    A caller can pass `client=engine` as readily as `client=Resource("wh", engine)`.
     """
     return {
         field: value if isinstance(value, Resource) else Resource.anonymous(value)
@@ -182,15 +184,15 @@ def as_resources(supplied: dict[str, Any] | None) -> dict[str, Resource]:
 
 
 def values_of(resources: dict[str, Resource]) -> dict[str, Any]:
-    """The real objects, keyed by the settings field each fills."""
+    """The real objects, keyed by the field each fills."""
     return {field: resource.value for field, resource in resources.items()}
 
 
 def names_of(resources: dict[str, Resource]) -> dict[str, str]:
     """Field name to resource name, for the fields that have one.
 
-    What a document records. Anonymous resources are absent, which is how `dump` knows
-    to refuse them.
+    What a document records. Anonymous resources are missing from the result, which is
+    how `dump` spots them.
     """
     return {
         field: resource.name

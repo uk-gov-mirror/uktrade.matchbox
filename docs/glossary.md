@@ -134,9 +134,11 @@ Call this a **Resolver**, or its **merge-forwarded Resolver output** if you mean
 
 ## Resource
 
-A named object that can't be serialised, but that is needed by a node to run. Passed in a step's `*_resources` argument, never among its [settings](#settings), and wrapped in `Resource("warehouse", engine)` to give it the name a [plan document](#plan-document) records. It must be supplied again when that document is loaded.
+A named object a node needs to run that can't be serialised. Pass one in a step's `*_resources` argument, never among its [settings](#settings). Wrap it as `Resource("warehouse", engine)` to give it the name a [plan document](#plan-document) records. Supply it again when that document is loaded.
 
 For sources, resources are the data-generating mechanism, which affects the [fingerprint](#fingerprint). For all other types of node, resources cannot influence the output of the node because they're ignored by the fingerprint.
+
+A location or methodology marks its resource fields `FromResources`. Every other field is a setting. Passing a field in the wrong argument raises an error that names the field.
 
 ## Root
 
@@ -144,9 +146,11 @@ The ID of a cluster a resolver produces, a hash of the sorted set of [leaf](#lea
 
 ## Settings
 
-A step's serialisable configuration. Passed in a step's `*_settings` argument, carried in a plan document, and hashed into the step's [fingerprint](#fingerprint). Every field of a location or methodology is a setting unless the class marks it as a [resource](#resource).
+A step's serialisable configuration. Passed in a step's `*_settings` argument, carried in a plan document, and hashed into the step's [fingerprint](#fingerprint).
 
-That last part is what makes settings the opposite of a [resource](#resource): **editing settings re-runs the step and everything below it**, whether or not the output would differ.
+Hashing is what makes settings the opposite of a [resource](#resource): **editing settings re-runs the step and everything below it**, whether or not the output would differ.
+
+Every field of a location or methodology is a setting unless the class marks it a resource.
 
 ## Source
 

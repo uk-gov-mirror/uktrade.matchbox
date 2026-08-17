@@ -77,8 +77,8 @@ class Resolver(RecordStep):
             resolver_class: A `ResolverMethod` subclass or its registered name.
                 Defaults to connected components.
             resolver_settings: Settings for that methodology.
-            resolver_resources: The methodology's `FromResources` fields: resources
-                only, never data. No built-in methodology declares one.
+            resolver_resources: Resources the methodology needs that cannot be
+                serialised, keyed by field name. See `matchlab.resources`.
 
         Raises:
             ResourceError: If a field was passed in the wrong one of

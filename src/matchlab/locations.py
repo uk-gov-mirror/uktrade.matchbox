@@ -1,9 +1,8 @@
 """Interface to the places source data is read from.
 
-A `Location` is a methodology, exactly as a `Deduper` or a `Transformer` is: a
-registered class plus settings. A `Source` names one and hands it settings and
-resources separately, so the query travels in a document and the client never does.
-See `matchlab.resources`.
+A `Location` is a methodology, exactly as a `Deduper` or a `Transformer` is. A `Source`
+names the class and hands it settings and resources separately, so the query travels in
+a document and the client never does. See `matchlab.resources`.
 """
 
 from abc import ABC, abstractmethod
@@ -71,9 +70,7 @@ def resolve_location_class(location_class: "str | type[Location]") -> "type[Loca
 class Location(BaseModel, ABC):
     """A place data is read from, holding everything needed to read it.
 
-    Every field is a setting, carried in a document and hashed into the source's
-    fingerprint, unless it is marked `FromResources`, in which case it is supplied
-    through a source's `location_resources` and a document records only its name.
+    Every field is a setting unless marked `matchlab.resources.FromResources`.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)

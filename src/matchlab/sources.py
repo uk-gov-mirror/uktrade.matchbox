@@ -92,10 +92,9 @@ class Source(RecordStep):
             location_settings: That location's configuration — the query, for a
                 `RelationalDB`. Serialisable, carried in a document, and hashed into
                 this source's fingerprint.
-            location_resources: The location's `FromResources` fields, keyed by field
-                name: `{"client": Resource("warehouse", engine)}`. A document records
-                only the name, and a fingerprint records nothing at all, so renaming one
-                changes no cache key. A bare value is accepted and refused at `dump()`.
+            location_resources: Resources the location needs that cannot be serialised,
+                keyed by field name, such as
+                `{"client": Resource("warehouse", engine)}`. See `matchlab.resources`.
             key_field: The name of the unique identifier field. Read as a string
                 whatever the location returns it as.
 

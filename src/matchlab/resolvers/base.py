@@ -41,9 +41,8 @@ class ResolverMethod(BaseModel, ABC):
     Frozen and `extra="forbid"`, so a mistyped setting is refused rather than silently
     ignored, and a built methodology cannot drift from the fingerprint naming it.
 
-    Every field is a setting unless marked `matchlab.resources.FromResources`, in which
-    case it is supplied through a resolver's `resolver_resources` and a document records
-    only its name. No built-in resolver methodology has one.
+    Every field is a setting unless marked `matchlab.resources.FromResources`. A
+    fingerprint ignores a resource, so a marked field must not change the clustering.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

@@ -195,31 +195,16 @@ mb.Source(
 `key_field` defaults to `"id"`. A dataframe you already hold needs no client and no
 query: `read_df("dh", df=my_frame)`.
 
-**Settings are hashed, resources are not.** That split is what the two dicts are for, and
-it is structural rather than a convention: a resource is passed in its own argument, so
-there is no container it could be serialised or hashed from. A plan document records only
-a resource's *name*, which is why credentials never travel, and renaming one moves no
-cache key.
+**Settings are hashed, resources are not.** That is what the two dicts are for. A client
+used to live inside the location object, so binding it was a separate step. It is now an
+argument of its own, and each class declares which of its fields belong there. See
+[Serialise a plan](../guide/serialise.md).
 
-Which argument a field belongs in is declared by the class, not left to the caller. A
-field is a setting unless it is marked `FromResources`, and passing one the wrong way
-round is an error naming the field:
+One consequence is new. A location's settings include the query, so the query is now
+hashed. Reformatting SQL re-runs the source and everything below it, even when the rows
+come back identical.
 
-```python
-# matchlab's own RelationalDB, quoted from source
-class RelationalDB(Location):
-    sql: SQLQuery  # a setting: serialised, hashed
-    client: FromResources[DBClient]  # a resource: named, never serialised
-```
-
-Your own methodologies declare theirs the same way. The mark is what lets a step exclude
-its resources from the settings it hashes without taking the caller's word for which
-fields those are.
-
-The corollary is that a location's *settings* — the query — **are** hashed. Reformatting
-SQL re-runs the source and everything below it, even when the rows come back identical.
-
-`load()` takes them by name on the other side:
+`load()` takes resources by name on the other side:
 
 ```python
 mb.load(document, resources={"warehouse": engine})  # was clients={...}

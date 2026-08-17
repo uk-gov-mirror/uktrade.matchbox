@@ -140,23 +140,8 @@ class Model(Step):
             model_class: A `Deduper`/`Linker` subclass, or its registered name.
             model_settings: That class's configuration, as a dict.
             right: The right side of a link. Omit for a deduper.
-            model_resources: The methodology's `FromResources` fields, keyed by field
-                name. Reaches neither a document's settings nor a fingerprint, so it
-                must hold resources a model reads *through* — a connection, a
-                credential — something that cannot affect a model's output.
-
-                No built-in methodology declares one, and `Deduper`/`Linker` therefore
-                do not permit arbitrary field types. A methodology that wants a resource
-                opts in for itself, which keeps the loosening scoped to the class that
-                needs it:
-
-                ```python
-                class MyDeduper(Deduper):
-                    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-                    unique_fields: list[str]  # a setting
-                    session: FromResources[Engine]  # a resource
-                ```
+            model_resources: Resources the methodology needs that cannot be serialised,
+                keyed by field name. See `matchlab.resources`.
 
         Raises:
             ResourceError: If a field was passed in the wrong one of `model_settings`

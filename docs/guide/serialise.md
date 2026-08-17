@@ -146,9 +146,7 @@ name rather than the value, and no credential is serialised.
 ```python
 document = mb.PlanDocument.model_validate_json(Path("plan.json").read_text())
 
-entities = mb.load(
-    document, resources={"warehouse": create_engine("postgresql://...")}
-)
+entities = mb.load(document, resources={"warehouse": create_engine("postgresql://...")})
 entities.collect()
 ```
 
