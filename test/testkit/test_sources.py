@@ -6,7 +6,7 @@ import pytest
 from faker import Faker
 from sqlalchemy import Engine
 
-from matchlab.locations import RelationalDB
+from matchlab.sources import RelationalDB
 from matchlab.testkit._generate import generate_rows
 from matchlab.testkit.entities import TrueEntity
 from matchlab.testkit.features import FeatureConfig, ReplaceRule, SuffixRule

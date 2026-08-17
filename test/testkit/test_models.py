@@ -6,8 +6,7 @@ import polars as pl
 import pytest
 
 from matchlab.core.schemas import SCHEMA_MODEL_EDGES
-from matchlab.locations import RelationalDB
-from matchlab.sources import Source
+from matchlab.sources import RelationalDB, Source
 from matchlab.testkit.entities import Cluster
 from matchlab.testkit.linked import linked_sources_factory
 from matchlab.testkit.models import GeneratedModel

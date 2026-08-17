@@ -23,7 +23,7 @@ from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
 
 from matchlab.core.dataframes import DataFrameType
-from matchlab.locations import (
+from matchlab.sources import (
     ClientType,
     DataFrame,
     Location,

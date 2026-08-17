@@ -26,13 +26,6 @@ from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.resolver_output import leaf_id
 from matchlab.core.sql import SQLQuery
-from matchlab.locations import (
-    DataFrame,
-    DBClient,
-    Location,
-    RelationalDB,
-    resolve_location_class,
-)
 from matchlab.recordstep import IdentifierRead, RecordStep, build_record_step
 from matchlab.resources import (
     Resource,
@@ -40,8 +33,43 @@ from matchlab.resources import (
     check_resource_split,
     values_of,
 )
+from matchlab.sources.base import Location
+from matchlab.sources.dataframe import DataFrame
+from matchlab.sources.relational import DBClient, RelationalDB
 from matchlab.specs import SourceSpec
 from matchlab.steps import Step
+
+_LOCATION_CLASSES: dict[str, "type[Location]"] = {}
+
+
+def add_location_class(location_class: "type[Location]") -> None:
+    """Register a custom location so it can be named in a plan document."""
+    if not issubclass(location_class, Location):
+        raise ValueError("The argument is not a subclass of Location.")
+    _LOCATION_CLASSES[location_class.__name__] = location_class
+
+
+def resolve_location_class(location_class: "str | type[Location]") -> "type[Location]":
+    """Return a location class, looking a name up in the registry.
+
+    How `Source` accepts either the class or its registered name, and how
+    `matchlab.document` rebuilds the locations a plan reads.
+
+    Raises:
+        ValueError: If no location class of that name is registered here.
+    """
+    if not isinstance(location_class, str):
+        return location_class
+    if location_class not in _LOCATION_CLASSES:
+        raise ValueError(
+            f"No location class named '{location_class}' is registered. Register it "
+            "with `add_location_class` before loading a document that names it."
+        )
+    return _LOCATION_CLASSES[location_class]
+
+
+for _builtin in (RelationalDB, DataFrame):
+    add_location_class(_builtin)
 
 
 class Source(RecordStep):

@@ -25,13 +25,13 @@ nav:
     - Lineage: api/lineage.md
     - Progress: api/progress.md
     - Sources: api/sources.md
+    - Locations: api/locations.md
     - Record step: api/recordstep.md
     - Transformers: api/transformers.md
     - Models: api/models.md
     - Resolvers: api/resolvers.md
   - Storage:
     - Adapters: api/adapters.md
-    - Locations: api/locations.md
     - Resources: api/resources.md
   - Evaluation:
     - Sampling: api/eval-sampling.md

@@ -12,9 +12,8 @@ from sqlalchemy import Engine, create_engine
 from sqlglot import cast, select
 from sqlglot.expressions import column
 
-from matchlab.locations import RelationalDB
 from matchlab.resources import Resource
-from matchlab.sources import Source, read_database
+from matchlab.sources import RelationalDB, Source, read_database
 from matchlab.testkit._generate import generate_entities, generate_source
 from matchlab.testkit.entities import Cluster, EntityReference, TrueEntity
 from matchlab.testkit.features import FeatureConfig

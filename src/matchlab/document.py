@@ -259,8 +259,7 @@ def load(document: PlanDocument, resources: Mapping[str, Any]) -> Step:
     Args:
         document: A dumped plan.
         resources: Name to object, for every resource the document names.
-            `document.required_resources()` lists them. A `RelationalDB` wants a
-            SQLAlchemy engine or an ADBC connection; a `DataFrame` wants a frame.
+            `document.required_resources()` lists them.
 
     Returns:
         The plan's apex, the last step in the document.

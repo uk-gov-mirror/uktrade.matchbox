@@ -21,12 +21,6 @@ from importlib.metadata import version
 
 from matchlab.adapters import DuckDBAdapter
 from matchlab.document import PlanDocument, dump, load
-from matchlab.locations import (
-    DataFrame,
-    Location,
-    RelationalDB,
-    add_location_class,
-)
 from matchlab.models import Model, add_model_class
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.dedupers.base import Deduper
@@ -41,7 +35,15 @@ from matchlab.resolvers import Components, Resolver
 from matchlab.resolvers.base import ResolverMethod
 from matchlab.resolvers.resolvers import add_resolver_class
 from matchlab.resources import FromResources, Resource
-from matchlab.sources import Source, read_database, read_dataframe
+from matchlab.sources import (
+    DataFrame,
+    Location,
+    RelationalDB,
+    Source,
+    add_location_class,
+    read_database,
+    read_dataframe,
+)
 from matchlab.steps import Step, default_adapter, set_default_adapter
 from matchlab.transformers import (
     Clean,
