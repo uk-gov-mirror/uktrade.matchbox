@@ -37,15 +37,3 @@ def adbc_sqlite_warehouse(sqlite_path: Path) -> Iterator[adbc_sqlite.Connection]
     connection = adbc_sqlite.connect(str(sqlite_path))
     yield connection
     connection.close()
-
-
-@pytest.fixture
-def warehouse(request: pytest.FixtureRequest) -> object:
-    """Dispatch to a warehouse client by name, for indirect parametrisation.
-
-    Lets one test body run against several client types:
-
-        @pytest.mark.parametrize("warehouse", ["sqla_sqlite", "adbc_sqlite"],
-                                 indirect=True)
-    """
-    return request.getfixturevalue(f"{request.param}_warehouse")

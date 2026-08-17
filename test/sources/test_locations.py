@@ -1,13 +1,10 @@
-"""Locations: the one contract, and what is genuinely specific to each kind.
+"""Tests for the `Location` read contract.
 
-A `Location` has exactly one abstract method, `read`, with four knobs. Every location
-implements all four *separately* — a driver batch or a slice, `sql_to_df(rename=)` or
-`frame.rename()` — so the contract, not the implementation, is what these are organised
-around. The `location` fixture supplies each kind returning identical rows, and the
-contract tests below run against all of them.
+`Location` has one abstract method, `read`. Each kind of location implements it from
+scratch, so the contract tests here run against every kind. The `location` fixture
+supplies each one returning the same rows.
 
-What is left specific to one kind is a small minority, and says so. Fixtures live in
-`conftest.py`; none of this needs Docker.
+The sections after that cover what is true of only one kind.
 """
 
 from typing import Any, cast
@@ -43,40 +40,25 @@ ROWS = pl.DataFrame(
 QUERY = "select key, company, employees from rows"
 
 
-@pytest.fixture
-def relational_sqla(sqla_sqlite_warehouse: Engine) -> RelationalDB:
-    """`ROWS` in SQLite, read over SQLAlchemy."""
-    ROWS.write_database(
-        "rows", connection=sqla_sqlite_warehouse, if_table_exists="replace"
-    )
-    return RelationalDB(sql=QUERY, client=sqla_sqlite_warehouse)
-
-
-@pytest.fixture
-def relational_adbc(
-    sqla_sqlite_warehouse: Engine, adbc_sqlite_warehouse: AdbcConnection
-) -> RelationalDB:
-    """The same rows in the same file, read over ADBC.
-
-    Written through SQLAlchemy because polars writes that way, and read back through
-    ADBC: the point of the `sqlite_path` fixture being file-backed.
-    """
-    ROWS.write_database(
-        "rows", connection=sqla_sqlite_warehouse, if_table_exists="replace"
-    )
-    return RelationalDB(sql=QUERY, client=adbc_sqlite_warehouse)
-
-
-@pytest.fixture
-def dataframe() -> DataFrame:
-    """The same rows, already in memory."""
-    return DataFrame(df=ROWS)
-
-
-@pytest.fixture(params=["relational_sqla", "relational_adbc", "dataframe"])
+@pytest.fixture(params=["sqlalchemy", "adbc", "dataframe"])
 def location(request: pytest.FixtureRequest) -> Location:
-    """Every kind of location, each returning `ROWS`."""
-    return request.getfixturevalue(request.param)
+    """Every kind of location, each returning `ROWS`.
+
+    The rows are written through SQLAlchemy because that is how polars writes, then
+    read back through whichever client this case names. Reading through one client
+    what another wrote is why `sqlite_path` is file-backed.
+    """
+    if request.param == "dataframe":
+        return DataFrame(df=ROWS)
+
+    engine: Engine = request.getfixturevalue("sqla_sqlite_warehouse")
+    ROWS.write_database("rows", connection=engine, if_table_exists="replace")
+    client = (
+        engine
+        if request.param == "sqlalchemy"
+        else request.getfixturevalue("adbc_sqlite_warehouse")
+    )
+    return RelationalDB(sql=QUERY, client=client)
 
 
 def read_batches(location: Location, **kwargs: Any) -> list[pl.DataFrame]:
@@ -94,7 +76,8 @@ def _ignores_batch_size(location: Location) -> bool:
 
     Polars registers ADBC with `exact_batch_size: False`, so it calls
     `fetch_record_batch()` with no size and the driver chunks how it likes. See
-    TODO(adbc-batching) in `locations.py`. This is the shape of that bug, not a gap.
+    TODO(adbc-batching) in `sources/relational.py`. This is the shape of that bug,
+    not a gap in the test.
     """
     return isinstance(location, RelationalDB) and (
         location.client_type is ClientType.ADBC
@@ -153,30 +136,30 @@ def test_read_returns_requested_type(location: Location) -> None:
 # -- relational specifics --------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("warehouse", "expected"),
-    [
-        pytest.param("sqla_sqlite", ClientType.SQLALCHEMY, id="sqlalchemy"),
-        pytest.param("adbc_sqlite", ClientType.ADBC, id="adbc"),
-    ],
-    indirect=["warehouse"],
-)
 def test_client_type_reflects_the_client(
-    warehouse: Engine | AdbcConnection, expected: ClientType
+    sqla_sqlite_warehouse: Engine, adbc_sqlite_warehouse: AdbcConnection
 ) -> None:
     """One `isinstance` decides it, because the field type rejected anything else."""
-    assert RelationalDB(sql=QUERY, client=warehouse).client_type == expected
+    sqla = RelationalDB(sql=QUERY, client=sqla_sqlite_warehouse)
+    adbc = RelationalDB(sql=QUERY, client=adbc_sqlite_warehouse)
+
+    assert sqla.client_type is ClientType.SQLALCHEMY
+    assert adbc.client_type is ClientType.ADBC
 
 
-@pytest.mark.parametrize("warehouse", ["sqla_sqlite", "adbc_sqlite"], indirect=True)
-def test_invalid_query_raises(
-    warehouse: Engine | AdbcConnection,
-) -> None:
+@pytest.mark.parametrize(
+    "client",
+    ["sqla_sqlite_warehouse", "adbc_sqlite_warehouse"],
+    ids=["sqlalchemy", "adbc"],
+)
+def test_invalid_query_raises(request: pytest.FixtureRequest, client: str) -> None:
     """Matchlab does not parse your SQL, so a bad query fails as the database says.
 
     `OperationalError` for SQLAlchemy, `ProgrammingError` for ADBC.
     """
-    location = RelationalDB(sql="select * from nonexistent_table", client=warehouse)
+    location = RelationalDB(
+        sql="select * from nonexistent_table", client=request.getfixturevalue(client)
+    )
 
     with pytest.raises((OperationalError, ProgrammingError)):
         list(location.read(batch_size=10))
@@ -208,8 +191,8 @@ def test_accepts_polars_pandas_and_arrow(
 ) -> None:
     """All three convert to polars on read.
 
-    Only the conversion differs; everything after it is the code the contract tests
-    above already cover, so this does not repeat them per frame library.
+    Only the conversion differs. The contract tests above already cover everything
+    after it, so this does not repeat them for each frame library.
     """
     combined = read_all(DataFrame(df=frame))
 
@@ -230,7 +213,7 @@ def test_location_found_by_name() -> None:
 
 
 def test_registry_is_open() -> None:
-    """So a document can travel to a codebase we don't ship."""
+    """A document can then travel to a codebase we don't ship."""
 
     class CustomLocation(RelationalDB):
         pass
