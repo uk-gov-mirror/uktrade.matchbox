@@ -64,9 +64,11 @@ A [methodology](#methodology) that finds candidate matches between two [record s
 
 ## Location
 
-A generic way of getting a [source](#source)'s rows, and a [methodology](#methodology) like any other: a registered class plus settings. `RelationalDB` takes the SQL to run and a client to run it through; `DataFrame` takes a frame and needs no query, since you shape the frame yourself. A custom one subclasses `Location` and registers with `add_location_class`.
+A generic way of getting a [source](#source)'s rows, and a [methodology](#methodology) like any other. `RelationalDB` runs a query. `DataFrame` reads a frame already in memory. A custom one subclasses `Location` and registers with `add_location_class`.
 
-The location is where a source's rows come *from* — distinct from the [store](#store), where a plan's [artifacts](#artifact) are kept once collected. A location resolves nothing and stores nothing; it only allows to read. Its [settings](#settings) are hashed into the source's [fingerprint](#fingerprint), so editing a query re-runs the source; its [resources](#resource) are not, so renaming a warehouse changes nothing.
+A location is where a source's rows come from. Do not confuse it with the [store](#store), which keeps a plan's [artifacts](#artifact) once you collect it. A location only reads.
+
+Its [settings](#settings) are hashed into the source's [fingerprint](#fingerprint), so editing a query re-runs the source. Its [resources](#resource) are not hashed, so renaming a warehouse changes nothing.
 
 ## Matcher
 
@@ -80,7 +82,11 @@ The guarantee that a [resolver](#resolver)'s stored output carries forward every
 
 ## Methodology
 
-The matching algorithm a [model](#model) or [resolver](#resolver) step runs. Models run `NaiveDeduper`, `DeterministicLinker`, `SplinkLinker`, or `WeightedDeterministicLinker`. Resolvers run connected components. A model wraps one methodology, chosen by `model_class`, using a [deduper](#deduper) to match within one record step or a [linker](#linker) to match between two. Swapping the methodology only means changing `model_class` (or `resolver_class`), never restructuring the plan around it.
+The pluggable class a [step](#step) runs. Every kind of step has one. A [source](#source) runs a [location](#location), a [transform](#transform) runs a transformer, a [model](#model) runs a [deduper](#deduper) or a [linker](#linker), and a [resolver](#resolver) runs a resolver method.
+
+Every step is built the same way. It names its methodology in a `*_class` argument and configures it with `*_settings`. Anything that cannot be serialised goes in `*_resources`. Swapping a methodology means changing `*_class`, never restructuring the plan around it.
+
+Each kind keeps its own registry, so a custom methodology can be named in a [plan document](#plan-document). Register with `add_location_class`, `add_transformer_class`, `add_model_class`, or `add_resolver_class`.
 
 ## Model
 
@@ -92,7 +98,7 @@ A tree of [steps](#step). Each step holds a reference to its own inputs, so the 
 
 ## Plan document
 
-A serialisable description of a [plan](#plan), dumped with `dump()` and loaded back with `load()`. It is JSON, derived from a plan rather than hand-authored, which is why its nodes refer to each other by [position](#position) rather than by any name.
+A serialisable description of a [plan](#plan), dumped with `dump()` and loaded back with `load()`. Called a **document** for short, which is what the rest of these docs call it. It is JSON, derived from a plan rather than hand-authored, which is why its nodes refer to each other by [position](#position) rather than by any name.
 
 A document carries each step's [settings](#settings) and the edges between steps. It carries no code, no [label](#label), no data, and no [resource](#resource), only the name each resource was given. A plan rebuilt from a document [fingerprints](#fingerprint) identically to the plan it came from, given the same data, so a [store](#store) holding the original's [artifacts](#artifact) serves them rather than redoing the work. `PlanDocument` is the class.
 

@@ -175,7 +175,7 @@ dag.source(
 )
 
 # matchlab
-mb.read_database(
+crn = mb.read_database(
     "crn",
     sql="select pk, company from companies",
     client=mb.Resource("warehouse", engine),
@@ -183,7 +183,7 @@ mb.read_database(
 )
 
 # ...which is shorthand for
-mb.Source(
+crn = mb.Source(
     location_class=mb.RelationalDB,
     name="crn",
     location_settings={"sql": "select pk, company from companies"},
