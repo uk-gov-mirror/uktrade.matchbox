@@ -90,6 +90,12 @@ A step that scores candidate matches by running one [methodology](#methodology).
 
 A tree of [steps](#step). Each step holds a reference to its own inputs, so the step you are holding is the pipeline. There is no separate object to register steps with. Nothing runs until you [collect](#collect) it.
 
+## Plan document
+
+A serialisable description of a [plan](#plan), dumped with `dump()` and loaded back with `load()`. It is JSON, derived from a plan rather than hand-authored, which is why its nodes refer to each other by [position](#position) rather than by any name.
+
+A document carries each step's [settings](#settings) and the edges between steps. It carries no code, no [label](#label), no data, and no [resource](#resource), only the name each resource was given. A plan rebuilt from a document [fingerprints](#fingerprint) identically to the plan it came from, given the same data, so a [store](#store) holding the original's [artifacts](#artifact) serves them rather than redoing the work. `PlanDocument` is the class.
+
 ## Position
 
 Where something falls in an ordered sequence, used instead of a name. The repository uses the word for two different sequences, and the numbers do not agree with each other.
@@ -128,7 +134,7 @@ Call this a **Resolver**, or its **merge-forwarded Resolver output** if you mean
 
 ## Resource
 
-A named object that can't be serialised, but that is needed by a node to run. Passed in a step's `*_resources` argument — never among its [settings](#settings) — and wrapped in `Resource("warehouse", engine)` to give it the name a document records. It must be supplied when loading a document into a node object (de-serialising a plan).
+A named object that can't be serialised, but that is needed by a node to run. Passed in a step's `*_resources` argument, never among its [settings](#settings), and wrapped in `Resource("warehouse", engine)` to give it the name a [plan document](#plan-document) records. It must be supplied again when that document is loaded.
 
 For sources, resources are the data-generating mechanism, which affects the [fingerprint](#fingerprint). For all other types of node, resources cannot influence the output of the node because they're ignored by the fingerprint.
 

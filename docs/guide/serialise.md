@@ -1,0 +1,200 @@
+# Serialise a plan
+
+A plan is Python objects. To run the same plan somewhere else, dump it to a **document**, move the document, and load it there.
+
+A document is JSON. It is derived from a plan, never written by hand.
+
+```python
+from pathlib import Path
+
+from matchlab import dump
+
+document = dump(entities)
+Path("plan.json").write_text(document.model_dump_json(indent=2))
+```
+
+`dump()` takes the apex of the plan and walks upstream, covering exactly what `collect()` would run.
+
+## What a document holds
+
+```json
+{
+  "steps": [
+    {
+      "kind": "source",
+      "spec": {
+        "location_class": "RelationalDB",
+        "location_settings": {"sql": "select pk, company, town from companies"},
+        "name": "crn",
+        "key_field": "pk"
+      },
+      "inputs": [],
+      "resources": {"client": "warehouse"}
+    },
+    {
+      "kind": "transform",
+      "spec": {
+        "transformer_class": "Clean",
+        "transformer_settings": {"cleaning": {"name": "lower(crn_company)"}}
+      },
+      "inputs": [0],
+      "resources": {}
+    },
+    {
+      "kind": "model",
+      "spec": {
+        "model_type": "deduper",
+        "model_class": "NaiveDeduper",
+        "model_settings": {"id": "id", "unique_fields": ["name"]}
+      },
+      "inputs": [1],
+      "resources": {}
+    },
+    {
+      "kind": "resolver",
+      "spec": {"resolver_class": "Components", "resolver_settings": {"thresholds": {}}},
+      "inputs": [2],
+      "resources": {}
+    }
+  ]
+}
+```
+
+Each node holds three things, and they stay separate.
+
+* `spec` is the step's own settings, and exactly what its [fingerprint](../glossary.md#fingerprint) hashes.
+* `inputs` names the steps it reads.
+* `resources` names what it reads *through*, such as a database client.
+
+Nodes refer to each other by [position](../glossary.md#position), the same number `draw()` shows in brackets. Steps have no names, so there is nothing else to refer to them by. A node's inputs always sit earlier in the list than the node itself.
+
+Structural sharing survives. A record step feeding two models is one node referenced twice, not two copies of a subtree.
+
+## Settings and resources
+
+A **setting** is serialisable configuration. It travels in the document and is hashed into the step's fingerprint. A **resource** is an object that can't be serialised, such as a database engine or a dataframe. A document records only the name that resource was given.
+
+That split is what lets a plan move without its credentials.
+
+To dump a plan, name every resource it uses:
+
+```python
+from sqlalchemy import create_engine
+
+from matchlab import Resource, read_db
+
+warehouse = Resource("warehouse", create_engine("postgresql://..."))
+
+crn = read_db(
+    "crn", sql="select pk, company from crn", client=warehouse, key_field="pk"
+)
+dh = read_db("dh", sql="select pk, company from dh", client=warehouse, key_field="pk")
+```
+
+Sharing a name means sharing the object. Give two sources reading one warehouse the same `Resource`. `dump()` refuses a plan where one name covers two different objects, because loading it would return a plan you never had:
+
+```
+ResourceError: Resource 'warehouse' covers two different objects in this plan
+(Engine and Engine). A document records only the name, so both would be loaded as
+one. Give them different names, or pass the same object to both.
+```
+
+A bare engine works for the whole life of the process. Only `dump()` needs the name:
+
+```
+ResourceError: Step 0 (source) was given an unnamed resource for 'client', so this
+plan cannot be described. Wrap it: client=Resource("some_name", ...).
+```
+
+Renaming a resource changes no fingerprint anywhere in the plan. Editing a setting re-runs that step and everything below it. That is the difference the two arguments exist to make.
+
+### Which fields are which
+
+Every field of a location, transformer, deduper, linker or resolver is a setting, unless its class marks it [`FromResources`](../api/resources.md):
+
+```python
+class RelationalDB(Location):
+    sql: SQLQuery  # a setting
+    client: FromResources[DBClient]  # a resource
+```
+
+Settings go in a step's `*_settings` argument and resources in its `*_resources` argument. `read_db` and `read_df` sort them for you. Build a step directly and you pass both:
+
+```python
+from matchlab import RelationalDB
+from matchlab.sources import Source
+
+Source(
+    location_class=RelationalDB,
+    name="crn",
+    location_settings={"sql": "select pk, company from crn"},
+    location_resources={"client": warehouse},
+    key_field="pk",
+)
+```
+
+Each field is checked against its own declaration rather than taken on trust. A resource passed among the settings would be hashed. A setting passed among the resources would drop out of the spec, so two steps doing different work would share one fingerprint.
+
+```
+ResourceError: 'client' on RelationalDB is marked `FromResources`, so must be passed
+in `location_resources` rather than `location_settings`. A document then records the
+name rather than the value, and no credential is serialised.
+```
+
+## Loading
+
+`load()` rebuilds the plan and returns its apex. Nothing is collected.
+
+```python
+from matchlab import PlanDocument, load
+
+document = PlanDocument.model_validate_json(Path("plan.json").read_text())
+
+entities = load(document, resources={"warehouse": create_engine("postgresql://...")})
+entities.collect()
+```
+
+`resources` is keyed by resource name, not by settings field. Ask the document what it wants:
+
+```python
+document.required_resources()  # {'warehouse'}
+```
+
+Miss one out and `load()` fails at once, rather than several steps into a collect.
+
+## Fingerprints transfer
+
+A rebuilt plan fingerprints identically to the plan that was dumped, given the same data. That is the point of the exercise. A store already holding the original's artifacts serves them to the rebuilt plan instead of redoing the work.
+
+The sources decide it. A source's fingerprint folds in a hash of the rows it read. A document carries no data and no hash of any, so that hash is derived on load, by reading the target's own rows.
+
+* Same rows, same fingerprints, and the target store hits cache.
+* Different rows, different fingerprints, and the plan re-runs.
+
+Both are the intended behaviour.
+
+## What a document can't carry
+
+* **Resources.** Only the name each one was given. Nothing secret enters a document.
+* **Code.** `location_class`, `model_class` and the rest are registry names.
+* **Labels.** [Publishing](./build-a-plan.md#inspecting) is something you do to a collected result. Load, collect, then publish under whatever label that environment wants.
+* **Data.** Rows are read from the target's own warehouse.
+
+## Custom classes
+
+A document names each class by its registered name. The target environment has to register the same classes:
+
+```python
+from matchlab.locations import add_location_class
+
+add_location_class(S3Location)
+```
+
+Without it, the document still parses and `load()` fails:
+
+```
+ValueError: No location class named 'S3Location' is registered. Register it with
+`add_location_class` before loading a document that names it.
+```
+
+`add_model_class`, `add_transformer_class` and `add_resolver_class` do the same for the other kinds of step. A document is portable across environments, not across codebases.

@@ -9,9 +9,9 @@ Nothing runs until you call `collect()`.
 A source is a leaf: a location to read from, plus the column that keys it.
 
 ```python
-from matchlab import Resource, read_db
+from matchlab import read_db
 
-warehouse = Resource("warehouse", create_engine("postgresql://..."))
+warehouse = create_engine("postgresql://...")
 
 crn = read_db(
     "crn",
@@ -21,13 +21,9 @@ crn = read_db(
 )
 ```
 
-The **location** holds everything about how the rows are obtained — here, the database connection and the query. The source holds only what the rows *are*: their name in the plan and their key.
+The **location** holds everything about how the rows are obtained, here the database connection and the query. The source holds only what the rows *are*, their name in the plan and their key.
 
-A [`Resource`](../api/resources.md) names something a plan document can't carry, so a plan can be dumped and moved without its credentials going with it. Several sources can share one engine by sharing the name. Passing the engine bare works too, and a plan you never intend to move needs no ceremony — it fails only at `dump()`.
-
-This principle holds for every kind of step: **settings** are serialised and hashed into the step's cache key, **resources** are neither. Changing settings invalidates cache.
-
-Every field of a location or methodology is a setting unless its class marks it [`FromResources`](../api/resources.md), the way `RelationalDB` marks `client`.
+Several sources can share one engine. Pass the same object to each. An engine is never written into a plan, which is what lets a plan move between environments. See [Serialise a plan](./serialise.md).
 
 !!! warning "Your query is run as written"
 
@@ -38,7 +34,7 @@ Reading a dataframe you've already shaped needs no query at all:
 ```python
 from matchlab import read_df
 
-dh = read_df("dh", df=Resource("dh", my_polars_df))
+dh = read_df("dh", df=my_polars_df)
 ```
 
 `key_field` is the identifier you'll get back in results. It's read as a string whatever the location stores it as, so an integer primary key needs no ceremony.
@@ -52,7 +48,7 @@ There's no separate list of fields to index. That means:
 * **A column you don't want to affect identity is a column that shouldn't come back.** Pull a `last_updated` timestamp through and every row becomes distinct.
 * **A type you want pinned is a `cast` in the SQL**, or a cast on the frame.
 * **Changing the data behind any returned column invalidates the source**, and everything downstream of it.
-* **How the rows were fetched *is* part of the plan.** The query is hashed alongside the rows, so editing it re-runs the source and everything below, even if the rows come back identical. Its *client* is not: that's a resource, so renaming a warehouse changes nothing.
+* **How the rows were fetched *is* part of the plan.** The query is hashed alongside the rows, so editing it re-runs the source and everything below, even if the rows come back identical. The client is not hashed. Point the same query at a second engine holding the same rows and you get the same source.
 
 You can still return a column purely to look at. `view_entity` and the evaluation samplers show every column the location returned, reading it back from the copy cached at collect time, but selecting it still makes it count.
 
@@ -167,7 +163,7 @@ Grouping changes what the *model* sees. It never changes the resolver output. Re
 
 #### Custom transformers
 
-`select`, `clean` and `group` are the built-in transformers. `transform` takes any transformer object, so you can pass one explicitly. A custom transformer plugs in the same way a custom deduper does. Subclass `Transformer` and register it with `add_transformer_class`. It can then be named in a plan and a document:
+`select`, `clean` and `group` are the built-in transformers. `transform` takes any transformer object, so you can pass one explicitly. A custom transformer plugs in the same way a custom deduper does. Subclass `Transformer` and register it with `add_transformer_class`. It can then be named in a plan and in a [document](./serialise.md):
 
 ```python
 source.transform(Clean(cleaning={...}))  # the explicit form

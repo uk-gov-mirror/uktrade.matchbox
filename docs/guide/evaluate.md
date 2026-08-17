@@ -136,3 +136,7 @@ Handing `review()` several resolvers samples from their *merged* components. Two
 Scoring them together matters for the same reason. `precision_recall` keeps only the pairs present in every resolver output *and* in the judgements, so each candidate is measured over the same records. Score them one at a time and each gets its own comparison set. Those numbers don't line up.
 
 Publishing each one, for example `naive.publish("naive")`, is what lets you come back to it later with `matchlab review naive`. A candidate you only wanted to score once needs no label.
+
+## Next
+
+[Serialise a plan :octicons-arrow-right-16:](./serialise.md){ .md-button .md-button--primary }

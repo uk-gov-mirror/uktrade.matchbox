@@ -14,12 +14,14 @@ nav:
   - Build a plan: guide/build-a-plan.md
   - Query the result: guide/query.md
   - Evaluate: guide/evaluate.md
+  - Serialise a plan: guide/serialise.md
 - Migration:
   - Matchbox to matchlab: migration/matchbox-to-matchlab.md
 - API reference:
   - Plan:
     - Steps: api/steps.md
     - Specs: api/specs.md
+    - Documents: api/document.md
     - Lineage: api/lineage.md
     - Progress: api/progress.md
     - Sources: api/sources.md
