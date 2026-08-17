@@ -37,7 +37,6 @@ from matchlab.core.exceptions import StepNotFound
 from matchlab.core.kinds import StepKind
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
-from matchlab.resources import Resource
 from matchlab.specs import ModelType, SourceSpec
 from matchlab.transformers import Explode, Select
 
@@ -239,7 +238,7 @@ def test_source_name_must_prefix(warehouse: Engine, name: str) -> None:
         read_db(
             name,
             sql="select pk, company from crn",
-            client=Resource("warehouse", warehouse),
+            client=warehouse,
             key_field="pk",
         )
 
@@ -249,7 +248,7 @@ def test_source_name_reserved_word(warehouse: Engine) -> None:
     source = read_db(
         "select",
         sql="select pk, company from crn",
-        client=Resource("warehouse", warehouse),
+        client=warehouse,
         key_field="pk",
     )
     cleaned = source.clean({"name": f"lower({source.f('company')})"})
@@ -273,10 +272,8 @@ def test_source_no_rows_raises(source: Callable[..., Source]) -> None:
 
 def test_source_missing_key_field(warehouse: Engine) -> None:
     """A missing key column is explained, including where the name came from."""
-    client = Resource("warehouse", warehouse)
-
     with pytest.raises(ValueError, match="has no column 'id'") as caught:
-        read_db("crn", sql="select pk, company from crn", client=client).collect()
+        read_db("crn", sql="select pk, company from crn", client=warehouse).collect()
     assert "It returned: pk, company" in str(caught.value)
     assert "defaults to 'id'" in str(caught.value)
 
@@ -287,7 +284,10 @@ def test_source_missing_key_field(warehouse: Engine) -> None:
     # And so does an explicit key that the location does not return.
     with pytest.raises(ValueError, match="has no column 'pak'"):
         read_db(
-            "crn", sql="select pk, company from crn", client=client, key_field="pak"
+            "crn",
+            sql="select pk, company from crn",
+            client=warehouse,
+            key_field="pak",
         ).collect()
 
 
@@ -304,9 +304,7 @@ def test_source_keys_are_strings(warehouse: Engine) -> None:
         conn.execute(text("CREATE TABLE nums (id INTEGER, company TEXT)"))
         conn.execute(text("INSERT INTO nums VALUES (1,'acme'),(2,'beta')"))
 
-    source = read_db(
-        "nums", sql="select id, company from nums", client=Resource("wh", warehouse)
-    )
+    source = read_db("nums", sql="select id, company from nums", client=warehouse)
     source.collect()
     assert sorted(source.leaves()["key"].to_list()) == ["1", "2"]
 

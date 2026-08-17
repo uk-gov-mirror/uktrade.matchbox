@@ -77,9 +77,12 @@ SourceFactory = Callable[..., Source]
 def source(warehouse: Engine) -> SourceFactory:
     """Build a `Source` reading one of the `warehouse` tables by name.
 
-    The default extract selects `pk, company, town`; pass `extract=` to read a subset
+    The default extract selects `pk, company, town`. Pass `extract=` to read a subset
     or a different shape. This is the one way the suite turns the `warehouse` into a
     `Source`, so tests and plan builders take it rather than hand-rolling a location.
+
+    The client is named because `test_document.py` dumps plans built here and loads
+    them with `resources={"warehouse": ...}`. Elsewhere, pass the engine bare.
     """
 
     def _make(name: str, extract: str | None = None) -> Source:

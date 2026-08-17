@@ -16,7 +16,7 @@ from matchlab.cli import _load_target, main
 PIPELINE = """
 from sqlalchemy import create_engine, text
 
-from matchlab import Resource, read_db
+from matchlab import read_db
 from matchlab.models.dedupers import NaiveDeduper
 
 _engine = create_engine("sqlite:///{db}")
@@ -27,7 +27,7 @@ with _engine.begin() as conn:
 _source = read_db(
     "crn",
     sql="select pk, company from crn",
-    client=Resource("warehouse", _engine),
+    client=_engine,
     key_field="pk",
 )
 entities = _source.dedupe(

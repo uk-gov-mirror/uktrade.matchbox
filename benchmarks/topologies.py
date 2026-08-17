@@ -33,7 +33,6 @@ from matchlab import (
     Model,
     RecordStep,
     Resolver,
-    Resource,
     Source,
     read_db,
 )
@@ -85,7 +84,7 @@ def declare(path: Path, names: Sequence[str]) -> list[Source]:
     One engine for all of them, because they are one database and a connection per
     source would measure SQLite's connection handling rather than matchlab's.
     """
-    client = Resource("warehouse", create_engine(f"sqlite:///{path}"))
+    client = create_engine(f"sqlite:///{path}")
     return [
         read_db(
             name,
