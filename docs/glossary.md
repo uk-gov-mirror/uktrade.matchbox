@@ -154,7 +154,7 @@ Every field of a location or methodology is a setting unless the class marks it 
 
 ## Source
 
-The leaf a plan starts from: a [location](#location) to read, plus the column that keys it. Every column the location returns is part of a record's identity, so two rows are the same record exactly when it returns identical values for both. Build one with `read_db` or `read_df`.
+The leaf a plan starts from: a [location](#location) to read, plus the column that keys it. Every column the location returns is part of a record's identity, so two rows are the same record exactly when it returns identical values for both. Build one with `read_database` or `read_dataframe`.
 
 ## Step
 

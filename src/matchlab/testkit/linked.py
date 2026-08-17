@@ -25,7 +25,7 @@ from matchlab.models.models import Model
 from matchlab.recordstep import RecordStep
 from matchlab.resolvers import Resolver
 from matchlab.resources import Resource
-from matchlab.sources import read_db
+from matchlab.sources import read_database
 from matchlab.testkit._generate import generate_entities, generate_source
 from matchlab.testkit.compare import (
     diff_entities,
@@ -487,7 +487,7 @@ def linked_sources_factory(
         # Create source config. Resolve the engine here rather than relying on a field
         # default, so sources that were given none still share this call's warehouse
         # and can therefore be linked to each other.
-        source = read_db(
+        source = read_database(
             parameters.name,
             sql=select(
                 cast(column("key"), "string").as_("key"),

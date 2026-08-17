@@ -14,7 +14,7 @@ matchlab is one library for all of it, and it runs on your machine.
 ```python
 import matchlab as mb
 
-crn = mb.read_db(
+crn = mb.read_database(
     "crn",
     sql="select pk, company, town from crn",
     client=warehouse,

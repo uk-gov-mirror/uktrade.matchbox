@@ -13,7 +13,7 @@ import matchlab as mb
 
 warehouse = create_engine("postgresql://...")
 
-crn = mb.read_db(
+crn = mb.read_database(
     "crn",
     sql="select pk, company, town from companies",
     client=warehouse,
@@ -32,14 +32,14 @@ Several sources can share one engine. Pass the same object to each. An engine is
 Reading a dataframe you've already shaped needs no query at all:
 
 ```python
-dh = mb.read_df("dh", df=my_polars_df)
+dh = mb.read_dataframe("dh", df=my_polars_df)
 ```
 
 `key_field` is the identifier you'll get back in results. It's read as a string whatever the location stores it as, so an integer primary key needs no ceremony.
 
 `name` qualifies every column this source contributes. `company` becomes `crn_company`. Those names end up in cleaning SQL, so a name must start with a letter or underscore, then hold only letters, digits and underscores. A hyphen or a dot would parse as arithmetic or as a table reference. This means matchlab rejects an invalid name when you build the source, rather than letting it fail three steps later. SQL keywords are fine, since the name is only ever a prefix.
 
-**What the location returns is the whole declaration.** Every column becomes part of the record, and so part of that record's identity. Two rows are the same record exactly when the location returns identical values for both. Above, a company appearing twice with the same name and town is one record. Change the town, and it's two. With `read_df` the same rule applies to whatever columns the frame carries, so shape it before you hand it over.
+**What the location returns is the whole declaration.** Every column becomes part of the record, and so part of that record's identity. Two rows are the same record exactly when the location returns identical values for both. Above, a company appearing twice with the same name and town is one record. Change the town, and it's two. With `read_dataframe` the same rule applies to whatever columns the frame carries, so shape it before you hand it over.
 
 There's no separate list of fields to index. That means:
 

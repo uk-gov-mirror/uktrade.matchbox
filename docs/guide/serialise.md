@@ -83,10 +83,10 @@ from sqlalchemy import create_engine
 
 warehouse = mb.Resource("warehouse", create_engine("postgresql://..."))
 
-crn = mb.read_db(
+crn = mb.read_database(
     "crn", sql="select pk, company from crn", client=warehouse, key_field="pk"
 )
-dh = mb.read_db(
+dh = mb.read_database(
     "dh", sql="select pk, company from dh", client=warehouse, key_field="pk"
 )
 ```
@@ -119,7 +119,7 @@ class RelationalDB(Location):
     client: FromResources[DBClient]  # a resource
 ```
 
-Settings go in a step's `*_settings` argument and resources in its `*_resources` argument. `read_db` and `read_df` sort them for you. Build a step directly and you pass both:
+Settings go in a step's `*_settings` argument and resources in its `*_resources` argument. `read_database` and `read_dataframe` sort them for you. Build a step directly and you pass both:
 
 ```python
 mb.Source(

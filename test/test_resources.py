@@ -5,7 +5,15 @@ import pytest
 from pydantic import ConfigDict
 from sqlalchemy import Engine, create_engine
 
-from matchlab import FromResources, Resource, Source, dump, load, read_db, read_df
+from matchlab import (
+    FromResources,
+    Resource,
+    Source,
+    dump,
+    load,
+    read_database,
+    read_dataframe,
+)
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import ResourceError
 from matchlab.core.kinds import StepKind
@@ -56,7 +64,9 @@ def test_bare_values_are_wrapped(engine: Engine) -> None:
 
 def test_settings_vs_resources(engine: Engine) -> None:
     """The query is specified, the client is named."""
-    source = read_db("ch", sql="select id, c from ch", client=Resource("wh", engine))
+    source = read_database(
+        "ch", sql="select id, c from ch", client=Resource("wh", engine)
+    )
     node = dump(source).steps[0]
 
     assert node.spec.location_settings == {"sql": "select id, c from ch"}
@@ -68,7 +78,7 @@ def test_renaming_resource(warehouse: Engine, adapter: DuckDBAdapter) -> None:
     """Renaming a resource keeps the fingerprint stable."""
 
     def apex(resource_name: str) -> Resolver:
-        crn = read_db(
+        crn = read_database(
             "crn",
             sql="select pk, company from crn",
             client=Resource(resource_name, warehouse),
@@ -91,10 +101,10 @@ def test_one_name_two_objects(warehouse: Engine) -> None:
     Two engines under one name would load as one, silently changing the plan.
     """
     other = create_engine("sqlite://")
-    left = read_db(
+    left = read_database(
         "crn", sql="select pk, company from crn", client=Resource("wh", warehouse)
     )
-    right = read_db(
+    right = read_database(
         "dh", sql="select pk, company from dh", client=Resource("wh", other)
     )
     plan = left.link(
@@ -110,8 +120,8 @@ def test_one_name_two_objects(warehouse: Engine) -> None:
 def test_resource_sharing(warehouse: Engine) -> None:
     """Two locations can share one warehouse via resources."""
     client = Resource("wh", warehouse)
-    left = read_db("crn", sql="select pk, company from crn", client=client)
-    right = read_db("dh", sql="select pk, company from dh", client=client)
+    left = read_database("crn", sql="select pk, company from crn", client=client)
+    right = read_database("dh", sql="select pk, company from dh", client=client)
     plan = left.link(
         right,
         model_class="DeterministicLinker",
@@ -123,7 +133,7 @@ def test_resource_sharing(warehouse: Engine) -> None:
 
 def test_bare_value(warehouse: Engine) -> None:
     """A bare value can be used instead of a resource, until dump is attemped."""
-    source = read_db("crn", sql="select pk, company from crn", client=warehouse)
+    source = read_database("crn", sql="select pk, company from crn", client=warehouse)
 
     assert source.sample().height > 0  # usable here
 
@@ -134,10 +144,10 @@ def test_bare_value(warehouse: Engine) -> None:
 def test_required_resources_list(warehouse: Engine) -> None:
     """A caller can see what to supply before trying to load."""
     frame = pl.DataFrame({"pk": ["b1"], "company": ["acme"]})
-    db = read_db(
+    db = read_database(
         "crn", sql="select pk, company from crn", client=Resource("wh", warehouse)
     )
-    memory = read_df("dh", df=Resource("dh_frame", frame), key_field="pk")
+    memory = read_dataframe("dh", df=Resource("dh_frame", frame), key_field="pk")
     plan = db.link(
         memory,
         model_class="DeterministicLinker",
@@ -199,7 +209,7 @@ def test_resource_not_in_spec(warehouse: Engine) -> None:
     """A step records its resources beside its spec, never inside it."""
     session = Resource("session", warehouse)
     plan = (
-        read_db(
+        read_database(
             "crn",
             sql="select pk, company from crn",
             client=Resource("wh", warehouse),
@@ -236,7 +246,7 @@ def test_resource_marked_field(warehouse: Engine) -> None:
 
 def test_resource_unmarked_field(warehouse: Engine) -> None:
     """An unmarked field must be a setting."""
-    source = read_db("crn", sql="select pk, company from crn", client=warehouse)
+    source = read_database("crn", sql="select pk, company from crn", client=warehouse)
 
     with pytest.raises(ResourceError, match="'columns' on Select is a setting"):
         source.transform(Select, transformer_resources={"columns": ("crn_company",)})
@@ -244,7 +254,7 @@ def test_resource_unmarked_field(warehouse: Engine) -> None:
 
 def test_unknown_field(warehouse: Engine) -> None:
     """A field the methodology doesn't have says so."""
-    source = read_db("crn", sql="select pk, company from crn", client=warehouse)
+    source = read_database("crn", sql="select pk, company from crn", client=warehouse)
 
     with pytest.raises(ResourceError, match="Select has no field 'nonexistent'"):
         source.transform(Select, transformer_resources={"nonexistent": 1})

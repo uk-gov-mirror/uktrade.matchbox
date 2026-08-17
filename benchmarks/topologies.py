@@ -34,7 +34,7 @@ from matchlab import (
     RecordStep,
     Resolver,
     Source,
-    read_db,
+    read_database,
 )
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
@@ -86,7 +86,7 @@ def declare(path: Path, names: Sequence[str]) -> list[Source]:
     """
     client = create_engine(f"sqlite:///{path}")
     return [
-        read_db(
+        read_database(
             name,
             sql=f"select key, name, postcode from {name}",
             client=client,

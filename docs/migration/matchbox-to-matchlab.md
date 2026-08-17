@@ -47,7 +47,7 @@ Previously you created a `DAG`, registered steps on it, and ran it. Now each ste
     ```python
     import matchlab as mb
 
-    crn = mb.read_db("crn", sql="select ...", client=warehouse)
+    crn = mb.read_database("crn", sql="select ...", client=warehouse)
     companies = crn.dedupe(model_class=mb.NaiveDeduper, model_settings={...}).resolve()
     lookup = companies.collect().get_lookup()
     ```
@@ -137,7 +137,7 @@ A source is now its query plus a key. There is no `index_fields` and no `SourceF
 === "matchlab"
 
     ```python
-    mb.read_db(
+    mb.read_database(
         "crn",
         sql="select pk, company, town from companies",
         client=warehouse,
@@ -161,7 +161,7 @@ Keys are now cast to string on read rather than validated, so an integer primary
 
 Every step now takes a registered class, a settings dict, and a resources dict. `Source`
 joined `Model`, `Transform` and `Resolver` rather than taking a pre-built location
-object, and `read_db`/`read_df` are the shorthand you'll actually write.
+object, and `read_database`/`read_dataframe` are the shorthand you'll actually write.
 
 ```python
 # Matchbox
@@ -175,7 +175,7 @@ dag.source(
 )
 
 # matchlab
-mb.read_db(
+mb.read_database(
     "crn",
     sql="select pk, company from companies",
     client=mb.Resource("warehouse", engine),
@@ -193,7 +193,7 @@ mb.Source(
 ```
 
 `key_field` defaults to `"id"`. A dataframe you already hold needs no client and no
-query: `read_df("dh", df=my_frame)`.
+query: `read_dataframe("dh", df=my_frame)`.
 
 **Settings are hashed, resources are not.** That is what the two dicts are for. A client
 used to live inside the location object, so binding it was a separate step. It is now an

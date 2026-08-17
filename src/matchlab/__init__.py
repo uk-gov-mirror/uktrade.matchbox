@@ -5,7 +5,7 @@ Build a plan from a source, chain verbs, then `collect()`:
 ```python
 import matchlab as mb
 
-crn = mb.read_db("crn", sql=..., client=engine, key_field="pk")
+crn = mb.read_database("crn", sql=..., client=engine, key_field="pk")
 deduped = crn.clean(...).dedupe(model_class=mb.NaiveDeduper, ...).resolve()
 lookup = deduped.collect().get_lookup()
 ```
@@ -41,7 +41,7 @@ from matchlab.resolvers import Components, Resolver
 from matchlab.resolvers.base import ResolverMethod
 from matchlab.resolvers.resolvers import add_resolver_class
 from matchlab.resources import FromResources, Resource
-from matchlab.sources import Source, read_db, read_df
+from matchlab.sources import Source, read_database, read_dataframe
 from matchlab.steps import Step, default_adapter, set_default_adapter
 from matchlab.transformers import (
     Clean,
@@ -90,7 +90,7 @@ __all__ = (
     "default_adapter",
     "dump",
     "load",
-    "read_db",
-    "read_df",
+    "read_database",
+    "read_dataframe",
     "set_default_adapter",
 )

@@ -14,7 +14,7 @@ from sqlglot.expressions import column
 
 from matchlab.locations import RelationalDB
 from matchlab.resources import Resource
-from matchlab.sources import Source, read_db
+from matchlab.sources import Source, read_database
 from matchlab.testkit._generate import generate_entities, generate_source
 from matchlab.testkit.entities import Cluster, EntityReference, TrueEntity
 from matchlab.testkit.features import FeatureConfig
@@ -248,7 +248,7 @@ def source_factory(
     ]
 
     # Create source config
-    source = read_db(
+    source = read_database(
         name,
         sql=select(
             cast(column("key"), "string").as_("key"),
@@ -307,7 +307,7 @@ def source_from_tuple(
     ]
 
     # Create source config
-    source = read_db(
+    source = read_database(
         name,
         sql=select(
             cast(column("key"), "string").as_("key"),

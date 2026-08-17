@@ -29,8 +29,8 @@ from matchlab import (
     Step,
     Transform,
     lineage,
-    read_db,
-    read_df,
+    read_database,
+    read_dataframe,
 )
 from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import StepNotFound
@@ -235,7 +235,7 @@ def test_source_name_must_prefix(warehouse: Engine, name: str) -> None:
     select SQL. `crn-x_company` parses as subtraction, `crn.x_company` as table.column.
     """
     with pytest.raises(ValueError, match="can't prefix a column name"):
-        read_db(
+        read_database(
             name,
             sql="select pk, company from crn",
             client=warehouse,
@@ -245,7 +245,7 @@ def test_source_name_must_prefix(warehouse: Engine, name: str) -> None:
 
 def test_source_name_reserved_word(warehouse: Engine) -> None:
     """The name is only ever a prefix, so `select_company` is unambiguous."""
-    source = read_db(
+    source = read_database(
         "select",
         sql="select pk, company from crn",
         client=warehouse,
@@ -273,17 +273,21 @@ def test_source_no_rows_raises(source: Callable[..., Source]) -> None:
 def test_source_missing_key_field(warehouse: Engine) -> None:
     """A missing key column is explained, including where the name came from."""
     with pytest.raises(ValueError, match="has no column 'id'") as caught:
-        read_db("crn", sql="select pk, company from crn", client=warehouse).collect()
+        read_database(
+            "crn", sql="select pk, company from crn", client=warehouse
+        ).collect()
     assert "It returned: pk, company" in str(caught.value)
     assert "defaults to 'id'" in str(caught.value)
 
     # A frame reaches the same check by the same route.
     with pytest.raises(ValueError, match="has no column 'id'"):
-        read_df("dh", df=pl.DataFrame({"pk": ["b1"], "company": ["acme"]})).collect()
+        read_dataframe(
+            "dh", df=pl.DataFrame({"pk": ["b1"], "company": ["acme"]})
+        ).collect()
 
     # And so does an explicit key that the location does not return.
     with pytest.raises(ValueError, match="has no column 'pak'"):
-        read_db(
+        read_database(
             "crn",
             sql="select pk, company from crn",
             client=warehouse,
@@ -304,14 +308,14 @@ def test_source_keys_are_strings(warehouse: Engine) -> None:
         conn.execute(text("CREATE TABLE nums (id INTEGER, company TEXT)"))
         conn.execute(text("INSERT INTO nums VALUES (1,'acme'),(2,'beta')"))
 
-    source = read_db("nums", sql="select id, company from nums", client=warehouse)
+    source = read_database("nums", sql="select id, company from nums", client=warehouse)
     source.collect()
     assert sorted(source.leaves()["key"].to_list()) == ["1", "2"]
 
 
 def test_plan_over_dataframes(adapter: DuckDBAdapter) -> None:
     """A whole plan can run with nothing but dataframes."""
-    crn = read_df(
+    crn = read_dataframe(
         "crn",
         df=pl.DataFrame(
             {
@@ -322,7 +326,7 @@ def test_plan_over_dataframes(adapter: DuckDBAdapter) -> None:
         ),
         key_field="pk",
     )
-    dh = read_df(
+    dh = read_dataframe(
         "dh",
         df=pl.DataFrame(
             {"pk": ["b1", "b2"], "company": ["acme", "gamma"], "town": ["a", "b"]}

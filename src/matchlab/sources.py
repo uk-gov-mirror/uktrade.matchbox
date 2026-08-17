@@ -354,7 +354,7 @@ class Source(RecordStep):
 # one call, named arguments, nothing to assemble.
 
 
-def read_db(
+def read_database(
     name: str,
     *,
     sql: SQLQuery,
@@ -384,7 +384,7 @@ def read_db(
     )
 
 
-def read_df(
+def read_dataframe(
     name: str,
     *,
     df: DataFrameClass | Resource[DataFrameClass],
