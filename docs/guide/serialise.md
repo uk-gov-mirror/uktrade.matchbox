@@ -7,9 +7,9 @@ A document is JSON. It is derived from a plan, never written by hand.
 ```python
 from pathlib import Path
 
-from matchlab import dump
+import matchlab as mb
 
-document = dump(entities)
+document = mb.dump(entities)
 Path("plan.json").write_text(document.model_dump_json(indent=2))
 ```
 
@@ -81,14 +81,14 @@ To dump a plan, name every resource it uses:
 ```python
 from sqlalchemy import create_engine
 
-from matchlab import Resource, read_db
+warehouse = mb.Resource("warehouse", create_engine("postgresql://..."))
 
-warehouse = Resource("warehouse", create_engine("postgresql://..."))
-
-crn = read_db(
+crn = mb.read_db(
     "crn", sql="select pk, company from crn", client=warehouse, key_field="pk"
 )
-dh = read_db("dh", sql="select pk, company from dh", client=warehouse, key_field="pk")
+dh = mb.read_db(
+    "dh", sql="select pk, company from dh", client=warehouse, key_field="pk"
+)
 ```
 
 Sharing a name means sharing the object. Give two sources reading one warehouse the same `Resource`. `dump()` refuses a plan where one name covers two different objects, because loading it would return a plan you never had:
@@ -113,6 +113,7 @@ Renaming a resource changes no fingerprint anywhere in the plan. Editing a setti
 Every field of a location, transformer, deduper, linker or resolver is a setting, unless its class marks it [`FromResources`](../api/resources.md):
 
 ```python
+# matchlab's own RelationalDB, quoted from source
 class RelationalDB(Location):
     sql: SQLQuery  # a setting
     client: FromResources[DBClient]  # a resource
@@ -121,11 +122,8 @@ class RelationalDB(Location):
 Settings go in a step's `*_settings` argument and resources in its `*_resources` argument. `read_db` and `read_df` sort them for you. Build a step directly and you pass both:
 
 ```python
-from matchlab import RelationalDB
-from matchlab.sources import Source
-
-Source(
-    location_class=RelationalDB,
+mb.Source(
+    location_class=mb.RelationalDB,
     name="crn",
     location_settings={"sql": "select pk, company from crn"},
     location_resources={"client": warehouse},
@@ -146,11 +144,11 @@ name rather than the value, and no credential is serialised.
 `load()` rebuilds the plan and returns its apex. Nothing is collected.
 
 ```python
-from matchlab import PlanDocument, load
+document = mb.PlanDocument.model_validate_json(Path("plan.json").read_text())
 
-document = PlanDocument.model_validate_json(Path("plan.json").read_text())
-
-entities = load(document, resources={"warehouse": create_engine("postgresql://...")})
+entities = mb.load(
+    document, resources={"warehouse": create_engine("postgresql://...")}
+)
 entities.collect()
 ```
 
@@ -185,9 +183,7 @@ Both are the intended behaviour.
 A document names each class by its registered name. The target environment has to register the same classes:
 
 ```python
-from matchlab.locations import add_location_class
-
-add_location_class(S3Location)
+mb.add_location_class(S3Location)
 ```
 
 Without it, the document still parses and `load()` fails:

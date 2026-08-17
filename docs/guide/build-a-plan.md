@@ -9,11 +9,11 @@ Nothing runs until you call `collect()`.
 A source is a leaf: a location to read from, plus the column that keys it.
 
 ```python
-from matchlab import read_db
+import matchlab as mb
 
 warehouse = create_engine("postgresql://...")
 
-crn = read_db(
+crn = mb.read_db(
     "crn",
     sql="select pk, company, town from companies",
     client=warehouse,
@@ -32,9 +32,7 @@ Several sources can share one engine. Pass the same object to each. An engine is
 Reading a dataframe you've already shaped needs no query at all:
 
 ```python
-from matchlab import read_df
-
-dh = read_df("dh", df=my_polars_df)
+dh = mb.read_df("dh", df=my_polars_df)
 ```
 
 `key_field` is the identifier you'll get back in results. It's read as a string whatever the location stores it as, so an integer primary key needs no ceremony.
@@ -70,8 +68,8 @@ Steps chain. Each verb returns a new lazy step:
 **A source is already matchable.** You don't have to reshape it first. A model reads a source directly:
 
 ```python
-crn.dedupe(model_class=NaiveDeduper, model_settings={...})
-crn.link(dh, model_class=DeterministicLinker, model_settings={...})
+crn.dedupe(model_class=mb.NaiveDeduper, model_settings={...})
+crn.link(dh, model_class=mb.DeterministicLinker, model_settings={...})
 ```
 
 Both sides of a link are covered. Reach for the reshaping verbs (`select`, `clean`, `group`) only when you want to change what a model sees. They each return a new step, so they chain, and each does one job.
@@ -166,24 +164,21 @@ Grouping changes what the *model* sees. It never changes the resolver output. Re
 `select`, `clean` and `group` are the built-in transformers. `transform` takes any transformer object, so you can pass one explicitly. A custom transformer plugs in the same way a custom deduper does. Subclass `Transformer` and register it with `add_transformer_class`. It can then be named in a plan and in a [document](./serialise.md):
 
 ```python
-source.transform(Clean(cleaning={...}))  # the explicit form
+source.transform(mb.Clean(cleaning={...}))  # the explicit form
 source.transform(MyTransformer(...))  # your own, once registered
 ```
 
 ### Deduplicating and linking
 
 ```python
-from matchlab.models.dedupers import NaiveDeduper
-from matchlab.models.linkers import DeterministicLinker
-
 deduped = cleaned.dedupe(
-    model_class=NaiveDeduper,
+    model_class=mb.NaiveDeduper,
     model_settings={"unique_fields": ["name"]},
 )
 
 linked = crn.link(
     dh,
-    model_class=DeterministicLinker,
+    model_class=mb.DeterministicLinker,
     model_settings={"comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"},
 )
 ```
@@ -252,7 +247,7 @@ def build(unique_fields):
     return (
         crn.clean({"name": "lower(crn_company)"})
         .dedupe(
-            model_class=NaiveDeduper, model_settings={"unique_fields": unique_fields}
+            model_class=mb.NaiveDeduper, model_settings={"unique_fields": unique_fields}
         )
         .resolve()
     )
@@ -277,7 +272,7 @@ Note that the old artifacts stay in the store. See [Reclaiming storage](#reclaim
 To collect somewhere other than the default store:
 
 ```python
-entities.collect(adapter=DuckDBAdapter("./run.duckdb"))
+entities.collect(adapter=mb.DuckDBAdapter("./run.duckdb"))
 ```
 
 ### Watching it run
@@ -418,9 +413,7 @@ Positions are relative to the apex you collected or drew from, so a plan and a s
 The cost of that is real, so every collect reports it. That's the `Store 3.0 MB (+3.0 MB), 7 artifacts` clause above. You can also ask directly:
 
 ```python
-from matchlab import default_adapter
-
-stats = default_adapter().stats()
+stats = mb.default_adapter().stats()
 print(stats.location)  # where the default store actually is
 print(stats.bytes)  # what it costs, in bytes
 print(stats.artifacts)  # {'source': 8, 'transform': 40, 'model': 32, 'resolver': 24}
@@ -438,7 +431,7 @@ Each adapter reports what only it can measure. A `DuckDBAdapter` hands back a `D
 ```python
 entities = build_plan().collect()
 
-result = default_adapter().prune(keep=entities.fingerprints())
+result = mb.default_adapter().prune(keep=entities.fingerprints())
 print(result.describe())
 # 'Removed 80 artifacts, kept 24, reclaimed 416.2 MB'
 ```
@@ -446,7 +439,7 @@ print(result.describe())
 `plan.fingerprints()` names every artifact a plan is made of, its own and its inputs'. Which artifacts those are is the plan's business, not the store's, so the plan is what answers. `keep` also takes the name of a published label, which keeps that resolver output and the sources it reads through:
 
 ```python
-default_adapter().prune(keep=[*entities.fingerprints(), "production"])
+mb.default_adapter().prune(keep=[*entities.fingerprints(), "production"])
 ```
 
 **Published labels are kept whether or not you list them**, because publishing is the strongest way this library has of saying "keep this". Losing one to a forgotten argument would be indefensible. Pruning with nothing to keep and nothing published raises, rather than emptying the store.
@@ -465,7 +458,7 @@ from pathlib import Path
 Path("./run.duckdb").unlink()  # start again from cold
 ```
 
-The default store lives in your user cache directory. `default_adapter().stats().location` will tell you exactly where, and it's safe to delete at any time. You lose cache hits, not results you can't rebuild, provided the warehouse data hasn't moved.
+The default store lives in your user cache directory. `mb.default_adapter().stats().location` will tell you exactly where, and it's safe to delete at any time. You lose cache hits, not results you can't rebuild, provided the warehouse data hasn't moved.
 
 !!! warning "DuckDB files do not shrink"
     Deleting rows or dropping tables inside a DuckDB file does **not** return space to the operating system. DuckDB marks the blocks free and reuses them for later writes, but the file stays the size of its high-water mark. There is no `VACUUM FULL`, and `CHECKPOINT` will not do it either:
@@ -481,10 +474,10 @@ The default store lives in your user cache directory. `default_adapter().stats()
 
 ### Keeping memory bounded
 
-An in-memory store (`DuckDBAdapter(":memory:")`) is not limited to RAM. DuckDB spills table data to a temporary directory once it exceeds `memory_limit`. That defaults to about 80% of your machine's memory:
+An in-memory store (`mb.DuckDBAdapter(":memory:")`) is not limited to RAM. DuckDB spills table data to a temporary directory once it exceeds `memory_limit`. That defaults to about 80% of your machine's memory:
 
 ```python
-adapter = DuckDBAdapter(":memory:")
+adapter = mb.DuckDBAdapter(":memory:")
 adapter.conn.execute("SET memory_limit = '4GB'")
 adapter.conn.execute("SET temp_directory = '/fast/scratch'")
 ```

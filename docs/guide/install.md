@@ -9,10 +9,12 @@ matchlab is a library, not a service. There is nothing to deploy, no credentials
 ## Verify
 
 ```python
-import matchlab
+import matchlab as mb
 
-print(matchlab.__version__)
+print(mb.__version__)
 ```
+
+`mb` is the alias the rest of these guides use. Everything you need to write a plan hangs off it.
 
 ## Next
 

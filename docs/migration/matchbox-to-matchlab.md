@@ -45,8 +45,10 @@ Previously you created a `DAG`, registered steps on it, and ran it. Now each ste
 === "matchlab"
 
     ```python
-    crn = read_db("crn", sql="select ...", client=warehouse)
-    companies = crn.dedupe(model_class=NaiveDeduper, model_settings={...}).resolve()
+    import matchlab as mb
+
+    crn = mb.read_db("crn", sql="select ...", client=warehouse)
+    companies = crn.dedupe(model_class=mb.NaiveDeduper, model_settings={...}).resolve()
     lookup = companies.collect().get_lookup()
     ```
 
@@ -76,8 +78,8 @@ A step is identified by its position in the plan, the order `collect` runs it in
 
 ```python
 cleaned = crn.clean({...})
-deduper_1 = cleaned.dedupe(NaiveDeduper, {"unique_fields": ["trading_name"]})
-deduper_2 = cleaned.dedupe(NaiveDeduper, {"unique_fields": ["registered_name"]})
+deduper_1 = cleaned.dedupe(mb.NaiveDeduper, {"unique_fields": ["trading_name"]})
+deduper_2 = cleaned.dedupe(mb.NaiveDeduper, {"unique_fields": ["registered_name"]})
 entities = deduper_1.resolve(deduper_2).collect().publish("entities")
 ```
 
@@ -135,7 +137,7 @@ A source is now its query plus a key. There is no `index_fields` and no `SourceF
 === "matchlab"
 
     ```python
-    read_db(
+    mb.read_db(
         "crn",
         sql="select pk, company, town from companies",
         client=warehouse,
@@ -173,19 +175,19 @@ dag.source(
 )
 
 # matchlab
-read_db(
+mb.read_db(
     "crn",
     sql="select pk, company from companies",
-    client=Resource("warehouse", engine),
+    client=mb.Resource("warehouse", engine),
     key_field="pk",
 )
 
 # ...which is shorthand for
-Source(
-    location_class=RelationalDB,
+mb.Source(
+    location_class=mb.RelationalDB,
     name="crn",
     location_settings={"sql": "select pk, company from companies"},
-    location_resources={"client": Resource("warehouse", engine)},
+    location_resources={"client": mb.Resource("warehouse", engine)},
     key_field="pk",
 )
 ```
@@ -204,6 +206,7 @@ field is a setting unless it is marked `FromResources`, and passing one the wron
 round is an error naming the field:
 
 ```python
+# matchlab's own RelationalDB, quoted from source
 class RelationalDB(Location):
     sql: SQLQuery  # a setting: serialised, hashed
     client: FromResources[DBClient]  # a resource: named, never serialised
@@ -219,7 +222,7 @@ SQL re-runs the source and everything below it, even when the rows come back ide
 `load()` takes them by name on the other side:
 
 ```python
-load(document, resources={"warehouse": engine})  # was clients={...}
+mb.load(document, resources={"warehouse": engine})  # was clients={...}
 ```
 
 ## Renamed operations
@@ -268,7 +271,7 @@ resolver.group(
 **Use `Explode`** when you want the true cross product `explode` was reaching for. It gives one row per combination of each column's non-null values, deduplicated first, rather than one aggregated row.
 
 ```python
-resolver.transform(Explode())
+resolver.transform(mb.Explode())
 ```
 
 `group` is still the right default for most matchers, since a cross product multiplies a single entity's evidence rather than combining it. `Explode` is there for the cases that genuinely want every combination.
