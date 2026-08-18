@@ -35,7 +35,7 @@ def library_steps() -> set[type[Step]]:
     return found
 
 
-def test_settings_argument_matches_the_derived_prefix() -> None:
+def test_settings_arg_prefix() -> None:
     """A step's two methodology arguments have to share one prefix.
 
     `_build_methodology` quotes `{prefix}_settings` and `{prefix}_resources` when a
@@ -79,7 +79,7 @@ def test_two_resources_arguments() -> None:
                 return ()
 
 
-def test_every_kind_checks_its_names() -> None:
+def test_name_checks() -> None:
     """A fifth kind of step must call `_check_names`, and this is what says so.
 
     The call is explicit in each `__init__` rather than installed by the base class, so

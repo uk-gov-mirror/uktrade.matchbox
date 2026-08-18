@@ -363,7 +363,7 @@ def test_resource_name_reuse(
     assert mb.dump(right).required_resources() == {"wh"}
 
 
-def test_anonymous_resources_do_not_collide(
+def test_anonymous_resources_no_collision(
     source: Callable[..., mb.Source], warehouse: Engine
 ) -> None:
     """A bare object has no name, so two different ones in a plan are no conflict.
@@ -722,7 +722,7 @@ def _shared_record_step_plan(
     return deduped.resolve(linked), record_step
 
 
-def test_record_step_stored_with_consumer(
+def test_record_step_stored(
     source: Callable[..., mb.Source], adapter: mb.DuckDBAdapter
 ) -> None:
     """Collecting a transform's consumer stores the transform too."""
@@ -737,7 +737,7 @@ def test_record_step_stored_with_consumer(
     assert adapter.has(record_step._fp)
 
 
-def test_record_step_shared_computed_once(
+def test_record_step_one_session(
     source: Callable[..., mb.Source],
     adapter: mb.DuckDBAdapter,
     computes: dict[int, int],
@@ -751,7 +751,7 @@ def test_record_step_shared_computed_once(
     assert adapter.has(record_step._fp)
 
 
-def test_record_step_reused_across_plans(
+def test_record_step_across_sessions(
     source: Callable[..., mb.Source],
     adapter: mb.DuckDBAdapter,
     computes: dict[int, int],
@@ -782,7 +782,7 @@ def test_record_step_reused_across_plans(
     assert [model.model_class for model in model_runs] == [mb.DeterministicLinker]
 
 
-def test_record_step_collected_directly(
+def test_record_step_collection(
     source: Callable[..., mb.Source], adapter: mb.DuckDBAdapter
 ) -> None:
     """A record step collected on its own materialises its table."""
@@ -846,7 +846,7 @@ def _fan_out_plan(
     return models[0].resolve(*models[1:]), models
 
 
-def test_read_identifiers_once_per_source(
+def test_read_identifiers_per_source(
     source: Callable[..., mb.Source],
     adapter: mb.DuckDBAdapter,
     identifier_reads: list[tuple[str, bytes | None]],
@@ -865,7 +865,7 @@ def test_read_identifiers_once_per_source(
     assert sorted(identifier_reads) == [("crn", None), ("dh", None)]
 
 
-def test_read_identifiers_dedup_keeps_all(
+def test_read_identifiers_dedup(
     source: Callable[..., mb.Source],
 ) -> None:
     """The merge-forward guarantee, which the dedup must not weaken.
@@ -946,7 +946,7 @@ def test_gc_keeps_artifacts(
     assert adapter.has(fp)
 
 
-def test_fingerprints_name_every_artifact(
+def test_fingerprints_every_artifact(
     source: Callable[..., mb.Source],
 ) -> None:
     """Every step in a collected plan carries a fingerprint."""
@@ -984,7 +984,7 @@ def test_fingerprints_collapse_shared(
     assert len(plan.fingerprints()) < len(plan.lineage())
 
 
-def test_fingerprints_uncollected_raises(source: Callable[..., mb.Source]) -> None:
+def test_fingerprints_uncollected(source: Callable[..., mb.Source]) -> None:
     """An uncollected plan names no artifacts, so it must not answer with a smaller set.
 
     Silently returning what happens to be collected would tell a caller that less is
@@ -996,7 +996,7 @@ def test_fingerprints_uncollected_raises(source: Callable[..., mb.Source]) -> No
         plan.fingerprints()
 
 
-def test_prune_to_plan_keeps_cache(
+def test_prune_to_plan_cache(
     source: Callable[..., mb.Source], adapter: mb.DuckDBAdapter
 ) -> None:
     """The property a prune has to have: it removes only what was superseded.
@@ -1045,7 +1045,7 @@ def test_prune_to_plan_keeps_cache(
 # -- reading through a resolver, and grouping -----------------------------------------
 
 
-def test_resolver_is_a_record_step(source: Callable[..., mb.Source]) -> None:
+def test_resolver_record_step(source: Callable[..., mb.Source]) -> None:
     """A resolver is a record step, read at `id`=root and matchable on top of directly.
 
     Reading it returns its records regrouped by entity. Linking it directly to a
@@ -1075,7 +1075,7 @@ def test_resolver_is_a_record_step(source: Callable[..., mb.Source]) -> None:
     assert crn_ids["a3"] != crn_ids["a1"]  # fall-through singleton
 
 
-def test_resolver_read_repeats_per_record(
+def test_resolver_read_per_record(
     source: Callable[..., mb.Source],
 ) -> None:
     """Without a group, a read is record-grained even when `id` is an entity."""
@@ -1181,14 +1181,14 @@ def test_group_multi_source(
     assert set(result["towns"][0]) == {"london", "leeds", "bristol"}
 
 
-def test_group_without_aggregates_raises(source: Callable[..., mb.Source]) -> None:
+def test_group_without_aggregates(source: Callable[..., mb.Source]) -> None:
     """Grouping with no aggregates to say how columns combine is rejected."""
     crn = source("crn")
     with pytest.raises(ValueError, match="aggregate expressions"):
         crn.group({})
 
 
-def test_explode_cross_source_combinations(source: Callable[..., mb.Source]) -> None:
+def test_explode(source: Callable[..., mb.Source]) -> None:
     """`Explode` gives the cross product across sources, the case `group` skips.
 
     `group` collapses this diagonally-concatenated record step to one populated row
@@ -1233,7 +1233,7 @@ def test_spec_serialisable(source: Callable[..., mb.Source]) -> None:
     assert kinds == {"source", "model", "resolver"}
 
 
-def test_spec_no_upstream_settings(source: Callable[..., mb.Source]) -> None:
+def test_spec_upstream_settings(source: Callable[..., mb.Source]) -> None:
     """Specs describe a step's own settings. Edges live on `upstream`."""
     apex, crn, _dh = _apex(source)
 
@@ -1244,7 +1244,7 @@ def test_spec_no_upstream_settings(source: Callable[..., mb.Source]) -> None:
     assert set(resolver_spec) == {"resolver_class", "resolver_settings"}
 
 
-def test_read_direct_and_through_resolver_distinct(
+def test_read_direct_vs_resolver(
     source: Callable[..., mb.Source],
 ) -> None:
     """Reading a source directly and through a resolver are different record steps.
@@ -1372,8 +1372,8 @@ def test_threshold_stored_as_position(
     assert resolver.resolver_instance.thresholds == {0: 0.5, 1: 0.8}
 
 
-def test_threshold_must_name_input(source: Callable[..., mb.Source]) -> None:
-    """Caught while the model object is still in hand, not deep inside collect."""
+def test_threshold_names_input(source: Callable[..., mb.Source]) -> None:
+    """Unnamed threshold caught while the model object is still in hand."""
     crn = source("crn")
     settings = {"unique_fields": [crn.f("company")]}
     used = crn.dedupe(mb.NaiveDeduper, settings)

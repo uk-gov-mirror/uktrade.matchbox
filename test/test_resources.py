@@ -19,7 +19,7 @@ def engine() -> Engine:
     return create_engine("sqlite://")
 
 
-def test_resource_rejects_empty_name(engine: Engine) -> None:
+def test_resource_empty_name(engine: Engine) -> None:
     """A name is the whole of what a document records, so it has to be one."""
     with pytest.raises(ResourceError, match="non-empty string"):
         Resource("", engine)
@@ -27,13 +27,13 @@ def test_resource_rejects_empty_name(engine: Engine) -> None:
         Resource(None, engine)
 
 
-def test_resource_repr_hides_the_value(engine: Engine) -> None:
+def test_resource_repr(engine: Engine) -> None:
     """A resource may hold a credential, so its repr shows the name and type only."""
     assert repr(Resource("warehouse", engine)) == "Resource('warehouse', <Engine>)"
     assert "anonymous" in repr(Resource.anonymous(engine))
 
 
-def test_bare_values_are_wrapped(engine: Engine) -> None:
+def test_bare_values(engine: Engine) -> None:
     """A caller may pass a bare object; it is usable, and unnameable."""
     wrapped = as_resources({"client": engine, "other": Resource("named", engine)})
 
