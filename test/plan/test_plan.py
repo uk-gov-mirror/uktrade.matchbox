@@ -53,6 +53,11 @@ def _apex(source: Callable[..., mb.Source]) -> tuple[mb.Resolver, mb.Source, mb.
     return apex, crn, dh
 
 
+def _required_resources(root: mb.Step) -> set[str]:
+    """What `load` would have to be given, read off the dumped JSON."""
+    return mb.PlanDocument.model_validate_json(mb.dump(root)).required_resources()
+
+
 def _ids_by_key(matches: pl.DataFrame, column: str) -> dict[str, int]:
     return {
         row[column]: row["root"]
@@ -293,7 +298,7 @@ def test_resource_sharing(warehouse: Engine) -> None:
         model_settings={"comparisons": ["l.crn_company = r.dh_company"]},
     ).resolve()
 
-    assert mb.dump(plan).required_resources() == {"wh"}
+    assert _required_resources(plan) == {"wh"}
 
 
 def test_repeated_resource_name(
@@ -359,8 +364,8 @@ def test_resource_name_reuse(
     left = source("crn", client=mb.Resource("wh", warehouse))
     right = source("dh", client=mb.Resource("wh", sqlite_in_memory_warehouse))
 
-    assert mb.dump(left).required_resources() == {"wh"}
-    assert mb.dump(right).required_resources() == {"wh"}
+    assert _required_resources(left) == {"wh"}
+    assert _required_resources(right) == {"wh"}
 
 
 def test_anonymous_resources_no_collision(

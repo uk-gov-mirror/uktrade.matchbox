@@ -73,9 +73,12 @@ def plan(source: Callable[..., Source]) -> Resolver:
     )
 
 
-def _transfer(document: PlanDocument) -> PlanDocument:
-    """Send a document over the wire and back — JSON is the transfer format."""
-    return PlanDocument.model_validate_json(document.model_dump_json())
+def _parse(root: Step) -> PlanDocument:
+    """Dump a plan and read the JSON back, for tests about what a document says.
+
+    `load` takes the JSON as it stands. Parsing is for looking inside.
+    """
+    return PlanDocument.model_validate_json(dump(root))
 
 
 # A valid source spec, for tests about a node's shape rather than its settings.
@@ -95,7 +98,7 @@ def test_rebuild_fingerprints_match(plan: Resolver, warehouse: Engine) -> None:
     original = plan
     original.collect()
 
-    rebuilt = load(_transfer(dump(original)), resources={"warehouse": warehouse})
+    rebuilt = load(dump(original), resources={"warehouse": warehouse})
     rebuilt.collect()
 
     before = [step._fp for step in lineage.walk(original)]
@@ -110,7 +113,7 @@ def test_rebuild_hits_cache(
     """A transferred plan must find the original's artifacts, not redo the work."""
     plan.collect(adapter)
 
-    rebuilt = load(_transfer(dump(plan)), resources={"warehouse": warehouse})
+    rebuilt = load(dump(plan), resources={"warehouse": warehouse})
     for step in lineage.walk(rebuilt):
 
         def boom(*_a: object, _step: Step = step, **_k: object) -> None:
@@ -138,8 +141,7 @@ def test_rebuild_different_warehouse(plan: Resolver, tmp_path: Path) -> None:
     original = plan
     original.collect()
 
-    document = _transfer(dump(original))
-    elsewhere = load(document, resources={"warehouse": other})
+    elsewhere = load(dump(original), resources={"warehouse": other})
     elsewhere.collect()
 
     assert elsewhere._fp != original._fp
@@ -152,11 +154,25 @@ def test_rebuild_different_warehouse(plan: Resolver, tmp_path: Path) -> None:
 def test_rebuild_same_answer(plan: Resolver, warehouse: Engine) -> None:
     """A rebuilt plan collects to the same lookup as the original."""
     original = plan
-    rebuilt = load(_transfer(dump(original)), resources={"warehouse": warehouse})
+    rebuilt = load(dump(original), resources={"warehouse": warehouse})
 
     expected = original.collect().get_lookup().sort("root")
     actual = rebuilt.collect().get_lookup().sort("root")
     assert actual.equals(expected)
+
+
+def test_load_from_bytes(plan: Resolver, warehouse: Engine) -> None:
+    """A store hands JSON back as bytes as often as text, so `load` takes both.
+
+    The text half of this is every other round trip in this file.
+    """
+    plan.collect()
+    rebuilt = load(dump(plan).encode(), resources={"warehouse": warehouse})
+    rebuilt.collect()
+
+    assert [step._fp for step in lineage.walk(rebuilt)] == [
+        step._fp for step in lineage.walk(plan)
+    ]
 
 
 def test_document_carries_no_labels(plan: Resolver, warehouse: Engine) -> None:
@@ -165,13 +181,13 @@ def test_document_carries_no_labels(plan: Resolver, warehouse: Engine) -> None:
     A source's name is not a label: it prefixes that source's columns and tags its
     rows, so it is part of the output rather than a way of finding it.
     """
-    document = dump(plan)
+    document = _parse(plan)
 
     assert not any(hasattr(node, "name") for node in document.steps)
     sources = [node.spec for node in document.steps if node.kind == "source"]
     assert {spec.name for spec in sources} == {"crn", "dh"}
 
-    rebuilt = load(_transfer(document), resources={"warehouse": warehouse})
+    rebuilt = load(dump(plan), resources={"warehouse": warehouse})
     assert lineage.number(rebuilt) == {
         id(step): index for index, step in enumerate(lineage.walk(rebuilt))
     }
@@ -180,11 +196,11 @@ def test_document_carries_no_labels(plan: Resolver, warehouse: Engine) -> None:
 def test_document_preserves_sharing(plan: Resolver, warehouse: Engine) -> None:
     """A view feeding two models is one node referenced twice, not two nodes."""
     original = plan
-    document = dump(original)
+    document = _parse(original)
 
     assert len(document.steps) == len(lineage.walk(original))
 
-    rebuilt = load(document, resources={"warehouse": warehouse})
+    rebuilt = load(dump(original), resources={"warehouse": warehouse})
     models = [step for step in lineage.walk(rebuilt) if isinstance(step, Model)]
     linkers = [model for model in models if model.right is not None]
     assert len(linkers) == 2
@@ -204,14 +220,13 @@ def test_bare_value(warehouse: Engine) -> None:
 
 def test_document_carries_no_client(plan: Resolver) -> None:
     """Locations describe where data lives; connecting is the target's business."""
-    document = dump(plan)
-    serialised = document.model_dump_json()
+    serialised = dump(plan)
 
     assert "sqlite" not in serialised  # the engine's URL never leaves
     assert '"resources":{"client":"warehouse"}' in serialised  # only its name does
 
-    with pytest.raises(ResourceError, match="needs resource 'warehouse'"):
-        load(document, resources={})
+    with pytest.raises(ResourceError, match="'warehouse' — step"):
+        load(serialised, resources={})
 
 
 def test_resource_rename_keeps_fingerprint(plan: Resolver, warehouse: Engine) -> None:
@@ -223,22 +238,21 @@ def test_resource_rename_keeps_fingerprint(plan: Resolver, warehouse: Engine) ->
     original = plan
     original.collect()
 
-    document = _transfer(dump(original))
-    renamed = load(
-        document.model_copy(
-            update={
-                "steps": tuple(
-                    node.model_copy(
-                        update={
-                            "resources": dict.fromkeys(node.resources, "somewhere_else")
-                        }
-                    )
-                    for node in document.steps
+    document = _parse(original)
+    elsewhere = document.model_copy(
+        update={
+            "steps": tuple(
+                node.model_copy(
+                    update={
+                        "resources": dict.fromkeys(node.resources, "somewhere_else")
+                    }
                 )
-            }
-        ),
-        resources={"somewhere_else": warehouse},
+                for node in document.steps
+            )
+        }
     )
+
+    renamed = load(elsewhere.model_dump_json(), resources={"somewhere_else": warehouse})
     renamed.collect()
 
     assert [step._fp for step in lineage.walk(renamed)] == [
@@ -251,7 +265,7 @@ def test_resource_rename_keeps_fingerprint(plan: Resolver, warehouse: Engine) ->
 
 
 def test_required_resources_list(warehouse: Engine) -> None:
-    """A caller can see what to supply before trying to load."""
+    """A caller can see what to supply, before loading or from the error after."""
     frame = pl.DataFrame({"pk": ["b1"], "company": ["acme"]})
     db = read_database(
         "crn", sql="select pk, company from crn", client=Resource("wh", warehouse)
@@ -263,16 +277,23 @@ def test_required_resources_list(warehouse: Engine) -> None:
         model_settings={"comparisons": ["l.crn_company = r.dh_company"]},
     ).resolve()
 
-    document = dump(plan)
+    document = _parse(plan)
     assert document.required_resources() == {"wh", "dh_frame"}
 
-    with pytest.raises(ResourceError, match="needs resource 'dh_frame'"):
-        load(document, resources={"wh": warehouse})
+    with pytest.raises(ResourceError, match="'dh_frame' — step"):
+        load(dump(plan), resources={"wh": warehouse})
+
+    # Supply none and every missing name comes back at once, so working from the
+    # error takes one more attempt rather than one per resource.
+    with pytest.raises(ResourceError) as complaint:
+        load(dump(plan), resources={})
+    assert "'wh'" in str(complaint.value)
+    assert "'dh_frame'" in str(complaint.value)
 
 
 def test_document_custom_location(plan: Resolver, warehouse: Engine) -> None:
     """Documents can represent custom locations."""
-    document = dump(plan)
+    document = _parse(plan)
     broken = document.model_copy(
         update={
             "steps": tuple(
@@ -291,10 +312,10 @@ def test_document_custom_location(plan: Resolver, warehouse: Engine) -> None:
     )
 
     # It parses — a document may legitimately name a class this codebase lacks.
-    assert _transfer(broken)
+    assert PlanDocument.model_validate_json(broken.model_dump_json())
 
     with pytest.raises(ValueError, match="No location class named 'S3Location'"):
-        load(broken, resources={"warehouse": warehouse})
+        load(broken.model_dump_json(), resources={"warehouse": warehouse})
 
 
 # -- what the document says -----------------------------------------------------------
@@ -302,7 +323,7 @@ def test_document_custom_location(plan: Resolver, warehouse: Engine) -> None:
 
 def test_edges_point_backwards(plan: Resolver) -> None:
     """Topological order is the document's ordering guarantee."""
-    document = dump(plan)
+    document = _parse(plan)
 
     assert document.steps[0].kind == "source"
     assert document.steps[-1].kind == "resolver"
@@ -315,7 +336,7 @@ def test_settings_vs_resources(warehouse: Engine) -> None:
     source = read_database(
         "ch", sql="select id, c from ch", client=Resource("wh", warehouse)
     )
-    node = dump(source).steps[0]
+    node = _parse(source).steps[0]
 
     assert node.spec.location_settings == {"sql": "select id, c from ch"}
     assert node.resources == {"client": "wh"}
@@ -323,7 +344,7 @@ def test_settings_vs_resources(warehouse: Engine) -> None:
 
 def test_spec_has_settings_not_edges(plan: Resolver) -> None:
     """The split that makes a spec safe to hash and a document able to rebuild."""
-    document = dump(plan)
+    document = _parse(plan)
 
     for node in document.steps:
         spec = node.spec.model_dump(mode="json")
@@ -342,14 +363,14 @@ def test_setting_travels_as_position(plan: Resolver, warehouse: Engine) -> None:
     A name would have been the alternative, and would have made the document depend on
     names being stable — the thing positions exist to avoid.
     """
-    document = _transfer(dump(plan))
+    document = _parse(plan)
     apex = document.steps[-1]
 
     assert apex.kind == "resolver"
     # `1` is the second input, and JSON has stringified the key.
     assert apex.spec.resolver_settings == {"thresholds": {"1": 0.5}}
 
-    rebuilt = load(document, resources={"warehouse": warehouse})
+    rebuilt = load(dump(plan), resources={"warehouse": warehouse})
     assert rebuilt.resolver_instance.thresholds == {1: 0.5}
 
 
@@ -395,7 +416,7 @@ def test_spec_parsed_by_kind() -> None:
 
 def test_load_rejects_wrong_kind(plan: Resolver, warehouse: Engine) -> None:
     """A malformed document fails at load, not with a confusing error much later."""
-    document = dump(plan)
+    document = _parse(plan)
     resolver = next(node for node in document.steps if node.kind == "resolver")
     broken = PlanDocument(
         steps=tuple(
@@ -405,13 +426,13 @@ def test_load_rejects_wrong_kind(plan: Resolver, warehouse: Engine) -> None:
     )
 
     with pytest.raises(ValueError, match="must read only"):
-        load(broken, resources={"warehouse": warehouse})
+        load(broken.model_dump_json(), resources={"warehouse": warehouse})
 
 
 def test_document_empty_rejected() -> None:
     """A document with no steps is rejected on load."""
     with pytest.raises(ValueError, match="at least one step"):
-        load(PlanDocument(steps=()), resources={})
+        load(PlanDocument(steps=()).model_dump_json(), resources={})
 
 
 def test_rebuild_reads_resolver_as_record_step(
@@ -449,7 +470,7 @@ def test_rebuild_transform_chain(
         .resolve()
     )
 
-    rebuilt = load(_transfer(dump(plan)), resources={"warehouse": warehouse})
+    rebuilt = load(dump(plan), resources={"warehouse": warehouse})
     transforms = [step for step in lineage.walk(rebuilt) if isinstance(step, Transform)]
 
     assert [t.transformer_class.__name__ for t in transforms] == ["Select", "Clean"]

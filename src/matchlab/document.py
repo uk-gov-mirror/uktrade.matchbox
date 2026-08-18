@@ -158,15 +158,19 @@ class PlanDocument(BaseModel):
         return {name for node in self.steps for name in node.resources.values()}
 
 
-def dump(root: Step) -> PlanDocument:
+def dump(root: Step, *, indent: int | None = None) -> str:
     """Describe `root` and everything it reads as a portable document.
+
+    JSON rather than an object, because a document exists to be put somewhere: a
+    column, an object store, a request body, a file.
 
     Args:
         root: The apex of the plan. Only what is reachable upstream of it is included,
             exactly as `collect()` would run.
+        indent: How the JSON is laid out. `None`, the default, is compact.
 
     Returns:
-        The document. It holds no resource, no credentials and no data.
+        The document, as JSON.
 
     Raises:
         ResourceError: If a resource was passed without a name, so there is nothing for
@@ -174,23 +178,9 @@ def dump(root: Step) -> PlanDocument:
             earlier, when the plan is built.
     """
     ordered = walk(root)
-    _check_resources(ordered)
-    position = {id(step): index for index, step in enumerate(ordered)}
-    return PlanDocument(
-        steps=tuple(
-            _node(step, tuple(position[id(parent)] for parent in step.parents))
-            for step in ordered
-        )
-    )
 
-
-def _check_resources(steps: list[Step]) -> None:
-    """Reject a plan whose resources have no names to record.
-
-    Raises:
-        ResourceError: If a resource is unnamed.
-    """
-    for position, step in enumerate(steps):
+    # Check resources
+    for position, step in enumerate(ordered):
         for field, resource in step._resources().items():
             if resource.name is None:
                 raise ResourceError(
@@ -198,6 +188,15 @@ def _check_resources(steps: list[Step]) -> None:
                     f"'{field}', so this plan cannot be described. Wrap it: "
                     f'{field}=Resource("some_name", ...).'
                 )
+
+    position = {id(step): index for index, step in enumerate(ordered)}
+    document = PlanDocument(
+        steps=tuple(
+            _node(step, tuple(position[id(parent)] for parent in step.parents))
+            for step in ordered
+        )
+    )
+    return document.model_dump_json(indent=indent)
 
 
 def _node(step: Step, inputs: tuple[int, ...]) -> StepNode:
@@ -216,61 +215,68 @@ def _node(step: Step, inputs: tuple[int, ...]) -> StepNode:
     )
 
 
-def load(document: PlanDocument, resources: Mapping[str, Any]) -> Step:
+def load(document: str | bytes, resources: Mapping[str, Any]) -> Step:
     """Rebuild a plan from a document, returning its apex.
 
     Nothing is collected. This reconstructs the same lazy plan, so the returned step
     fingerprints identically to the one that was dumped, given the same data.
 
     Args:
-        document: A dumped plan.
+        document: The JSON `dump` produced.
         resources: Name to object, for every resource the document names.
-            `document.required_resources()` lists them.
 
     Returns:
         The plan's apex, the last step in the document.
 
     Raises:
+        ValidationError: If the JSON does not describe a plan document.
         ValueError: If the document is empty, names an unregistered location class, or
             wires a step to an input of the wrong kind.
         ResourceError: If a named resource was not supplied.
     """
-    if not document.steps:
+    parsed = PlanDocument.model_validate_json(document)
+    if not parsed.steps:
         raise ValueError("A plan document needs at least one step")
 
+    _check_supplied(parsed, resources)
+
     built: list[Step] = []
-    for position, node in enumerate(document.steps):
+    for position, node in enumerate(parsed.steps):
         built.append(
             _rebuild(node, position, [built[i] for i in node.inputs], resources)
         )
     return built[-1]
 
 
-def _bind(
-    node: StepNode, position: int, supplied: Mapping[str, Any]
-) -> dict[str, Resource]:
-    """Turn a node's `field -> resource name` map into bound resources.
+def _check_supplied(document: PlanDocument, supplied: Mapping[str, Any]) -> None:
+    """Reject a load missing any resource the document names, naming them all.
 
     Raises:
         ResourceError: If the document names a resource `supplied` does not have.
     """
-    bound: dict[str, Resource] = {}
-    for field, name in node.resources.items():
-        if name not in supplied:
-            raise ResourceError(
-                f"Step {position} ({node.kind}) needs resource '{name}' for '{field}', "
-                f"which was not supplied. Pass it when loading: "
-                f"resources={{'{name}': ...}}."
-            )
-        bound[field] = Resource(name, supplied[name])
-    return bound
+    missing: dict[str, str] = {}
+    for position, node in enumerate(document.steps):
+        for field, name in node.resources.items():
+            if name not in supplied and name not in missing:
+                missing[name] = f"step {position} ({node.kind}) reads it as '{field}'"
+    if not missing:
+        return
+
+    wanted = "\n".join(f"  '{name}' — {where}" for name, where in missing.items())
+    example = ", ".join(f"'{name}': ..." for name in missing)
+    raise ResourceError(
+        f"This plan needs resources that were not supplied:\n{wanted}\n"
+        f"Pass them when loading: resources={{{example}}}."
+    )
 
 
 def _rebuild(
     node: StepNode, position: int, inputs: list[Step], supplied: Mapping[str, Any]
 ) -> Step:
     """Rebuild one step from its node and its already-rebuilt inputs."""
-    resources = _bind(node, position, supplied)
+    resources = {
+        field: Resource(name, supplied[name]) for field, name in node.resources.items()
+    }
     match node.kind:
         case StepKind.SOURCE:
             spec = _expect(node, position, SourceSpec)
