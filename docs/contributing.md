@@ -47,8 +47,7 @@ The whole suite runs on Python alone. Storage uses DuckDB in memory, and warehou
 just test
 ```
 
-No container is needed, including for the tests that compare SQL dialects. `validate_extract_transform` only asks a client what dialect it speaks, and SQLAlchemy answers that without connecting, so those tests use a Postgres-dialect engine with no driver behind it.
-
+No container is needed: every warehouse test runs against SQLite, over a SQLAlchemy engine or an ADBC connection.
 If you want a real warehouse to point matchlab at while developing, bring up whatever database you like and pass its client to a `Location`. matchlab has no opinion about where it runs, and ships nothing to manage one.
 
 ## Documentation

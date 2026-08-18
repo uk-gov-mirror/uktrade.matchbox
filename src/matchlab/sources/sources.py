@@ -1,21 +1,15 @@
 """Source — the leaf of a plan.
 
-A source reads rows from a warehouse and content-addresses them. It takes no inputs,
+A source reads rows from a `Location` and content-addresses them. It takes no inputs,
 so it is where raw data, and therefore non-determinism, enters a plan. Its spec key
 includes a hash of the data it read, which is what makes a freshly constructed `Source`
-pick up warehouse changes while an existing object memoises its read.
-
-**The extract/transform is the whole declaration.** Every column it returns is part of
-the record, so every column except the key contributes to that record's identity. Two
-rows are the same leaf when they agree on all of them. A column
-you do not want to affect identity is a column you should not select, and a type you
-want pinned is a `cast` in the SELECT.
+pick up changes at the origin while an existing object memoises its read.
 """
 
 import tempfile
 from collections.abc import Callable, Generator, Iterable
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import polars as pl
 import pyarrow.parquet as pq
@@ -32,14 +26,49 @@ from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.resolver_output import leaf_id
 from matchlab.core.sql import SQLQuery
-from matchlab.locations import Location
 from matchlab.recordstep import IdentifierRead, RecordStep, build_record_step
+from matchlab.resources import Resource
+from matchlab.sources.base import Location
+from matchlab.sources.dataframe import DataFrame
+from matchlab.sources.relational import DBClient, RelationalDB
 from matchlab.specs import SourceSpec
 from matchlab.steps import Step
 
+_LOCATION_CLASSES: dict[str, "type[Location]"] = {}
+
+
+def add_location_class(location_class: "type[Location]") -> None:
+    """Register a custom location so it can be named in a plan document."""
+    if not issubclass(location_class, Location):
+        raise ValueError("The argument is not a subclass of Location.")
+    _LOCATION_CLASSES[location_class.__name__] = location_class
+
+
+def resolve_location_class(location_class: "str | type[Location]") -> "type[Location]":
+    """Return a location class, looking a name up in the registry.
+
+    How `Source` accepts either the class or its registered name, and how
+    `matchlab.document` rebuilds the locations a plan reads.
+
+    Raises:
+        ValueError: If no location class of that name is registered here.
+    """
+    if not isinstance(location_class, str):
+        return location_class
+    if location_class not in _LOCATION_CLASSES:
+        raise ValueError(
+            f"No location class named '{location_class}' is registered. Register it "
+            "with `add_location_class` before loading a document that names it."
+        )
+    return _LOCATION_CLASSES[location_class]
+
+
+for _builtin in (RelationalDB, DataFrame):
+    add_location_class(_builtin)
+
 
 class Source(RecordStep):
-    """A warehouse table, extracted and content-addressed.
+    """A location's rows, read and content-addressed.
 
     A source is a `RecordStep`. Read directly, its records are its extract, with `id`
     set to each row's content-addressed leaf, so a model can match over it with no
@@ -49,40 +78,55 @@ class Source(RecordStep):
     kind: ClassVar[StepKind] = StepKind.SOURCE
 
     _READ_ONLY: ClassVar[frozenset[str]] = RecordStep._READ_ONLY | frozenset(
-        {"location", "name", "extract_transform", "key_field"}
+        {
+            "location",
+            "location_class",
+            "location_settings",
+            "location_resources",
+            "name",
+            "key_field",
+        }
     )
 
     #: Settled at construction. Declared, rather than only assigned, so a reader and a
     #: type checker can both see what a source holds: `_set` writes them past
     #: `__setattr__`, which is invisible to static analysis.
     location: Location
+    location_class: type[Location]
+    location_settings: dict[str, Any]
+    location_resources: dict[str, Resource]
     name: str
-    extract_transform: SQLQuery
     key_field: str
 
     def __init__(
         self,
-        location: Location,
+        location_class: "type[Location] | str",
         name: str,
-        extract_transform: SQLQuery,
-        key_field: str,
-        validate_etl: bool = True,
+        location_settings: dict[str, Any] | None = None,
+        location_resources: dict[str, Any] | None = None,
+        key_field: str = "id",
     ) -> None:
         """Define a source.
 
         Args:
-            location: Where the data lives.
+            location_class: A `Location` subclass, or its registered name.
             name: The source's name within the plan. Prefixes every column this
                 source contributes, so it must be usable in a SQL identifier.
-            extract_transform: SQL producing the rows to index. Every column it
-                returns other than the key contributes to record identity.
+            location_settings: That location's configuration — the query, for a
+                `RelationalDB`. Serialisable, carried in a document, and hashed into
+                this source's fingerprint.
+            location_resources: Resources the location needs that cannot be serialised,
+                keyed by field name, such as
+                `{"client": Resource("warehouse", engine)}`. See `matchlab.resources`.
             key_field: The name of the unique identifier field. Read as a string
-                whatever the warehouse returns it as.
-            validate_etl: Validate the extract/transform SQL up front.
+                whatever the location returns it as.
 
         Raises:
             ValueError: If the name could not prefix a SQL identifier, or if
                 `key_field` is not a column name.
+            ResourceError: If a field was passed in the wrong one of
+                `location_settings` and `location_resources`, or if one resource name
+                covers two different objects.
         """
         validate_col_prefix(name)
 
@@ -91,26 +135,38 @@ class Source(RecordStep):
                 f"key_field must be a column name, got {type(key_field).__name__}"
             )
 
-        if validate_etl:
-            location.validate_extract_transform(extract_transform)
+        resolved_class = resolve_location_class(location_class)
+        built, settings, resources = self._build_methodology(
+            resolved_class, location_settings, location_resources
+        )
 
         super().__init__()
 
-        # Memoised warehouse read: (extract, hashes). Populated on first fingerprint.
+        # Memoised read: (extract, hashes). Populated on first fingerprint.
         self._read: tuple[pl.DataFrame, pl.DataFrame] | None = None
 
         # A source's name is part of the outputs
         self._set(
-            location=location,
+            location=built,
+            location_class=resolved_class,
+            location_settings=settings,
+            location_resources=resources,
             name=name,
-            extract_transform=extract_transform,
             key_field=key_field,
         )
+
+        # A leaf checks too: one location can put two fields under one resource name.
+        self._check_names()
 
     @property
     def parents(self) -> tuple[Step, ...]:
         """A source is a leaf in a plan."""
         return ()
+
+    @property
+    def _claimed_name(self) -> str:
+        """A source's name is part of its output, so no two in one plan may share it."""
+        return self.name
 
     # -- spec -------------------------------------------------------------------------
 
@@ -123,8 +179,9 @@ class Source(RecordStep):
         """The serialisable spec for this source."""
         return SourceSpec(
             name=self.name,
-            extract_transform=self.extract_transform,
             key_field=self.key_field,
+            location_class=self.location_class.__name__,
+            location_settings=self.location_settings,
         )
 
     # -- column naming ----------------------------------------------------------------
@@ -149,38 +206,34 @@ class Source(RecordStep):
     def index_fields(self) -> list[str]:
         """Every column the extract returns except the key, in sorted order.
 
-        Read from the warehouse rather than declared, so it cannot drift from the SQL.
+        Read from the location rather than declared, so it cannot drift from what the
+        location actually returns.
         """
-        extract, _ = self._read_warehouse()
+        extract, _ = self._read_origin()
         return sorted(column for column in extract.columns if column != self.key_field)
 
-    # -- warehouse access -------------------------------------------------------------
+    # -- origin access ----------------------------------------------------------------
 
     def fetch(
         self,
         qualify_names: bool = False,
         batch_size: int | None = None,
         return_type: DataFrameType = DataFrameType.POLARS,
-        keys: list[str] | None = None,
     ) -> Generator[DataFrameClass, None, None]:
-        """Apply the extract/transform and yield the resulting rows in batches."""
+        """Read from the location and yield the resulting rows in batches."""
         rename: Callable[[str], str] | None = None
         if qualify_names:
 
             def rename(column: str) -> str:
                 return qualify(self.name, column)
 
-        # Keys are always strings, whatever the warehouse returns them as. Every
-        # other column is read as the warehouse types it. Pin one with a `cast` in
-        # the extract/transform if you need it stable across drivers.
-        selection = (self.key_field, keys) if keys else None
-        yield from self.location.execute(
-            extract_transform=self.extract_transform,
-            schema_overrides={self.key_field: pl.String},
+        # Keys are always strings, whatever the location returns them as. Every other
+        # column is read as the location types it.
+        yield from self.location.read(
+            schema_overrides={self.key_field: pl.String()},
             rename=rename,
             batch_size=batch_size,
             return_type=return_type,
-            **({"keys": selection} if selection else {}),
         )
 
     def sample(
@@ -189,7 +242,7 @@ class Source(RecordStep):
         """Peek at the first `n` rows without collecting."""
         return next(self.fetch(batch_size=n, return_type=return_type))
 
-    def _read_warehouse(self) -> tuple[pl.DataFrame, pl.DataFrame]:
+    def _read_origin(self) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Read the source and content-address every row. Memoised.
 
         Every column except the key contributes to the row hash, so two rows are the
@@ -205,7 +258,7 @@ class Source(RecordStep):
         if self._read is not None:
             return self._read
 
-        logger.info("Reading from the warehouse", prefix=self.name)
+        logger.info(f"Reading from {self.location}", prefix=self.name)
         key = self.key_field
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -224,21 +277,23 @@ class Source(RecordStep):
             parquet = pq.ParquetFile(path)
             for group in range(parquet.num_row_groups):
                 batch = pl.from_arrow(parquet.read_row_group(group))
+                if key not in batch.columns:
+                    raise ValueError(self._missing_key(batch.columns))
                 if batch[key].is_null().any():
                     raise ValueError(f"Source '{self.name}' has null keys")
                 frames.append(batch)
                 index = sorted(column for column in batch.columns if column != key)
                 if not index:
                     raise ValueError(
-                        f"Source '{self.name}' returns only its key field. The "
-                        "extract/transform must select at least one other column."
+                        f"Source '{self.name}' returns only its key field. Its "
+                        "location must return at least one other column."
                     )
                 # XXH3_128 rather than SHA-256. `leaf_id`
                 # slices the row hash to 8 bytes, so a cryptographic digest's strength
                 # is discarded before it identifies anything, and the 128 bits that
                 # survive into `_spec_key` are ample for telling rows of one table
                 # apart. It is ~7x faster, on a path every collect pays, because
-                # `_spec_key` re-reads and re-hashes the warehouse even when the
+                # `_spec_key` re-reads and re-hashes the origin even when the
                 # artifact is cached.
                 row_hashes = hash_rows(
                     df=batch, columns=index, method=HashMethod.XXH3_128
@@ -254,9 +309,18 @@ class Source(RecordStep):
         self._read = (extract, hashes)
         return self._read
 
+    def _missing_key(self, columns: list[str]) -> str:
+        """Explain that the key column is absent, and where the name came from."""
+        return (
+            f"Source '{self.name}' has no column '{self.key_field}', so there is "
+            f"nothing to key its records by. It returned: {', '.join(columns)}. "
+            "`key_field` defaults to 'id'; pass the column that uniquely identifies a "
+            "record in this source."
+        )
+
     def leaves(self) -> pl.DataFrame:
         """Return `(key, leaf)`, each source key mapped to its leaf cluster."""
-        _, hashes = self._read_warehouse()
+        _, hashes = self._read_origin()
         return hashes.explode("keys", empty_as_null=True).select(
             pl.col("keys").alias("key"),
             leaf_id(pl.col("hash")).alias("leaf"),
@@ -267,22 +331,22 @@ class Source(RecordStep):
     def _spec_key(self) -> bytes:
         """The spec plus a content hash of the data read.
 
-        Including the data hash is what lets a plan detect that the warehouse changed.
+        Including the data hash is what lets a plan detect that the origin changed.
         A new `Source` object re-reads and gets a different key, invalidating
         everything downstream of it.
 
         Hashing `hashes` alone is sufficient because every non-key column feeds the row
-        hash, and `hashes` records which keys carry each one. A change to any selected
+        hash, and `hashes` records which keys carry each one. A change to any returned
         column therefore moves the fingerprint. This was not true while a separate list
         of index fields could be narrower than the extract. A column outside it changed
         the stored extract without touching the fingerprint, so the source cache-hit,
         never re-stored, and downstream record steps kept reading the stale value.
         """
-        _, hashes = self._read_warehouse()
+        _, hashes = self._read_origin()
         return super()._spec_key() + hash_dataframe(hashes)
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
-        extract, _ = self._read_warehouse()
+        extract, _ = self._read_origin()
         adapter.store_source(
             fp=fp,
             key_field=self.key_field,
@@ -305,3 +369,66 @@ class Source(RecordStep):
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:
         """Read directly, so `id` is the leaf and no resolver enters the read."""
         return ((self._fp, self.name, None),)
+
+
+# -- shorthands -----------------------------------------------------------------------
+#
+# `Source` takes a class plus two dicts, which is what makes every step kind the same
+# shape and what a document round-trips through. These are the forms to write by hand:
+# one call, named arguments, nothing to assemble.
+
+
+def read_database(
+    name: str,
+    *,
+    sql: SQLQuery,
+    client: DBClient | Resource[DBClient],
+    key_field: str = "id",
+) -> Source:
+    """Read a source from a relational database.
+
+    Args:
+        name: The source's name within the plan.
+        sql: The query producing the rows. Every column other than the key contributes
+            to record identity. Run as written, so trust it: see `RelationalDB`.
+        client: A SQLAlchemy engine or ADBC connection, or a `Resource` naming one.
+            Name it to dump the plan; share the same `Resource` between sources
+            reading one warehouse.
+        key_field: The unique identifier column.
+
+    Returns:
+        The source, uncollected.
+    """
+    return Source(
+        location_class=RelationalDB,
+        name=name,
+        location_settings={"sql": sql},
+        location_resources={"client": client},
+        key_field=key_field,
+    )
+
+
+def read_dataframe(
+    name: str,
+    *,
+    df: DataFrameClass | Resource[DataFrameClass],
+    key_field: str = "id",
+) -> Source:
+    """Read a source from a dataframe already in memory.
+
+    Args:
+        name: The source's name within the plan.
+        df: A polars, pandas or arrow frame, or a `Resource` naming one. Every column
+            other than the key contributes to record identity, so shape the frame
+            before handing it over.
+        key_field: The unique identifier column.
+
+    Returns:
+        The source, uncollected.
+    """
+    return Source(
+        location_class=DataFrame,
+        name=name,
+        location_resources={"df": df},
+        key_field=key_field,
+    )

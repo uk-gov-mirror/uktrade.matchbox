@@ -6,32 +6,47 @@ Nothing runs until you call `collect()`.
 
 ## Sources
 
-A source is a leaf: a warehouse query, plus the column that keys it.
+A source is a leaf: where to read rows from, plus the column that keys them.
 
 ```python
-from matchlab import Source
+import matchlab as mb
 
-crn = Source(
-    location=warehouse,
-    name="crn",
-    extract_transform="select pk, company, town from companies",
+warehouse = create_engine("postgresql://...")
+
+crn = mb.read_database(
+    "crn",
+    sql="select pk, company, town from companies",
+    client=warehouse,
     key_field="pk",
 )
 ```
 
-`key_field` is the identifier you'll get back in results. It's read as a string whatever the warehouse stores it as, so an integer primary key needs no ceremony.
+Several sources can share one engine. Pass the same object to each. The engine is *how* the rows are obtained rather than part of what they are, so it's never written into a plan, which is what lets a plan move between environments. See [Serialise a plan](./serialise.md).
+
+!!! warning "Your query is run as written"
+
+    matchlab does not parse or sanitise the SQL you give `read_database`. It goes to your client in whatever dialect that client speaks, and a malformed one fails when the source is read, with the database's own error message.
+
+Reading a dataframe you've already shaped needs no query at all:
+
+```python
+dh = mb.read_dataframe("dh", df=my_polars_df)
+```
+
+`key_field` is the identifier you'll get back in results. It's read as a string whatever type it has in the data, so an integer primary key needs no ceremony.
 
 `name` qualifies every column this source contributes. `company` becomes `crn_company`. Those names end up in cleaning SQL, so a name must start with a letter or underscore, then hold only letters, digits and underscores. A hyphen or a dot would parse as arithmetic or as a table reference. This means matchlab rejects an invalid name when you build the source, rather than letting it fail three steps later. SQL keywords are fine, since the name is only ever a prefix.
 
-**The `select` is the whole declaration.** Every column it returns becomes part of the record, and so part of that record's identity. Two rows are the same record exactly when the extract returns identical values for both. Above, a company appearing twice with the same name and town is one record. Change the town, and it's two.
+**What a source returns is the whole declaration.** Every column becomes part of the record, and so part of that record's identity. Two rows are the same record exactly when every column comes back identical for both. Above, a company appearing twice with the same name and town is one record. Change the town, and it's two. With `read_dataframe` the same rule applies to whatever columns the frame carries, so shape it before you hand it over.
 
 There's no separate list of fields to index. That means:
 
-* **A column you don't want to affect identity is a column you shouldn't select.** Pull a `last_updated` timestamp through and every row becomes distinct.
-* **A type you want pinned is a `cast` in the SQL.** `select cast(crn as text)` reads more directly than a parallel type system, and it can't drift from the query.
-* **Changing the warehouse data behind any selected column invalidates the source**, and everything downstream of it.
+* **A column you don't want to affect identity is a column that shouldn't come back.** Pull a `last_updated` timestamp through and every row becomes distinct.
+* **A type you want pinned is a `cast` in the SQL**, or a cast on the frame.
+* **Changing the data behind any returned column invalidates the source**, and everything downstream of it.
+* **How the rows were fetched *is* part of the plan.** The query is hashed alongside the rows, so editing it re-runs the source and everything below, even if the rows come back identical. The client is not hashed. Point the same query at a second engine holding the same rows and you get the same source.
 
-You can still select a column purely to look at. `view_entity` and the evaluation samplers show every column the extract returned, reading it back from the copy cached at collect time, but selecting it still makes it count.
+You can still return a column purely to look at. `view_entity` and the evaluation samplers show every column the source returned, reading it back from the copy cached at collect time, but selecting it still makes it count.
 
 ## Verbs
 
@@ -51,8 +66,8 @@ Steps chain. Each verb returns a new lazy step:
 **A source is already matchable.** You don't have to reshape it first. A model reads a source directly:
 
 ```python
-crn.dedupe(model_class=NaiveDeduper, model_settings={...})
-crn.link(dh, model_class=DeterministicLinker, model_settings={...})
+crn.dedupe(model_class=mb.NaiveDeduper, model_settings={...})
+crn.link(dh, model_class=mb.DeterministicLinker, model_settings={...})
 ```
 
 Both sides of a link are covered. Reach for the reshaping verbs (`select`, `clean`, `group`) only when you want to change what a model sees. They each return a new step, so they chain, and each does one job.
@@ -144,27 +159,24 @@ Grouping changes what the *model* sees. It never changes the resolver output. Re
 
 #### Custom transformers
 
-`select`, `clean` and `group` are the built-in transformers. `transform` takes any transformer object, so you can pass one explicitly. A custom transformer plugs in the same way a custom deduper does. Subclass `Transformer` and register it with `add_transformer_class`. It can then be named in a plan and a document:
+`select`, `clean` and `group` are the built-in transformers. `transform` takes any transformer object, so you can pass one explicitly. A custom transformer plugs in the same way a custom deduper does. Subclass `Transformer` and register it with `add_transformer_class`. It can then be named in a plan and in a [document](./serialise.md):
 
 ```python
-source.transform(Clean(cleaning={...}))  # the explicit form
+source.transform(mb.Clean(cleaning={...}))  # the explicit form
 source.transform(MyTransformer(...))  # your own, once registered
 ```
 
 ### Deduplicating and linking
 
 ```python
-from matchlab.models.dedupers import NaiveDeduper
-from matchlab.models.linkers import DeterministicLinker
-
 deduped = cleaned.dedupe(
-    model_class=NaiveDeduper,
+    model_class=mb.NaiveDeduper,
     model_settings={"unique_fields": ["name"]},
 )
 
 linked = crn.link(
     dh,
-    model_class=DeterministicLinker,
+    model_class=mb.DeterministicLinker,
     model_settings={"comparisons": f"l.{crn.f('company')} = r.{dh.f('company')}"},
 )
 ```
@@ -220,7 +232,7 @@ entities.collect()
 Sources are the exception. They hash the data they read, which is how a plan notices the warehouse has moved. Constructing a *fresh* `Source` re-reads the data. An existing `Source` object remembers it.
 
 !!! warning "Seed anything non-deterministic"
-    A step's cache key comes from its configuration, not from its output. If a model can produce different results from the same settings, the first result is cached and reused. In practice, this means passing a `seed` to Splink training functions that sample. Otherwise, re-running gives you the cache, not a second opinion.
+    A step's cache key comes from its configuration, not from its output, so a step's output has to be a deterministic function of its inputs and its settings. If a model can produce different results from the same settings, the first result is cached and reused. In practice, this means passing a `seed` to Splink training functions that sample. Otherwise, re-running gives you the cache, not a second opinion.
 
 Because the key is configuration-derived, it is also conservative. Editing a cleaning expression in a way that doesn't change the data still re-runs everything below it.
 
@@ -233,7 +245,7 @@ def build(unique_fields):
     return (
         crn.clean({"name": "lower(crn_company)"})
         .dedupe(
-            model_class=NaiveDeduper, model_settings={"unique_fields": unique_fields}
+            model_class=mb.NaiveDeduper, model_settings={"unique_fields": unique_fields}
         )
         .resolve()
     )
@@ -258,7 +270,7 @@ Note that the old artifacts stay in the store. See [Reclaiming storage](#reclaim
 To collect somewhere other than the default store:
 
 ```python
-entities.collect(adapter=DuckDBAdapter("./run.duckdb"))
+entities.collect(adapter=mb.DuckDBAdapter("./run.duckdb"))
 ```
 
 ### Watching it run
@@ -399,9 +411,7 @@ Positions are relative to the apex you collected or drew from, so a plan and a s
 The cost of that is real, so every collect reports it. That's the `Store 3.0 MB (+3.0 MB), 7 artifacts` clause above. You can also ask directly:
 
 ```python
-from matchlab import default_adapter
-
-stats = default_adapter().stats()
+stats = mb.default_adapter().stats()
 print(stats.location)  # where the default store actually is
 print(stats.bytes)  # what it costs, in bytes
 print(stats.artifacts)  # {'source': 8, 'transform': 40, 'model': 32, 'resolver': 24}
@@ -419,7 +429,7 @@ Each adapter reports what only it can measure. A `DuckDBAdapter` hands back a `D
 ```python
 entities = build_plan().collect()
 
-result = default_adapter().prune(keep=entities.fingerprints())
+result = mb.default_adapter().prune(keep=entities.fingerprints())
 print(result.describe())
 # 'Removed 80 artifacts, kept 24, reclaimed 416.2 MB'
 ```
@@ -427,7 +437,7 @@ print(result.describe())
 `plan.fingerprints()` names every artifact a plan is made of, its own and its inputs'. Which artifacts those are is the plan's business, not the store's, so the plan is what answers. `keep` also takes the name of a published label, which keeps that resolver output and the sources it reads through:
 
 ```python
-default_adapter().prune(keep=[*entities.fingerprints(), "production"])
+mb.default_adapter().prune(keep=[*entities.fingerprints(), "production"])
 ```
 
 **Published labels are kept whether or not you list them**, because publishing is the strongest way this library has of saying "keep this". Losing one to a forgotten argument would be indefensible. Pruning with nothing to keep and nothing published raises, rather than emptying the store.
@@ -446,7 +456,7 @@ from pathlib import Path
 Path("./run.duckdb").unlink()  # start again from cold
 ```
 
-The default store lives in your user cache directory. `default_adapter().stats().location` will tell you exactly where, and it's safe to delete at any time. You lose cache hits, not results you can't rebuild, provided the warehouse data hasn't moved.
+The default store lives in your user cache directory. `mb.default_adapter().stats().location` will tell you exactly where, and it's safe to delete at any time. You lose cache hits, not results you can't rebuild, provided the warehouse data hasn't moved.
 
 !!! warning "DuckDB files do not shrink"
     Deleting rows or dropping tables inside a DuckDB file does **not** return space to the operating system. DuckDB marks the blocks free and reuses them for later writes, but the file stays the size of its high-water mark. There is no `VACUUM FULL`, and `CHECKPOINT` will not do it either:
@@ -462,10 +472,10 @@ The default store lives in your user cache directory. `default_adapter().stats()
 
 ### Keeping memory bounded
 
-An in-memory store (`DuckDBAdapter(":memory:")`) is not limited to RAM. DuckDB spills table data to a temporary directory once it exceeds `memory_limit`. That defaults to about 80% of your machine's memory:
+An in-memory store (`mb.DuckDBAdapter(":memory:")`) is not limited to RAM. DuckDB spills table data to a temporary directory once it exceeds `memory_limit`. That defaults to about 80% of your machine's memory:
 
 ```python
-adapter = DuckDBAdapter(":memory:")
+adapter = mb.DuckDBAdapter(":memory:")
 adapter.conn.execute("SET memory_limit = '4GB'")
 adapter.conn.execute("SET temp_directory = '/fast/scratch'")
 ```

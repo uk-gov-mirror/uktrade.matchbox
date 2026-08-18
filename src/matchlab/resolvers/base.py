@@ -31,22 +31,23 @@ class ResolverType(StrEnum):
     COMPONENTS = "components"
 
 
-class ResolverSettings(BaseModel, ABC):
-    """Base settings type for resolver methodologies.
+class ResolverMethod(BaseModel, ABC):
+    """Base class for resolver methodologies.
 
-    Settings that point at one of the resolver's inputs refer to it by **position**.
-    `Resolver` accepts the `Model` object at the API and translates it. Nothing here
-    holds a plan node. A methodology stays a pure function of edges and numbers.
+    A field that points at one of the resolver's inputs refers to it by **position**.
+    `Resolver` accepts the `Model` object at the API and translates it, so nothing here
+    holds a plan node: a methodology stays a pure function of edges and numbers.
+
+    Frozen and `extra="forbid"`, so a mistyped setting is refused rather than silently
+    ignored, and a built methodology cannot drift from the fingerprint naming it.
+
+    Every field is a setting unless marked `matchlab.resources.FromResources`. A
+    fingerprint ignores a resource, so a marked field must not change the clustering.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-
-class ResolverMethod(BaseModel, ABC):
-    """Base class for resolver methodologies."""
-
     resolver_type: ClassVar[ResolverType]
-    settings: ResolverSettings
 
     @abstractmethod
     def compute_clusters(self, model_edges: Mapping[int, pl.DataFrame]) -> pl.DataFrame:

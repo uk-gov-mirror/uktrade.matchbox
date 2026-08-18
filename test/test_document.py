@@ -12,11 +12,22 @@ engine does not, and `load` is handed a client on the other side.
 from collections.abc import Callable
 from pathlib import Path
 
+import polars as pl
 import pytest
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import PlanDocument, Source, dump, lineage, load
+from matchlab import (
+    PlanDocument,
+    Resource,
+    Source,
+    dump,
+    lineage,
+    load,
+    read_database,
+    read_dataframe,
+)
 from matchlab.adapters import DuckDBAdapter
+from matchlab.core.exceptions import ResourceError
 from matchlab.models import Model
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
@@ -70,12 +81,10 @@ def _transfer(document: PlanDocument) -> PlanDocument:
 # A valid source spec, for tests about a node's shape rather than its settings.
 _SOURCE_SPEC = {
     "name": "crn",
-    "extract_transform": "select pk from crn",
     "key_field": "pk",
+    "location_class": "RelationalDB",
+    "location_settings": {"sql": "select pk from crn"},
 }
-
-# A valid location reference, likewise.
-_LOCATION_REF = {"location_class": "RelationalDBLocation", "name": "warehouse"}
 
 
 # -- the round trip -------------------------------------------------------------------
@@ -86,7 +95,7 @@ def test_rebuild_fingerprints_match(plan: Resolver, warehouse: Engine) -> None:
     original = plan
     original.collect()
 
-    rebuilt = load(_transfer(dump(original)), clients={"warehouse": warehouse})
+    rebuilt = load(_transfer(dump(original)), resources={"warehouse": warehouse})
     rebuilt.collect()
 
     before = [step._fp for step in lineage.walk(original)]
@@ -101,7 +110,7 @@ def test_rebuild_hits_cache(
     """A transferred plan must find the original's artifacts, not redo the work."""
     plan.collect(adapter)
 
-    rebuilt = load(_transfer(dump(plan)), clients={"warehouse": warehouse})
+    rebuilt = load(_transfer(dump(plan)), resources={"warehouse": warehouse})
     for step in lineage.walk(rebuilt):
 
         def boom(*_a: object, _step: Step = step, **_k: object) -> None:
@@ -130,7 +139,7 @@ def test_rebuild_different_warehouse(plan: Resolver, tmp_path: Path) -> None:
     original.collect()
 
     document = _transfer(dump(original))
-    elsewhere = load(document, clients={"warehouse": other})
+    elsewhere = load(document, resources={"warehouse": other})
     elsewhere.collect()
 
     assert elsewhere._fp != original._fp
@@ -143,7 +152,7 @@ def test_rebuild_different_warehouse(plan: Resolver, tmp_path: Path) -> None:
 def test_rebuild_same_answer(plan: Resolver, warehouse: Engine) -> None:
     """A rebuilt plan collects to the same lookup as the original."""
     original = plan
-    rebuilt = load(_transfer(dump(original)), clients={"warehouse": warehouse})
+    rebuilt = load(_transfer(dump(original)), resources={"warehouse": warehouse})
 
     expected = original.collect().get_lookup().sort("root")
     actual = rebuilt.collect().get_lookup().sort("root")
@@ -162,7 +171,7 @@ def test_document_carries_no_labels(plan: Resolver, warehouse: Engine) -> None:
     sources = [node.spec for node in document.steps if node.kind == "source"]
     assert {spec.name for spec in sources} == {"crn", "dh"}
 
-    rebuilt = load(_transfer(document), clients={"warehouse": warehouse})
+    rebuilt = load(_transfer(document), resources={"warehouse": warehouse})
     assert lineage.number(rebuilt) == {
         id(step): index for index, step in enumerate(lineage.walk(rebuilt))
     }
@@ -175,12 +184,22 @@ def test_document_preserves_sharing(plan: Resolver, warehouse: Engine) -> None:
 
     assert len(document.steps) == len(lineage.walk(original))
 
-    rebuilt = load(document, clients={"warehouse": warehouse})
+    rebuilt = load(document, resources={"warehouse": warehouse})
     models = [step for step in lineage.walk(rebuilt) if isinstance(step, Model)]
     linkers = [model for model in models if model.right is not None]
     assert len(linkers) == 2
     # Both linkers hold the *same* view object, not two equal ones.
     assert linkers[0].left is linkers[1].left
+
+
+def test_bare_value(warehouse: Engine) -> None:
+    """A bare value can be used instead of a resource, until dump is attemped."""
+    source = read_database("crn", sql="select pk, company from crn", client=warehouse)
+
+    assert source.sample().height > 0  # usable here
+
+    with pytest.raises(ResourceError, match="unnamed resource for 'client'"):
+        dump(source)
 
 
 def test_document_carries_no_client(plan: Resolver) -> None:
@@ -189,16 +208,17 @@ def test_document_carries_no_client(plan: Resolver) -> None:
     serialised = document.model_dump_json()
 
     assert "sqlite" not in serialised  # the engine's URL never leaves
-    assert '"name":"warehouse"' in serialised  # but the client it needs is named
+    assert '"resources":{"client":"warehouse"}' in serialised  # only its name does
 
-    with pytest.raises(ValueError, match="has no client"):
-        load(document, clients={})
+    with pytest.raises(ResourceError, match="needs resource 'warehouse'"):
+        load(document, resources={})
 
 
-def test_location_rename_keeps_fingerprint(plan: Resolver, warehouse: Engine) -> None:
-    """A location says how to rebuild, so it travels on the node and not in the spec.
+def test_resource_rename_keeps_fingerprint(plan: Resolver, warehouse: Engine) -> None:
+    """Renaming a resource changes no fingerprint anywhere in the plan.
 
-    Renaming a warehouse changes no byte any source produces.
+    The guarantee the `*_settings` / `*_resources` split exists to give: a resource is
+    named in its own field, so nothing it is called can reach a spec.
     """
     original = plan
     original.collect()
@@ -210,18 +230,14 @@ def test_location_rename_keeps_fingerprint(plan: Resolver, warehouse: Engine) ->
                 "steps": tuple(
                     node.model_copy(
                         update={
-                            "location": node.location.model_copy(
-                                update={"name": "somewhere_else"}
-                            )
+                            "resources": dict.fromkeys(node.resources, "somewhere_else")
                         }
                     )
-                    if node.kind == "source"
-                    else node
                     for node in document.steps
                 )
             }
         ),
-        clients={"somewhere_else": warehouse},
+        resources={"somewhere_else": warehouse},
     )
     renamed.collect()
 
@@ -229,7 +245,29 @@ def test_location_rename_keeps_fingerprint(plan: Resolver, warehouse: Engine) ->
         step._fp for step in lineage.walk(original)
     ]
     sources = [step for step in lineage.walk(renamed) if isinstance(step, Source)]
-    assert {source.location.name for source in sources} == {"somewhere_else"}
+    assert {source.location_resources["client"].name for source in sources} == {
+        "somewhere_else"
+    }
+
+
+def test_required_resources_list(warehouse: Engine) -> None:
+    """A caller can see what to supply before trying to load."""
+    frame = pl.DataFrame({"pk": ["b1"], "company": ["acme"]})
+    db = read_database(
+        "crn", sql="select pk, company from crn", client=Resource("wh", warehouse)
+    )
+    memory = read_dataframe("dh", df=Resource("dh_frame", frame), key_field="pk")
+    plan = db.link(
+        memory,
+        model_class="DeterministicLinker",
+        model_settings={"comparisons": ["l.crn_company = r.dh_company"]},
+    ).resolve()
+
+    document = dump(plan)
+    assert document.required_resources() == {"wh", "dh_frame"}
+
+    with pytest.raises(ResourceError, match="needs resource 'dh_frame'"):
+        load(document, resources={"wh": warehouse})
 
 
 def test_document_custom_location(plan: Resolver, warehouse: Engine) -> None:
@@ -240,7 +278,7 @@ def test_document_custom_location(plan: Resolver, warehouse: Engine) -> None:
             "steps": tuple(
                 node.model_copy(
                     update={
-                        "location": node.location.model_copy(
+                        "spec": node.spec.model_copy(
                             update={"location_class": "S3Location"}
                         )
                     }
@@ -256,29 +294,7 @@ def test_document_custom_location(plan: Resolver, warehouse: Engine) -> None:
     assert _transfer(broken)
 
     with pytest.raises(ValueError, match="No location class named 'S3Location'"):
-        load(broken, clients={"warehouse": warehouse})
-
-
-def test_location_source_only() -> None:
-    """A location reference binds a client, and only a source needs one bound."""
-    with pytest.raises(ValueError, match="must name the location"):
-        PlanDocument.model_validate(
-            {"steps": [{"kind": "source", "spec": _SOURCE_SPEC, "inputs": []}]}
-        )
-
-    with pytest.raises(ValueError, match="model step must not name a location"):
-        PlanDocument.model_validate(
-            {
-                "steps": [
-                    {
-                        "kind": "model",
-                        "spec": _MODEL_SPEC,
-                        "inputs": [],
-                        "location": _LOCATION_REF,
-                    }
-                ]
-            }
-        )
+        load(broken, resources={"warehouse": warehouse})
 
 
 # -- what the document says -----------------------------------------------------------
@@ -292,6 +308,17 @@ def test_edges_point_backwards(plan: Resolver) -> None:
     assert document.steps[-1].kind == "resolver"
     for position, node in enumerate(document.steps):
         assert all(target < position for target in node.inputs)
+
+
+def test_settings_vs_resources(warehouse: Engine) -> None:
+    """A node keeps the query in its spec and the client's *name* beside it."""
+    source = read_database(
+        "ch", sql="select id, c from ch", client=Resource("wh", warehouse)
+    )
+    node = dump(source).steps[0]
+
+    assert node.spec.location_settings == {"sql": "select id, c from ch"}
+    assert node.resources == {"client": "wh"}
 
 
 def test_spec_has_settings_not_edges(plan: Resolver) -> None:
@@ -322,8 +349,8 @@ def test_setting_travels_as_position(plan: Resolver, warehouse: Engine) -> None:
     # `1` is the second input, and JSON has stringified the key.
     assert apex.spec.resolver_settings == {"thresholds": {"1": 0.5}}
 
-    rebuilt = load(document, clients={"warehouse": warehouse})
-    assert rebuilt.resolver_settings.thresholds == {1: 0.5}
+    rebuilt = load(document, resources={"warehouse": warehouse})
+    assert rebuilt.resolver_instance.thresholds == {1: 0.5}
 
 
 _MODEL_SPEC = {
@@ -378,13 +405,13 @@ def test_load_rejects_wrong_kind(plan: Resolver, warehouse: Engine) -> None:
     )
 
     with pytest.raises(ValueError, match="must read only"):
-        load(broken, clients={"warehouse": warehouse})
+        load(broken, resources={"warehouse": warehouse})
 
 
 def test_document_empty_rejected() -> None:
     """A document with no steps is rejected on load."""
     with pytest.raises(ValueError, match="at least one step"):
-        load(PlanDocument(steps=()), clients={})
+        load(PlanDocument(steps=()), resources={})
 
 
 def test_rebuild_reads_resolver_as_record_step(
@@ -395,7 +422,7 @@ def test_rebuild_reads_resolver_as_record_step(
     The `plan` cleans `crn`'s dedupe resolver, so a rebuilt transform must read a
     `Resolver` as its upstream, the layering shape, preserved across the round trip.
     """
-    rebuilt = load(dump(plan), clients={"warehouse": warehouse})
+    rebuilt = load(dump(plan), resources={"warehouse": warehouse})
     reading_resolver = [
         step
         for step in lineage.walk(rebuilt)
@@ -422,7 +449,7 @@ def test_rebuild_transform_chain(
         .resolve()
     )
 
-    rebuilt = load(_transfer(dump(plan)), clients={"warehouse": warehouse})
+    rebuilt = load(_transfer(dump(plan)), resources={"warehouse": warehouse})
     transforms = [step for step in lineage.walk(rebuilt) if isinstance(step, Transform)]
 
     assert [t.transformer_class.__name__ for t in transforms] == ["Select", "Clean"]

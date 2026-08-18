@@ -29,9 +29,7 @@ from typing import cast
 
 from sqlalchemy import create_engine
 
-from matchlab import Model, RecordStep, RelationalDBLocation, Resolver, Source
-from matchlab.models.dedupers import NaiveDeduper
-from matchlab.models.linkers import DeterministicLinker
+import matchlab as mb
 
 # Strip case, whitespace, punctuation and company suffixes, so the cosmetic variation
 # the generator plants is absorbed and matching has something to agree on.
@@ -72,27 +70,25 @@ class Topology(StrEnum):
         }[self]
 
 
-def declare(path: Path, names: Sequence[str]) -> list[Source]:
+def declare(path: Path, names: Sequence[str]) -> list[mb.Source]:
     """Declare one source per table in a generated warehouse.
 
     One engine for all of them, because they are one database and a connection per
     source would measure SQLite's connection handling rather than matchlab's.
     """
-    location = RelationalDBLocation(
-        name="warehouse", client=create_engine(f"sqlite:///{path}")
-    )
+    client = create_engine(f"sqlite:///{path}")
     return [
-        Source(
-            location=location,
-            name=name,
-            extract_transform=f"select key, name, postcode from {name}",
+        mb.read_database(
+            name,
+            sql=f"select key, name, postcode from {name}",
+            client=client,
             key_field="key",
         )
         for name in names
     ]
 
 
-def _cleaning(sources: Sequence[Source]) -> dict[str, str]:
+def _cleaning(sources: Sequence[mb.Source]) -> dict[str, str]:
     """Cleaning expressions that work across however many sources a record step reads.
 
     A multi-source record step concatenates the extracts diagonally, so each source's
@@ -114,8 +110,8 @@ def _cleaning(sources: Sequence[Source]) -> dict[str, str]:
 
 
 def _record_step(
-    sources: Sequence[Source], resolver: Resolver | None = None
-) -> RecordStep:
+    sources: Sequence[mb.Source], resolver: mb.Resolver | None = None
+) -> mb.RecordStep:
     """A cleaned record step of these sources, read through a resolver if given one.
 
     A resolver is itself a record step, read at `id`=entity root, so passing one is the
@@ -124,11 +120,11 @@ def _record_step(
     one is given. Without a resolver, there is a single source, read directly at
     `id`=leaf.
     """
-    base: RecordStep = resolver if resolver is not None else sources[0]
+    base: mb.RecordStep = resolver if resolver is not None else sources[0]
     return base.clean(_cleaning(sources))
 
 
-def _through(resolver: Resolver, source: Source) -> RecordStep:
+def _through(resolver: mb.Resolver, source: mb.Source) -> mb.RecordStep:
     """One source's records, per entity, read through a multi-source resolver.
 
     The resolver's record step carries every source's rows diagonally, so this
@@ -146,23 +142,23 @@ def _through(resolver: Resolver, source: Source) -> RecordStep:
     )
 
 
-def _dedupe(record_step: RecordStep) -> Model:
+def _dedupe(record_step: mb.RecordStep) -> mb.Model:
     """Deduplicate a cleaned record step. Same name and postcode is one entity."""
     return record_step.dedupe(
-        model_class=NaiveDeduper, model_settings={"unique_fields": UNIQUE_FIELDS}
+        model_class=mb.NaiveDeduper, model_settings={"unique_fields": UNIQUE_FIELDS}
     )
 
 
-def _link(left: RecordStep, right: RecordStep) -> Model:
+def _link(left: mb.RecordStep, right: mb.RecordStep) -> mb.Model:
     """Link two cleaned record steps, on the same rule the deduper uses."""
     return left.link(
         right,
-        model_class=DeterministicLinker,
+        model_class=mb.DeterministicLinker,
         model_settings={"comparisons": COMPARISON},
     )
 
 
-def build(topology: Topology, sources: Sequence[Source]) -> Resolver:
+def build(topology: Topology, sources: Sequence[mb.Source]) -> mb.Resolver:
     """Build a plan of this shape over these sources.
 
     Args:
@@ -193,22 +189,24 @@ def build(topology: Topology, sources: Sequence[Source]) -> Resolver:
 
 
 # Which links a star-shaped plan builds, given its record steps.
-Pairs = Callable[[Sequence[RecordStep]], list[tuple[RecordStep, RecordStep]]]
+Pairs = Callable[[Sequence[mb.RecordStep]], list[tuple[mb.RecordStep, mb.RecordStep]]]
 
 
-def _spokes(record_steps: Sequence[RecordStep]) -> list[tuple[RecordStep, RecordStep]]:
+def _spokes(
+    record_steps: Sequence[mb.RecordStep],
+) -> list[tuple[mb.RecordStep, mb.RecordStep]]:
     """Every (hub, spoke) pair. `n-1` links, and the hub in all of them."""
     return [(record_steps[0], spoke) for spoke in record_steps[1:]]
 
 
 def _every_pair(
-    record_steps: Sequence[RecordStep],
-) -> list[tuple[RecordStep, RecordStep]]:
+    record_steps: Sequence[mb.RecordStep],
+) -> list[tuple[mb.RecordStep, mb.RecordStep]]:
     """Every pair of record steps. `n(n-1)/2` links, and no record step privileged."""
     return list(combinations(record_steps, 2))
 
 
-def _star(sources: Sequence[Source], pairs: Pairs) -> Resolver:
+def _star(sources: Sequence[mb.Source], pairs: Pairs) -> mb.Resolver:
     """Dedupe everything into one resolver output, then link the pairs `pairs` chooses.
 
     `HUB` and `MESH` differ only in which pairs get linked, so they share everything
@@ -224,7 +222,7 @@ def _star(sources: Sequence[Source], pairs: Pairs) -> Resolver:
     return links[0].resolve(*links[1:])
 
 
-def _chain(sources: Sequence[Source]) -> Resolver:
+def _chain(sources: Sequence[mb.Source]) -> mb.Resolver:
     """Add one source per level, each level built on the resolver output below it.
 
     Where `MESH` is one resolver output over many links, this is many resolver outputs

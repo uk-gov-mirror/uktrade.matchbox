@@ -20,19 +20,27 @@ refresh), while an existing `Source` object memoises its read.
 assignment, so a plan is changed by rebuilding it, not by editing a node in place.
 """
 
+import inspect
 import json
 from abc import ABC, abstractmethod
-from typing import ClassVar, Self
+from typing import Any, ClassVar, Self
 
 from platformdirs import user_cache_path
 from pydantic import BaseModel
 
 from matchlab import lineage
 from matchlab.adapters import Adapter, DuckDBAdapter, Fingerprint
+from matchlab.core.exceptions import ResourceError
 from matchlab.core.hash import HASH_FUNC
 from matchlab.core.kinds import StepKind
 from matchlab.lineage import StepStatus
 from matchlab.progress import report
+from matchlab.resources import (
+    Resource,
+    as_resources,
+    resource_fields,
+    values_of,
+)
 
 CACHE_DIR = user_cache_path("matchlab")
 
@@ -58,6 +66,99 @@ class Step(ABC):
     """A node in a lazy plan."""
 
     kind: ClassVar[StepKind]
+
+    #: The prefix on this kind's `*_settings` and `*_resources` arguments. Empty for a
+    #: step that runs no methodology, which is `RecordStep` and any test double.
+    # `_build_methodology` quotes it when a field was passed in the wrong one, so it
+    # has to name arguments the step really takes
+    _METHODOLOGY: ClassVar[str] = ""
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Derive `_METHODOLOGY` from the `*_resources` parameter `__init__` declares.
+
+        A step that takes no such parameter builds no methodology, so it keeps whatever
+        it inherits. That covers `RecordStep` and any test double subclassing `Step`
+        directly.
+
+        Raises:
+            TypeError: If `__init__` declares more than one `*_resources` parameter,
+                which leaves no single prefix to quote back at a caller.
+        """
+        super().__init_subclass__(**kwargs)
+
+        prefixes = [
+            parameter.removesuffix("_resources")
+            for parameter in inspect.signature(cls.__init__).parameters
+            if parameter.endswith("_resources")
+        ]
+        if len(prefixes) > 1:
+            raise TypeError(
+                f"{cls.__name__}.__init__ declares more than one resources argument "
+                f"({', '.join(f'{prefix}_resources' for prefix in prefixes)}), so "
+                "there is no single prefix to name in an error. A step runs one "
+                "methodology."
+            )
+        if prefixes:
+            cls._METHODOLOGY = prefixes[0]
+
+    @classmethod
+    def _build_methodology(
+        cls,
+        methodology_class: type[BaseModel],
+        settings: dict[str, Any] | None,
+        resources: dict[str, Any] | None,
+    ) -> tuple[BaseModel, dict[str, Any], dict[str, Resource]]:
+        """Build the one methodology this step runs, and split its configuration.
+
+        The settings come back as the methodology *resolved* them, read off the
+        instance. A defaulted field left out at the call site is still part of the
+        configuration, so it belongs in the spec. The resources are excluded, so nothing
+        injected reaches a fingerprint.
+
+        Args:
+            methodology_class: The location or methodology to build.
+            settings: The `*_settings` argument, as passed.
+            resources: The `*_resources` argument, as passed.
+
+        Returns:
+            The built instance, its resolved settings, and its wrapped resources.
+
+        Raises:
+            ResourceError: If a marked field appears in the settings, or an unmarked
+                field appears in the resources.
+        """
+        settings = settings or {}
+        wrapped = as_resources(resources)
+
+        name = methodology_class.__name__
+        prefix = cls._METHODOLOGY
+        declared = resource_fields(methodology_class)
+
+        if misplaced := sorted(set(settings) & declared):
+            fields = ", ".join(f"'{field}'" for field in misplaced)
+            raise ResourceError(
+                f"{fields} on {name} {'are' if len(misplaced) > 1 else 'is'} marked "
+                f"`FromResources`, so must be passed in `{prefix}_resources` rather "
+                f"than `{prefix}_settings`. A document then records the name rather "
+                "than the value, and no credential is serialised."
+            )
+
+        for field in sorted(set(wrapped) - declared):
+            if field not in methodology_class.model_fields:
+                raise ResourceError(f"{name} has no field '{field}'.")
+            raise ResourceError(
+                f"'{field}' on {name} is a setting, not a resource, so must be passed "
+                f"in `{prefix}_settings`. Only a field marked `FromResources` may go "
+                f"in `{prefix}_resources`: a step excludes its resources from the "
+                "settings it hashes, so this one would change with no re-run."
+            )
+
+        instance = methodology_class(**settings, **values_of(wrapped))
+        return (
+            instance,
+            instance.model_dump(mode="json", exclude=set(wrapped)),
+            wrapped,
+        )
 
     @property
     @abstractmethod
@@ -118,6 +219,49 @@ class Step(ABC):
         for name, value in attributes.items():
             object.__setattr__(self, name, value)
 
+    def _resources(self) -> dict[str, Resource]:
+        """The resources this step was given, whatever kind it is."""
+        if not self._METHODOLOGY:
+            return {}
+        return getattr(self, f"{self._METHODOLOGY}_resources", {})
+
+    @property
+    def _claimed_name(self) -> str | None:
+        """The name this step claims across its plan, or `None`, as steps have none."""
+        return None
+
+    def _check_names(self) -> None:
+        """Reject a plan where one name means two objects.
+
+        Raises:
+            ResourceError: If one resource name covers two different objects.
+            ValueError: If one step name covers two different steps.
+        """
+        resources: dict[str, Any] = {}
+        names: dict[str, Step] = {}
+
+        # Resource names
+        for step in lineage.walk(self):
+            for resource in step._resources().values():
+                if resource.name is None:  # anonymous; only a document needs a name
+                    continue
+                seen = resources.setdefault(resource.name, resource.value)
+                if seen is not resource.value:
+                    raise ResourceError(
+                        f"Resource '{resource.name}' covers two different objects in "
+                        f"this plan ({type(seen).__name__} and "
+                        f"{type(resource.value).__name__}). A document records only "
+                        "the name, so both would be loaded as one. Give them different "
+                        "names, or pass the same object to both."
+                    )
+
+            # Other claims made by upstream steps
+            name = step._claimed_name
+            if name is not None and names.setdefault(name, step) is not step:
+                raise ValueError(
+                    f"Name '{name}' covers two different steps in this plan."
+                )
+
     def __repr__(self) -> str:
         """Return a short representation showing kind and collection state."""
         return f"<{type(self).__name__} {'collected' if self.is_collected else 'lazy'}>"
@@ -164,23 +308,38 @@ class Step(ABC):
         The key is derived from the *plan*, not from the step's output. That is what
         makes it computable before the step runs, which is what lets `_ensure` skip
         work. An output digest would only be knowable once the work was already done.
-        Sources are the exception. They fold a hash of the data they read into
-        `_spec_key`, because no spec reveals that the warehouse moved.
 
-        The trade-off is that the key can disagree with the bytes in both directions.
+        **A step's output must be a deterministic function of its inputs and its
+        settings.** `_ensure` skips a step whose fingerprint is stored, and a
+        fingerprint is exactly kind + spec + parent fingerprints. Parent fingerprints
+        stand in for the inputs, the spec for the settings.
+        Same fingerprint must therefore mean same output.
+
+        Three things break that rule, and they are one defect in different clothes:
+
+        * **Resources.** Anything passed in a step's `*_resources` reaches no spec, so
+          it must be something the step reads *through* and never data it reads. See
+          `matchlab.resources`.
+        * **Randomness.** A methodology that samples is not a function of its settings
+          unless it is seeded. `SplinkLinker` without a `seed` in a sampling training
+          function's arguments is the live example.
+        * **Ambient state.** A library version, a locale, a clock. Upgrade a matcher and
+          the same settings produce different edges under the same key.
+
+        A **source** is a special case. It has no parents, so its
+        inputs live outside matchlab; `_spec_key` reads the rows and hashes them to make
+        them an input. That is why computing a source's key always costs a read.
+
+        Break the rule and the key disagrees with the bytes, in one of two directions.
 
         * the spec omits something that changes the output, a **stale hit**, because
-          `_ensure` never runs the step and reads the old artifact. `SplinkLinker`
-          without an explicit seed is a live example. The only defence is that every
-          `_spec_key` covers everything its step's output depends on. Treat that as
-          the invariant to protect when adding a step or a setting.
+          `_ensure` never runs the step and reads the old artifact. This is the
+          dangerous direction: it is silent, and it hands back wrong results. All three
+          breakers above land here.
         * the spec includes something that doesn't change the output, a **spurious
-          miss**, re-running the step and everything below it. No spec does this
-          today, and the way to keep it that way is to record settings only. A spec
-          that described an *input* would, since identity already arrives via the
-          parent fingerprint. A setting that must point at an input points at its
-          position, which is not redundant. It decides which input the setting
-          applies to.
+          miss**, re-running the step and everything below it for nothing. Wasteful and
+          safe. For example, in `SourceSpec.location_settings` the query is hashed
+          even though the data hash already covers anything it could change.
 
         There is also no early cutoff. A `Transform` whose SQL is reformatted but
         semantically unchanged invalidates the whole subtree beneath it.

@@ -10,22 +10,8 @@ from matchlab.core.dsu import DisjointSet
 from matchlab.resolvers.base import (
     SCHEMA_CLUSTERS,
     ResolverMethod,
-    ResolverSettings,
     ResolverType,
 )
-
-
-class ComponentsSettings(ResolverSettings):
-    """Settings for the Components resolver methodology."""
-
-    thresholds: dict[int, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
-        default_factory=dict,
-        description=(
-            "Minimum score for an edge to count, per input, keyed by the input's "
-            "position. Write these as `{model: 0.9}`. `Resolver` takes the model "
-            "object and works out the position."
-        ),
-    )
 
 
 class Components(ResolverMethod):
@@ -35,7 +21,14 @@ class Components(ResolverMethod):
     """
 
     resolver_type: ClassVar[ResolverType] = ResolverType.COMPONENTS
-    settings: ComponentsSettings
+    thresholds: dict[int, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
+        default_factory=dict,
+        description=(
+            "Minimum score for an edge to count, per input, keyed by the input's "
+            "position. Write these as `{model: 0.9}`. `Resolver` takes the model "
+            "object and works out the position."
+        ),
+    )
 
     def compute_clusters(  # noqa: D102
         self, model_edges: Mapping[int, pl.DataFrame]
@@ -46,7 +39,7 @@ class Components(ResolverMethod):
             if edges.height == 0:
                 continue
 
-            threshold = self.settings.thresholds.get(position, 0.0)
+            threshold = self.thresholds.get(position, 0.0)
             filtered_edges = edges.filter(pl.col("score") >= threshold)
 
             for left_id, right_id in filtered_edges.select(

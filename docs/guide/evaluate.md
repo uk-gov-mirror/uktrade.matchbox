@@ -21,9 +21,9 @@ The rest of this page works through each step, then compares methodologies direc
 ## Sample clusters to judge
 
 ```python
-from matchlab.eval import get_samples
+import matchlab as mb
 
-samples = get_samples(n=20, resolver=companies)
+samples = mb.eval.get_samples(n=20, resolver=companies)
 ```
 
 `resolver` takes either a resolver you are holding, or the label one was [published](./build-a-plan.md) under. `review()` takes the same either/or. The label form needs no plan at all, which is what the rest of this page builds on.
@@ -41,9 +41,7 @@ item.get_unique_record_groups()  # identical rows collapsed
 Sampling and judging by hand is fiddly. `review()` opens a terminal app that walks the queue for you. It shows one cluster on screen at a time, with records laid out so you can see what was grouped:
 
 ```python
-from matchlab.eval import review
-
-review(companies, tag="review-2026-07")
+mb.eval.review(companies, tag="review-2026-07")
 ```
 
 Paint the records into groups and each decision is stored as a judgement, tagged so a later `EvalData(adapter, tag=...)` scores against just this session. The app collects the resolver first if it isn't already.
@@ -51,7 +49,7 @@ Paint the records into groups and each decision is stored as a judgement, tagged
 To review the *same* clusters someone else was shown, agree on a seed:
 
 ```python
-review(companies, seed=7)
+mb.eval.review(companies, seed=7)
 ```
 
 Same store, same `n`, same seed, same clusters. Two people can judge the same work independently, and their judgements are directly comparable.
@@ -77,10 +75,9 @@ With `--store`, the target is the label a resolver output was **published** unde
 This is also the more correct thing to review. It's the data the matching actually saw, not what the warehouse says today. It also means you can hand someone a `.duckdb` file, and they can judge it on a laptop with no database access.
 
 ```python
-from matchlab.adapters import DuckDBAdapter
-from matchlab.eval import review
-
-review("companies", adapter=DuckDBAdapter("run.duckdb"), tag="second-opinion")
+mb.eval.review(
+    "companies", adapter=mb.DuckDBAdapter("run.duckdb"), tag="second-opinion"
+)
 ```
 
 ## Record a judgement
@@ -88,9 +85,7 @@ review("companies", adapter=DuckDBAdapter("run.duckdb"), tag="second-opinion")
 A judgement says *of the records you were shown, these belong together.* `review()` builds these for you. This is the same thing by hand, useful for scripting or a UI of your own.
 
 ```python
-from matchlab.eval import create_judgement
-
-judgement = create_judgement(
+judgement = mb.eval.create_judgement(
     item=item,
     assignments={0: "a", 1: "a", 2: "b"},  # group index -> group label
     tag="review-2026-07",
@@ -104,9 +99,7 @@ Records shown together but assigned to different groups are recorded as *negativ
 ## Score a resolver output
 
 ```python
-from matchlab.eval import EvalData
-
-evaluation = EvalData(adapter, tag="review-2026-07")
+evaluation = mb.eval.EvalData(adapter, tag="review-2026-07")
 precision, recall = evaluation.precision_recall(companies)
 ```
 
@@ -114,20 +107,20 @@ Pass a resolver or the label one was published under. This is the same either/or
 
 ## Comparing methodologies
 
-The plan structure makes this cheap. Build several resolvers over the same sources and collect them. Because steps are content-addressed, the shared source is read once, and every candidate reuses it.
+The plan structure makes this cheap. Build several resolvers over the same sources and collect them. Because steps are content-addressed, the shared sources are read once, and every candidate reuses them.
 
 ```python
-naive = crn.dedupe(model_class=NaiveDeduper, ...).resolve().collect()
-splink = crn.dedupe(model_class=SplinkLinker, ...).resolve().collect()
+deterministic = crn.link(dh, model_class=mb.DeterministicLinker, ...).resolve().collect()
+splink = crn.link(dh, model_class=mb.SplinkLinker, ...).resolve().collect()
 ```
 
 Then judge them **together**, in one pass:
 
 ```python
-review([naive, splink], tag="bakeoff")
+mb.eval.review([deterministic, splink], tag="bakeoff")
 
-evaluation = EvalData(adapter, tag="bakeoff")
-evaluation.precision_recall([naive, splink])
+evaluation = mb.eval.EvalData(adapter, tag="bakeoff")
+evaluation.precision_recall([deterministic, splink])
 # [(0.91, 0.84), (0.95, 0.79)]
 ```
 
@@ -135,4 +128,8 @@ Handing `review()` several resolvers samples from their *merged* components. Two
 
 Scoring them together matters for the same reason. `precision_recall` keeps only the pairs present in every resolver output *and* in the judgements, so each candidate is measured over the same records. Score them one at a time and each gets its own comparison set. Those numbers don't line up.
 
-Publishing each one, for example `naive.publish("naive")`, is what lets you come back to it later with `matchlab review naive`. A candidate you only wanted to score once needs no label.
+Publishing each one, for example `splink.publish("splink")`, is what lets you come back to it later with `matchlab review splink`. A candidate you only wanted to score once needs no label.
+
+## Next
+
+[Serialise a plan :octicons-arrow-right-16:](./serialise.md){ .md-button .md-button--primary }

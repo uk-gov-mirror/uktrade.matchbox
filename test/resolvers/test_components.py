@@ -2,13 +2,13 @@
 
 import polars as pl
 
-from matchlab.resolvers import Components, ComponentsSettings
+from matchlab.resolvers import Components
 from matchlab.resolvers.base import SCHEMA_CLUSTERS
 
 
 def test_components_uses_thresholds() -> None:
     """`Components.compute_clusters` honours a per-model threshold."""
-    method = Components(settings=ComponentsSettings(thresholds={0: 0.6}))
+    method = Components(thresholds={0: 0.6})
     model_edges = {
         0: pl.DataFrame(
             {
@@ -35,9 +35,7 @@ def test_components_uses_thresholds() -> None:
 
 def test_components_no_edges() -> None:
     """`Components.compute_clusters` works with no data."""
-    clusters = Components(settings=ComponentsSettings()).compute_clusters(
-        model_edges={}
-    )
+    clusters = Components().compute_clusters(model_edges={})
     assert clusters.height == 0
     assert clusters.schema == pl.Schema(SCHEMA_CLUSTERS)
 
@@ -45,9 +43,7 @@ def test_components_no_edges() -> None:
 def test_components_merges_models() -> None:
     """`Components.compute_clusters` merges edges from multiple models."""
     method = Components(
-        settings=ComponentsSettings(
-            thresholds={0: 0.0}  # the second input's threshold is implicit
-        )
+        thresholds={0: 0.0}  # the second input's threshold is implicit
     )
     model_edges = {
         0: pl.DataFrame(
@@ -84,7 +80,7 @@ def test_components_threshold_no_edges() -> None:
     input. That check happens when the resolver is constructed, which still has the
     model object in hand. See `test_threshold_must_name_input`.
     """
-    method = Components(settings=ComponentsSettings(thresholds={7: 0.5}))
+    method = Components(thresholds={7: 0.5})
 
     clusters = method.compute_clusters(
         model_edges={

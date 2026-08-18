@@ -27,8 +27,6 @@ from pydantic import (
     Field,
 )
 
-from matchlab.core.sql import SQLQuery
-
 
 class ModelType(StrEnum):
     """Whether a model is a deduper or a linker."""
@@ -38,20 +36,27 @@ class ModelType(StrEnum):
 
 
 class SourceSpec(BaseModel):
-    """Specification of a source: what it extracts, and what keys it.
+    """Specification of a source: its name, its key, and the location it reads.
 
-    There is no separate list of indexed fields. The extract/transform is the single
-    declaration of what a source *is*. Every column it returns is part of the record,
-    and therefore part of that record's identity. A column you do not want to affect
-    identity is a column you should not select.
-
-    **Not where the rows came from.** A source's key already folds in a content hash of
-    what it actually read, so anything a location could change about the output is
-    caught by the data itself.
+    There is no separate list of indexed fields. What the location returns is the single
+    declaration of what a source *is*. Every column is part of the record, and therefore
+    part of that record's identity. A column you do not want to affect identity is a
+    column that should not come back.
     """
 
     model_config = ConfigDict(frozen=True)
 
+    location_class: str = Field(
+        description="The registered name of the Location subclass to read through."
+    )
+    location_settings: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "That location's configuration, dumped to JSON — the query, for a "
+            "`RelationalDB`. Never its resources, which a document names separately "
+            "and a fingerprint never sees."
+        ),
+    )
     name: str = Field(
         description=(
             "The source's name within the plan. Part of the spec because it is "
@@ -59,18 +64,12 @@ class SourceSpec(BaseModel):
             "and tags its rows in a resolver's output."
         )
     )
-    extract_transform: SQLQuery = Field(
-        description=(
-            "Logic to extract and transform data from the source. "
-            "Language is location dependent."
-        )
-    )
     key_field: str = Field(
         description=textwrap.dedent("""
             The name of the key field. This is the source's key for unique
             entities, such as a primary key in a relational database.
 
-            Keys are always read as strings, whatever the warehouse returns.
+            Keys are always read as strings, whatever the location returns.
 
             For example, if the source describes companies, it may have used
             a Companies House number as its key.

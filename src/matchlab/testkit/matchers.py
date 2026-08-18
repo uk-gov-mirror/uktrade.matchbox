@@ -24,8 +24,8 @@ from pydantic import BaseModel, ConfigDict
 from matchlab.core.hash import HASH_FUNC
 from matchlab.core.schemas import SCHEMA_MODEL_EDGES
 from matchlab.models import add_model_class
-from matchlab.models.dedupers.base import Deduper, DeduperSettings
-from matchlab.models.linkers.base import Linker, LinkerSettings
+from matchlab.models.dedupers.base import Deduper
+from matchlab.models.linkers.base import Linker
 from matchlab.testkit.entities import TrueEntity
 from matchlab.testkit.sources import GeneratedSource
 
@@ -191,42 +191,30 @@ class AnswerKey(BaseModel):
         return key_id
 
 
-class PerfectDeduperSettings(DeduperSettings):
-    """Settings for a deduper that matches from registered ground truth."""
-
-    truth_id: str
-
-
 class PerfectDeduper(Deduper):
     """A perfect deduper. Emits every within-entity pair it is given."""
 
-    settings: PerfectDeduperSettings
+    truth_id: str
 
     def prepare(self, data: pl.DataFrame) -> None:
         """No preparation required."""
 
     def dedupe(self, data: pl.DataFrame) -> pl.DataFrame:
         """Emit edges between records sharing a true entity."""
-        return _ANSWERS[self.settings.truth_id].dedupe_edges(data)
-
-
-class PerfectLinkerSettings(LinkerSettings):
-    """Settings for a linker that matches from registered ground truth."""
-
-    truth_id: str
+        return _ANSWERS[self.truth_id].dedupe_edges(data)
 
 
 class PerfectLinker(Linker):
     """A perfect linker. Emits every cross-side pair sharing a true entity."""
 
-    settings: PerfectLinkerSettings
+    truth_id: str
 
     def prepare(self, left: pl.DataFrame, right: pl.DataFrame) -> None:
         """No preparation required."""
 
     def link(self, left: pl.DataFrame, right: pl.DataFrame) -> pl.DataFrame:
         """Emit edges between records sharing a true entity."""
-        return _ANSWERS[self.settings.truth_id].link_edges(left, right)
+        return _ANSWERS[self.truth_id].link_edges(left, right)
 
 
 add_model_class(PerfectDeduper)

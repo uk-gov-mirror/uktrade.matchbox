@@ -50,13 +50,23 @@ The 32-byte SHA-256 digest that keys a step's stored [artifact](#artifact). Two 
 
 A person's decision that one reviewed cluster's records do, or do not, describe the same [entity](#entity), recorded by matchlab's evaluation tools and scored against a [resolver](#resolver)'s clusters. A judgement is anchored to the content a reviewer was shown, not to any record's key, which is why a [leaf](#leaf) ID, a hash of content, rather than a key, is what a judgement endorses or rejects.
 
+## Key
+
+A record's identifier at the origin, in the [source](#source)'s own data. Its column is named by `key_field`, which defaults to `id`.
+
+A key is not the `id` a [record step](#record-step) carries. That one is a [leaf](#leaf) or a [root](#root), derived by hashing content when the plan is collected. The two never collide, because every column an [extract](#extract) returns is [qualified](#qualify) with the source name first, so a key named `id` reaches a record step as `crn_id`. `leaves()` returns both, under the names `key` and `leaf`.
+
+A key is read as a string whatever the location stores it as, and a null key is refused. `get_lookup()` returns keys, which is how a plan's result joins back to your own tables.
+
+Distinct from an [answer key](#answer-key), which is a [testkit](#testkit) term that shares only the word.
+
 ## Label
 
 A pointer from a name someone chose to a [resolver](#resolver)'s [fingerprint](#fingerprint), created by [publishing](#publish) a resolver's output. A label belongs to the store, not the plan. It can be re-aimed at a different resolver, whereas a source's `name` is part of that source's own output and never moves.
 
 ## Leaf
 
-The stable ID of one record, a hash of its content rather than its key. Identity coming from content rather than key is why a leaf ID changes only when the underlying data does, which is the basis matchlab anchors evaluation judgements to. Reading a source or record step directly, without going through a resolver, exposes the leaf as the `id` column.
+The stable ID of one record, a hash of its content rather than its [key](#key). Identity coming from content rather than key is why a leaf ID changes only when the underlying data does, which is the basis matchlab anchors evaluation judgements to. Reading a source or record step directly, without going through a resolver, exposes the leaf as the `id` column.
 
 ## Linker
 
@@ -64,7 +74,11 @@ A [methodology](#methodology) that finds candidate matches between two [record s
 
 ## Location
 
-matchlab's handle on the warehouse a [source](#source) reads from: a database, plus the client that reaches it. `RelationalDBLocation` is the reference implementation, wrapping a SQLAlchemy or ADBC client. The warehouse is the external database itself; the location is the handle, and it is where a source's rows come *from* — distinct from the [store](#store), where a plan's [artifacts](#artifact) are kept once collected. A location resolves nothing and stores nothing; it only answers a query.
+A generic way of getting a [source](#source)'s rows, and a [methodology](#methodology) like any other. `RelationalDB` runs a query. `DataFrame` reads a frame already in memory. A custom one subclasses `Location` and registers with `add_location_class`.
+
+A location is where a source's rows come from. Do not confuse it with the [store](#store), which keeps a plan's [artifacts](#artifact) once you collect it. A location only reads.
+
+Its [settings](#settings) are hashed into the source's [fingerprint](#fingerprint), so editing a query re-runs the source. Its [resources](#resource) are not hashed, so renaming a warehouse changes nothing.
 
 ## Matcher
 
@@ -78,7 +92,11 @@ The guarantee that a [resolver](#resolver)'s stored output carries forward every
 
 ## Methodology
 
-The matching algorithm a [model](#model) or [resolver](#resolver) step runs. Models run `NaiveDeduper`, `DeterministicLinker`, `SplinkLinker`, or `WeightedDeterministicLinker`. Resolvers run connected components. A model wraps one methodology, chosen by `model_class`, using a [deduper](#deduper) to match within one record step or a [linker](#linker) to match between two. Swapping the methodology only means changing `model_class` (or `resolver_class`), never restructuring the plan around it.
+The pluggable class a [step](#step) runs. Every kind of step has one. A [source](#source) runs a [location](#location), a [transform](#transform) runs a transformer, a [model](#model) runs a [deduper](#deduper) or a [linker](#linker), and a [resolver](#resolver) runs a resolver method.
+
+Every step is built the same way. It names its methodology in a `*_class` argument and configures it with `*_settings`. Anything that cannot be serialised goes in `*_resources`. Swapping a methodology means changing `*_class`, never restructuring the plan around it.
+
+Each kind keeps its own registry, so a custom methodology can be named in a [plan document](#plan-document). Register with `add_location_class`, `add_transformer_class`, `add_model_class`, or `add_resolver_class`.
 
 ## Model
 
@@ -88,13 +106,19 @@ A step that scores candidate matches by running one [methodology](#methodology).
 
 A tree of [steps](#step). Each step holds a reference to its own inputs, so the step you are holding is the pipeline. There is no separate object to register steps with. Nothing runs until you [collect](#collect) it.
 
+## Plan document
+
+A serialisable description of a [plan](#plan), dumped with `dump()` and loaded back with `load()`. Called a **document** for short, which is what the rest of these docs call it. It is JSON, derived from a plan rather than hand-authored, which is why its nodes refer to each other by [position](#position) rather than by any name.
+
+A document carries each step's [settings](#settings) and the edges between steps. It carries no code, no [label](#label), no data, and no [resource](#resource), only the name each resource was given. A plan rebuilt from a document [fingerprints](#fingerprint) identically to the plan it came from, given the same data, so a [store](#store) holding the original's [artifacts](#artifact) serves them rather than redoing the work. `PlanDocument` is the class.
+
 ## Position
 
 Where something falls in an ordered sequence, used instead of a name. The repository uses the word for two different sequences, and the numbers do not agree with each other.
 
 A step's place in `collect()`'s run order is one sense. `draw()` shows it in brackets, and logs quote it (`[step 5]`). Steps have no names, so position is how a log line, a drawn tree, and `plan.lineage()` all refer to the same step. Positions are relative to the step a plan or drawing starts from, so a sub-plan numbers its steps differently from the full plan it came from.
 
-A setting that must point at one of a step's own inputs uses the other sense. It names that input by its index among the step's own inputs, not by that input's place in the whole plan. `ComponentsSettings.thresholds` keys a per-model threshold this way. A model can sit at plan position 5 while still being resolver-input position 0.
+A setting that must point at one of a step's own inputs uses the other sense. It names that input by its index among the step's own inputs, not by that input's place in the whole plan. `Components.thresholds` keys a per-model threshold this way. A model can sit at plan position 5 while still being resolver-input position 0.
 
 ## Prune
 
@@ -108,7 +132,7 @@ Re-publishing the same label at the same resolver output is a no-op. Aiming an e
 
 ## Qualify
 
-Prefix a column name with its [source](#source)'s name (`first_name` becomes `crn_first_name`), so the same field from two sources can sit side by side without colliding. A qualified column's prefix must parse as a valid identifier, which is why a source's `name` is restricted to safe characters.
+Prefix a column name with its [source](#source)'s name (`first_name` becomes `crn_first_name`), so the same field from two sources can sit side by side without colliding. A qualified column's prefix must parse as a valid identifier, which is why a source's `name` is restricted to safe characters, and it is why two different sources in one plan cannot share a name.
 
 ## Record step
 
@@ -124,13 +148,31 @@ A step that collapses a model's scored edges into clusters, one per [entity](#en
 
 Call this a **Resolver**, or its **merge-forwarded Resolver output** if you mean the stored table specifically. Don't call it "a resolution". That noun has been retired.
 
+## Resource
+
+A named object a node needs to run that can't be serialised. Pass one in a step's `*_resources` argument, never among its [settings](#settings). Wrap it as `Resource("warehouse", engine)` to give it the name a [plan document](#plan-document) records. Supply it again when that document is loaded.
+
+For sources, resources are the data-generating mechanism, which affects the [fingerprint](#fingerprint). For all other types of node, resources cannot influence the output of the node because they're ignored by the fingerprint.
+
+A location or methodology marks its resource fields `FromResources`. Every other field is a setting. Passing a field in the wrong argument raises an error that names the field.
+
+Sharing a resource name means sharing a resource. Two steps of different kinds can't share a resource.
+
 ## Root
 
 The ID of a cluster a resolver produces, a hash of the sorted set of [leaf](#leaf) IDs it contains. Two runs that produce the same clustering produce the same root ID, whatever order the underlying algorithm found its clusters in. Reading a [record step](#record-step) through a resolver exposes the root as the `id` column, so several records can share one `id`.
 
+## Settings
+
+A step's serialisable configuration. Passed in a step's `*_settings` argument, carried in a plan document, and hashed into the step's [fingerprint](#fingerprint).
+
+Hashing is what makes settings the opposite of a [resource](#resource): **editing settings re-runs the step and everything below it**, whether or not the output would differ.
+
+Every field of a location or methodology is a setting unless the class marks it a resource.
+
 ## Source
 
-The warehouse query a plan starts from, plus the column that keys it. Every column the query returns is part of a record's identity, so two rows are the same record exactly when the query returns identical values for both.
+The leaf a plan starts from: a [location](#location) to read, plus the column that [keys](#key) it. Every column the location returns is part of a record's identity, so two rows are the same record exactly when it returns identical values for both. Build one with `read_database` or `read_dataframe`.
 
 ## Step
 

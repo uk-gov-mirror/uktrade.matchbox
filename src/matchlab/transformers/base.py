@@ -10,6 +10,7 @@ callables, exactly as a `Deduper`'s settings are.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 
 import duckdb
 import polars as pl
@@ -24,14 +25,40 @@ class Transformer(BaseModel, ABC):
     Concrete transformers (`Select`, `Clean`, `Group`, `Explode`) carry their
     configuration as flat fields, so `MyTransformer(...)` reads naturally, and
     `model_dump(mode="json")` is the whole of its serialisation.
+
+    Frozen, and `extra="forbid"` so a mistyped setting is refused rather than silently
+    ignored — which would leave the transform running a default under a fingerprint that
+    never mentioned the field.
+
+    Every field is a setting unless marked `matchlab.resources.FromResources`. A
+    fingerprint ignores a resource, so a marked field must not change the output.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     @abstractmethod
     def apply(self, data: pl.DataFrame) -> pl.DataFrame:
         """Return `data` reshaped. Both the input and the output carry `id`."""
         ...
+
+
+def reject_id_output(names: Iterable[str]) -> None:
+    """Refuse `id` as a column a transformer writes.
+
+    `id` is the grouping every model matches on, derived by matchlab from record
+    content. A transformer that assigns to it changes which records a model treats as
+    the same, and nothing downstream can tell that happened: the fingerprint covers the
+    expression, not what the expression displaced.
+
+    Raises:
+        ValueError: If `id` is among the output names.
+    """
+    if "id" in names:
+        raise ValueError(
+            "`id` is not a column you can write. It is the grouping every model "
+            "matches on, derived from record content, so replacing it would silently "
+            "change which records count as the same. Give the expression another name."
+        )
 
 
 def run_sql(query: SQLQuery, data: pl.DataFrame) -> pl.DataFrame:

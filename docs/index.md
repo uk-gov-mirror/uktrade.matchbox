@@ -12,17 +12,17 @@ Record matching is a chore. You match with Splink and pandas, measure with `er-e
 matchlab is one library for all of it, and it runs on your machine.
 
 ```python
-from matchlab import Source
+import matchlab as mb
 
-crn = Source(
-    location=warehouse,
-    name="crn",
-    extract_transform="select pk, company, town from crn",
+crn = mb.read_database(
+    "crn",
+    sql="select pk, company, town from crn",
+    client=warehouse,
     key_field="pk",
 )
 
 companies = crn.dedupe(
-    model_class=NaiveDeduper,
+    model_class=mb.NaiveDeduper,
     model_settings={"unique_fields": [crn.f("company")]},
 ).resolve()
 

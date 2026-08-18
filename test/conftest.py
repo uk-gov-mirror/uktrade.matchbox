@@ -20,9 +20,8 @@ import pytest
 from rich.console import Console
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import Source, set_default_adapter
+from matchlab import Resource, Source, read_database, set_default_adapter
 from matchlab.adapters import DuckDBAdapter
-from matchlab.locations import RelationalDBLocation
 
 TEST_ROOT = Path(__file__).resolve().parent
 
@@ -78,16 +77,24 @@ SourceFactory = Callable[..., Source]
 def source(warehouse: Engine) -> SourceFactory:
     """Build a `Source` reading one of the `warehouse` tables by name.
 
-    The default extract selects `pk, company, town`; pass `extract=` to read a subset
+    The default extract selects `pk, company, town`. Pass `extract=` to read a subset
     or a different shape. This is the one way the suite turns the `warehouse` into a
     `Source`, so tests and plan builders take it rather than hand-rolling a location.
+
+    The client defaults to a `Resource` named `warehouse`. Pass
+    `client=` for the tests that vary it: a bare engine, a second warehouse, or one
+    deliberately sharing a name with another object.
     """
 
-    def _make(name: str, extract: str | None = None) -> Source:
-        return Source(
-            location=RelationalDBLocation(name="warehouse", client=warehouse),
-            name=name,
-            extract_transform=extract or f"select pk, company, town from {name}",
+    def _make(
+        name: str,
+        extract: str | None = None,
+        client: Engine | Resource[Engine] | None = None,
+    ) -> Source:
+        return read_database(
+            name,
+            sql=extract or f"select pk, company, town from {name}",
+            client=Resource("warehouse", warehouse) if client is None else client,
             key_field="pk",
         )
 

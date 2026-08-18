@@ -6,7 +6,7 @@ from sqlglot import expressions, parse_one
 from sqlglot import select as sqlglot_select
 
 from matchlab.core.sql import SQLExpression
-from matchlab.transformers.base import Transformer, run_sql
+from matchlab.transformers.base import Transformer, reject_id_output, run_sql
 
 
 class Group(Transformer):
@@ -36,6 +36,7 @@ class Group(Transformer):
                 "into one row, so each column has to say how it combines. Pass "
                 "aggregates such as {'name': 'any_value(crn_company)'}."
             )
+        reject_id_output(aggregates)
         return aggregates
 
     def apply(self, data: pl.DataFrame) -> pl.DataFrame:

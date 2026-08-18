@@ -10,23 +10,25 @@ of the step that consumes it. Positions also preserve structural sharing. A reco
 feeding two models is one node referenced twice. Nesting each step's inputs inside it
 would have inlined the whole subtree twice over instead.
 
-**Edges live here, settings live in the spec.** That split is the point of this
-module. A spec is hashed into a fingerprint, so it must carry everything that changes
-the step's output and nothing else. A serialised plan must also carry the edges, which
-a fingerprint already covers by folding in its parents' fingerprints. Putting both in
-one model would have forced a choice: a spec that lied about identity, where a rename
-invalidates a subtree that produces identical bytes, or a document that could not be
-rebuilt.
+**A node is three things, and they are separate for a reason.** Its `spec` is what the
+fingerprint hashes, so it carries everything that changes the step's output and nothing
+else. Its `inputs` are the edges, which a fingerprint already covers by folding in its
+parents' fingerprints — recording them in the spec too would mean a rename invalidating
+a subtree that produces identical bytes. Its `resources` name what the step reads
+*through*, which changes no output and so belongs in neither.
 
-Edges are not the only thing that lands on this side of the split. A source's
-`LocationRef` says which location class to build and under what name, so that `load`
-can attach a client. Neither fact changes a byte the source produces, which is why a
-`SourceSpec` records nothing about where its rows came from.
+Putting any two of them in one field would force a choice between a spec that lies about
+identity and a document that cannot be rebuilt.
 
 **What a document cannot carry:**
 
-* *Clients.* A document names the locations its sources read and stops there. `load`
-  takes the clients and attaches them by name, so credentials never enter a document.
+* *Resources.* Engines, connections, credentials, frames. A document records only the
+  **name** each one was given (`matchlab.resources.Resource`), in `StepNode.resources`,
+  keyed by the settings field it fills. `load` takes the real objects and fills them in,
+  so nothing secret ever enters a document. Because they live in their own field rather
+  than among the settings, no resource can reach a fingerprint — that is structural, not
+  a convention. Every kind of step may name one; in practice only sources do, because a
+  resource answers "where do these rows come from".
 * *Code.* `model_class` and `resolver_class` are registry names, so the target
   environment must have the same classes registered (`add_model_class`). A document is
   portable across environments, not across codebases.
@@ -35,10 +37,10 @@ can attach a client. Neither fact changes a byte the source produces, which is w
   under whatever label it wants. The only names in a document are sources' names,
   which are part of their output.
 * *Data, or any hash of it.* A source's fingerprint folds in a content hash of what it
-  actually read, and that hash is derived on load from the target warehouse. Same rows
-  give the same fingerprints, so the target store hits cache instead of recomputing.
-  Different rows give different fingerprints, so it re-runs. Both are the intended
-  behaviour.
+  actually read, and that hash is derived on load by reading the target's own rows.
+  Same rows give the same fingerprints, so the target store hits cache instead of
+  recomputing. Different rows give different fingerprints, so it re-runs. Both are the
+  intended behaviour.
 """
 
 from collections.abc import Mapping
@@ -46,12 +48,13 @@ from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from matchlab.core.exceptions import ResourceError
 from matchlab.core.kinds import StepKind
 from matchlab.lineage import walk
-from matchlab.locations import build_location
 from matchlab.models import Model
 from matchlab.recordstep import RecordStep
 from matchlab.resolvers import Resolver
+from matchlab.resources import Resource, names_of
 from matchlab.sources import Source
 from matchlab.specs import (
     ModelSpec,
@@ -75,21 +78,8 @@ _SPEC_TYPES: dict[StepKind, type[BaseModel]] = {
 }
 
 
-class LocationRef(BaseModel):
-    """Everything needed to rebuild a source's location."""
-
-    model_config = ConfigDict(frozen=True)
-
-    location_class: str = Field(
-        description="The registered name of the Location subclass to build."
-    )
-    name: str = Field(
-        description="The key `load` looks up in `clients` to find this location's."
-    )
-
-
 class StepNode(BaseModel):
-    """One step: what kind it is, what it specifies, and what it reads."""
+    """One step: its kind, what it specifies, what it reads, and what it needs."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -105,23 +95,16 @@ class StepNode(BaseModel):
             "folds parents in, and the order a linker's left and right arrive in."
         ),
     )
-    location: LocationRef | None = Field(
-        default=None,
+    resources: dict[str, str] = Field(
+        default_factory=dict,
         description=(
-            "For a source, how to rebuild the location it reads. Here rather than in "
-            "the spec because it describes reconstruction rather than output. See "
-            "`LocationRef`. Every other kind of step leaves it unset."
+            "Settings field name to resource name, for every field this step's "
+            "methodology was given as a `matchlab.resources.Resource`. Here rather "
+            "than in the spec because a resource describes reconstruction, not output: "
+            "renaming one changes no fingerprint. `load` fills each from its "
+            "`resources` argument."
         ),
     )
-
-    @model_validator(mode="after")
-    def _check_location(self) -> "StepNode":
-        """A source names a location. Nothing else has one to name."""
-        if self.kind is StepKind.SOURCE and self.location is None:
-            raise ValueError("A source step must name the location it reads.")
-        if self.kind is not StepKind.SOURCE and self.location is not None:
-            raise ValueError(f"A {self.kind} step must not name a location.")
-        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -166,6 +149,14 @@ class PlanDocument(BaseModel):
                     )
         return self
 
+    def required_resources(self) -> set[str]:
+        """Every resource name `load` must be given to rebuild this plan.
+
+        Read straight off each node, because a resource is named in its own field
+        rather than hidden among settings. See `matchlab.resources`.
+        """
+        return {name for node in self.steps for name in node.resources.values()}
+
 
 def dump(root: Step) -> PlanDocument:
     """Describe `root` and everything it reads as a portable document.
@@ -175,9 +166,15 @@ def dump(root: Step) -> PlanDocument:
             exactly as `collect()` would run.
 
     Returns:
-        The document. It holds no client, no credentials and no data.
+        The document. It holds no resource, no credentials and no data.
+
+    Raises:
+        ResourceError: If a resource was passed without a name, so there is nothing for
+            a document to record. A name covering two different objects is refused
+            earlier, when the plan is built.
     """
     ordered = walk(root)
+    _check_resources(ordered)
     position = {id(step): index for index, step in enumerate(ordered)}
     return PlanDocument(
         steps=tuple(
@@ -185,6 +182,22 @@ def dump(root: Step) -> PlanDocument:
             for step in ordered
         )
     )
+
+
+def _check_resources(steps: list[Step]) -> None:
+    """Reject a plan whose resources have no names to record.
+
+    Raises:
+        ResourceError: If a resource is unnamed.
+    """
+    for position, step in enumerate(steps):
+        for field, resource in step._resources().items():
+            if resource.name is None:
+                raise ResourceError(
+                    f"Step {position} ({step.kind}) was given an unnamed resource for "
+                    f"'{field}', so this plan cannot be described. Wrap it: "
+                    f'{field}=Resource("some_name", ...).'
+                )
 
 
 def _node(step: Step, inputs: tuple[int, ...]) -> StepNode:
@@ -199,17 +212,11 @@ def _node(step: Step, inputs: tuple[int, ...]) -> StepNode:
         kind=step.kind,
         spec=cast(StepSpec, step.spec),
         inputs=inputs,
-        location=(
-            LocationRef(
-                location_class=type(step.location).__name__, name=step.location.name
-            )
-            if isinstance(step, Source)
-            else None
-        ),
+        resources=names_of(step._resources()),
     )
 
 
-def load(document: PlanDocument, clients: Mapping[str, Any]) -> Step:
+def load(document: PlanDocument, resources: Mapping[str, Any]) -> Step:
     """Rebuild a plan from a document, returning its apex.
 
     Nothing is collected. This reconstructs the same lazy plan, so the returned step
@@ -217,48 +224,61 @@ def load(document: PlanDocument, clients: Mapping[str, Any]) -> Step:
 
     Args:
         document: A dumped plan.
-        clients: Location name to client, for every location the document's sources
-            name. A `RelationalDBLocation` takes a SQLAlchemy engine or an ADBC
-            connection.
+        resources: Name to object, for every resource the document names.
+            `document.required_resources()` lists them.
 
     Returns:
         The plan's apex, the last step in the document.
 
     Raises:
-        ValueError: If the document is empty, names a location with no client or an
-            unregistered location class, or wires a step to an input of the wrong kind.
+        ValueError: If the document is empty, names an unregistered location class, or
+            wires a step to an input of the wrong kind.
+        ResourceError: If a named resource was not supplied.
     """
     if not document.steps:
         raise ValueError("A plan document needs at least one step")
 
     built: list[Step] = []
     for position, node in enumerate(document.steps):
-        built.append(_rebuild(node, position, [built[i] for i in node.inputs], clients))
+        built.append(
+            _rebuild(node, position, [built[i] for i in node.inputs], resources)
+        )
     return built[-1]
 
 
+def _bind(
+    node: StepNode, position: int, supplied: Mapping[str, Any]
+) -> dict[str, Resource]:
+    """Turn a node's `field -> resource name` map into bound resources.
+
+    Raises:
+        ResourceError: If the document names a resource `supplied` does not have.
+    """
+    bound: dict[str, Resource] = {}
+    for field, name in node.resources.items():
+        if name not in supplied:
+            raise ResourceError(
+                f"Step {position} ({node.kind}) needs resource '{name}' for '{field}', "
+                f"which was not supplied. Pass it when loading: "
+                f"resources={{'{name}': ...}}."
+            )
+        bound[field] = Resource(name, supplied[name])
+    return bound
+
+
 def _rebuild(
-    node: StepNode, position: int, inputs: list[Step], clients: Mapping[str, Any]
+    node: StepNode, position: int, inputs: list[Step], supplied: Mapping[str, Any]
 ) -> Step:
     """Rebuild one step from its node and its already-rebuilt inputs."""
+    resources = _bind(node, position, supplied)
     match node.kind:
         case StepKind.SOURCE:
             spec = _expect(node, position, SourceSpec)
-            reference = cast(LocationRef, node.location)
-            if reference.name not in clients:
-                raise ValueError(
-                    f"Source '{spec.name}' reads location '{reference.name}', which "
-                    f"has no client. Pass one in `clients`: "
-                    f"{{'{reference.name}': engine}}."
-                )
             return Source(
-                location=build_location(
-                    reference.location_class,
-                    name=reference.name,
-                    client=clients[reference.name],
-                ),
+                location_class=spec.location_class,
                 name=spec.name,
-                extract_transform=spec.extract_transform,
+                location_settings=spec.location_settings,
+                location_resources=resources,
                 key_field=spec.key_field,
             )
 
@@ -274,6 +294,7 @@ def _rebuild(
                 record_steps[0],
                 transformer=spec.transformer_class,
                 transformer_settings=spec.transformer_settings,
+                transformer_resources=resources,
             )
 
         case StepKind.MODEL:
@@ -289,6 +310,7 @@ def _rebuild(
                 right=record_steps[1] if len(record_steps) > 1 else None,
                 model_class=spec.model_class,
                 model_settings=spec.model_settings,
+                model_resources=resources,
             )
 
         case StepKind.RESOLVER:
@@ -297,6 +319,7 @@ def _rebuild(
                 *_all_of(node, position, inputs, Model),
                 resolver_class=spec.resolver_class,
                 resolver_settings=spec.resolver_settings,
+                resolver_resources=resources,
             )
 
         case _:  # every member of StepKind is handled above

@@ -45,8 +45,10 @@ Previously you created a `DAG`, registered steps on it, and ran it. Now each ste
 === "matchlab"
 
     ```python
-    crn = Source(location=warehouse, name="crn", ...)
-    companies = crn.dedupe(model_class=NaiveDeduper, model_settings={...}).resolve()
+    import matchlab as mb
+
+    crn = mb.read_database("crn", sql="select ...", client=warehouse)
+    companies = crn.dedupe(model_class=mb.NaiveDeduper, model_settings={...}).resolve()
     lookup = companies.collect().get_lookup()
     ```
 
@@ -76,8 +78,8 @@ A step is identified by its position in the plan, the order `collect` runs it in
 
 ```python
 cleaned = crn.clean({...})
-deduper_1 = cleaned.dedupe(NaiveDeduper, {"unique_fields": ["trading_name"]})
-deduper_2 = cleaned.dedupe(NaiveDeduper, {"unique_fields": ["registered_name"]})
+deduper_1 = cleaned.dedupe(mb.NaiveDeduper, {"unique_fields": ["trading_name"]})
+deduper_2 = cleaned.dedupe(mb.NaiveDeduper, {"unique_fields": ["registered_name"]})
 entities = deduper_1.resolve(deduper_2).collect().publish("entities")
 ```
 
@@ -135,10 +137,10 @@ A source is now its query plus a key. There is no `index_fields` and no `SourceF
 === "matchlab"
 
     ```python
-    Source(
-        location=warehouse,
-        name="crn",
-        extract_transform="select pk, company, town from companies",
+    mb.read_database(
+        "crn",
+        sql="select pk, company, town from companies",
+        client=warehouse,
         key_field="pk",
     )
     ```
@@ -150,10 +152,63 @@ The upside is that the two can no longer disagree. A column outside the old inde
 Field types went the same way. They served one purpose, the dtype each column was read as. Hashing casts every value to text anyway, so the pin only mattered when a driver changed a column's *kind*. Say it in the SQL instead:
 
 ```python
-extract_transform = "select pk, cast(crn as text) as crn from companies"
+sql = "select pk, cast(crn as text) as crn from companies"
 ```
 
 Keys are now cast to string on read rather than validated, so an integer primary key works without a `cast`.
+
+## Every step is built the same way
+
+Every step now takes a registered class, a settings dict, and a resources dict. `Source`
+joined `Model`, `Transform` and `Resolver` rather than taking a pre-built location
+object, and `read_database`/`read_dataframe` are the shorthand you'll actually write.
+
+```python
+# Matchbox
+location = RelationalDBLocation(name="warehouse")
+location.set_client(engine)
+dag.source(
+    location=location,
+    name="crn",
+    extract_transform="select pk, company from companies",
+    key_field="pk",
+)
+
+# matchlab
+crn = mb.read_database(
+    "crn",
+    sql="select pk, company from companies",
+    client=mb.Resource("warehouse", engine),
+    key_field="pk",
+)
+
+# ...which is shorthand for
+crn = mb.Source(
+    location_class=mb.RelationalDB,
+    name="crn",
+    location_settings={"sql": "select pk, company from companies"},
+    location_resources={"client": mb.Resource("warehouse", engine)},
+    key_field="pk",
+)
+```
+
+`key_field` defaults to `"id"`. A dataframe you already hold needs no client and no
+query: `read_dataframe("dh", df=my_frame)`.
+
+**Settings are hashed, resources are not.** That is what the two dicts are for. A client
+used to live inside the location object, so binding it was a separate step. It is now an
+argument of its own, and each class declares which of its fields belong there. See
+[Serialise a plan](../guide/serialise.md).
+
+One consequence is new. A location's settings include the query, so the query is now
+hashed. Reformatting SQL re-runs the source and everything below it, even when the rows
+come back identical.
+
+`load()` takes resources by name on the other side:
+
+```python
+mb.load(document, resources={"warehouse": engine})  # was clients={...}
+```
 
 ## Renamed operations
 
@@ -201,7 +256,7 @@ resolver.group(
 **Use `Explode`** when you want the true cross product `explode` was reaching for. It gives one row per combination of each column's non-null values, deduplicated first, rather than one aggregated row.
 
 ```python
-resolver.transform(Explode())
+resolver.transform(mb.Explode())
 ```
 
 `group` is still the right default for most matchers, since a cross product multiplies a single entity's evidence rather than combining it. `Explode` is there for the cases that genuinely want every combination.
@@ -225,29 +280,22 @@ matchlab review pipeline:entities                                  # after
 
 **`SourceField`, `Location.infer_types`, and step `description`s.** The first two went with `index_fields` above. `description` annotated steps for other people to read on the server. With nothing to serialise it to, and nothing to display it in, it became a field you could set but never observe.
 
-**`Location.set_client`.** A location took its client separately because it used to be half of a server-side row, rebuilt from a config and given a client afterwards. Pass it to the constructor instead:
+**`Location.set_client`.** A location took its client separately because it used to be half of a server-side row, rebuilt from a config and given a client afterwards. A step is now built with everything it needs and is immutable from the moment it exists, so `SourceClientError` and every "is the client set?" check went with it. Pass the client as a resource instead — see [Every step is built the same way](#every-step-is-built-the-same-way).
 
-```python
-# Matchbox
-location = RelationalDBLocation(name="warehouse")
-location.set_client(engine)
+**`Source.extract_transform` and `Location.name`.** The query moved onto the location, and a location no longer has a name — see [Every step is built the same way](#every-step-is-built-the-same-way).
 
-# matchlab
-location = RelationalDBLocation(name="warehouse", client=engine)
-```
-
-A location now always has a client, and is immutable from the moment it exists, so `SourceClientError` and every "is the client set?" check went with it.
+**`Location.validate_extract_transform`.** Query validation generally is gone, with no replacement. It was a lint, not a guarantee — it never sanitised, and least-privilege credentials were always the real answer. It was also dialect-limited: only Postgres and SQLite were recognised, so everything else was parsed by a generic parser that rejects valid SQL (SQL Server's `SELECT TOP 10`, for instance). A check that blocks working queries costs more than it saves, and where it disagreed with your database, your database was right. A malformed query now fails when the source is read, with the database's own error message.
 
 ## Exceptions
 
-The exception hierarchy shrank from 40 classes to 6, and dropped the `Matchbox` prefix on everything but the base:
+The exception hierarchy shrank from 40 classes to 4, and dropped the `Matchbox` prefix on everything but the base:
 
 | Matchbox | matchlab |
 |---|---|
 | `MatchboxException` | `MatchlabError` |
 | `MatchboxStepNotFoundError` | `StepNotFound` |
 | `MatchboxArrowSchemaMismatch` | `SchemaMismatch` |
-| `MatchboxSourceExtractTransformError` | `ExtractTransformError` |
+| `MatchboxSourceExtractTransformError` | *gone* — matchlab no longer validates queries |
 | `MatchboxSourceClientError` | *gone* — a `Location` takes its client in `__init__`, so it can never be used without one |
 | `MatchboxSourceTableError` | `SourceTableError` |
 | `MatchboxNameError` | *gone* — `Source` validates its own name |
@@ -256,6 +304,8 @@ The exception hierarchy shrank from 40 classes to 6, and dropped the `Matchbox` 
 Everything else was an HTTP status carrier and went with the server.
 
 ## Behaviour that changed
+
+**Your first collect recomputes everything.** `SourceSpec` changed shape, so no existing store's fingerprints match. You lose cache hits once, not results you can't rebuild.
 
 **Nothing runs until `collect()`.** Building a plan is free. Only collection does work.
 
@@ -269,7 +319,7 @@ Everything else was an HTTP status carrier and went with the server.
 
 ## What didn't change
 
-Matching methodologies (`NaiveDeduper`, `DeterministicLinker`, `SplinkLinker`, `WeightedDeterministicLinker`), the connected-components resolver, `Location` configuration, and the evaluation metrics all behave as before.
+Matching methodologies (`NaiveDeduper`, `DeterministicLinker`, `SplinkLinker`, `WeightedDeterministicLinker`), the connected-components resolver, and the evaluation metrics all behave as before. Their *settings* are unchanged; only how a step receives them has moved.
 
 ### Reads moved onto the resolver
 

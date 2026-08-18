@@ -11,8 +11,9 @@ from matchlab.core.kinds import StepKind
 from matchlab.core.resolver_output import materialise_resolver_output
 from matchlab.models import Model
 from matchlab.recordstep import IdentifierRead, RecordStep, build_record_step
-from matchlab.resolvers.base import ResolverMethod, ResolverSettings
+from matchlab.resolvers.base import ResolverMethod
 from matchlab.resolvers.components import Components
+from matchlab.resources import Resource
 from matchlab.sources import Source
 from matchlab.specs import ResolverSpec
 
@@ -41,20 +42,28 @@ class Resolver(RecordStep):
     kind: ClassVar[StepKind] = StepKind.RESOLVER
 
     _READ_ONLY: ClassVar[frozenset[str]] = RecordStep._READ_ONLY | frozenset(
-        {"_inputs", "resolver_class", "resolver_settings", "resolver_instance"}
+        {
+            "_inputs",
+            "resolver_class",
+            "resolver_settings",
+            "resolver_instance",
+            "resolver_resources",
+        }
     )
 
     #: Settled at construction. See `Step.parents` for why these are declared.
     _inputs: tuple[Model, ...]
     resolver_class: type[ResolverMethod]
-    resolver_settings: ResolverSettings
+    resolver_settings: dict[str, Any]
+    resolver_resources: dict[str, Resource]
     resolver_instance: ResolverMethod
 
     def __init__(
         self,
         *models: Model,
         resolver_class: type[ResolverMethod] | str = "Components",
-        resolver_settings: ResolverSettings | dict[str, Any] | None = None,
+        resolver_settings: dict[str, Any] | None = None,
+        resolver_resources: dict[str, Any] | None = None,
     ) -> None:
         """Define a resolver.
 
@@ -63,6 +72,15 @@ class Resolver(RecordStep):
             resolver_class: A `ResolverMethod` subclass or its registered name.
                 Defaults to connected components.
             resolver_settings: Settings for that methodology.
+            resolver_resources: Resources the methodology needs that cannot be
+                serialised, keyed by field name. See `matchlab.resources`.
+
+        Raises:
+            ValueError: If an input is not a model, if there are none, or if the models
+                bring two different sources under one name.
+            ResourceError: If a field was passed in the wrong one of
+                `resolver_settings` and `resolver_resources`, or if the models bring
+                one resource name over two different objects.
         """
         deduped: list[Model] = []
         for model in models:
@@ -81,23 +99,24 @@ class Resolver(RecordStep):
             if isinstance(resolver_class, str)
             else resolver_class
         )
-        settings = resolver_settings if resolver_settings is not None else {}
-        if isinstance(settings, dict):
-            settings_class = resolved.model_fields["settings"].annotation
-            settings = settings_class(
-                **{
-                    field: self._positions(field, value)
-                    for field, value in settings.items()
-                }
-            )
+        # `_positions` runs first: a setting may name one of this resolver's inputs by
+        # object, and only the built methodology's own position form belongs in a spec.
+        instance, settings, resources = self._build_methodology(
+            resolved,
+            {
+                field: self._positions(field, value)
+                for field, value in (resolver_settings or {}).items()
+            },
+            resolver_resources,
+        )
 
-        # The instance is built from `settings`, the object `spec` reads, so the two
-        # cannot describe different configurations
         self._set(
             resolver_class=resolved,
             resolver_settings=settings,
-            resolver_instance=resolved(settings=settings),
+            resolver_resources=resources,
+            resolver_instance=instance,
         )
+        self._check_names()
 
     @property
     def parents(self) -> tuple[Model, ...]:
@@ -151,7 +170,7 @@ class Resolver(RecordStep):
         """The serialisable spec for this resolver."""
         return ResolverSpec(
             resolver_class=self.resolver_class.__name__,
-            resolver_settings=self.resolver_settings.model_dump(mode="json"),
+            resolver_settings=self.resolver_settings,
         )
 
     # -- publishing -------------------------------------------------------------------

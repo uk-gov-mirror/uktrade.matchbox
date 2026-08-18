@@ -12,8 +12,8 @@ from sqlalchemy import Engine, create_engine
 from sqlglot import cast, select
 from sqlglot.expressions import column
 
-from matchlab.locations import RelationalDBLocation
-from matchlab.sources import Source
+from matchlab.resources import Resource
+from matchlab.sources import RelationalDB, Source, read_database
 from matchlab.testkit._generate import generate_entities, generate_source
 from matchlab.testkit.entities import Cluster, EntityReference, TrueEntity
 from matchlab.testkit.features import FeatureConfig
@@ -104,18 +104,20 @@ class GeneratedSource(BaseModel):
             column for column in self.data.column_names if column not in ("key", "id")
         ]
 
-    def write_to_location(self, client: Any | None = None) -> Self:  # noqa: ANN401
+    def write_to_location(self) -> Self:
         """Write the data to the source's location.
 
-        Args:
-            client: Write through this client instead of the source's own, rebuilding
-                the source's location around it. Testkits are generated against an
-                in-memory SQLite engine by default, so a test that wants a real
-                warehouse repoints one here.
+        Pass `engine` to `source_factory` to choose which warehouse that is. Testkits
+        are generated against an in-memory SQLite engine otherwise.
+
+        Returns:
+            This testkit.
         """
-        if client:
-            self.source.location = type(self.source.location)(
-                name=self.source.location.name, client=client
+        if not isinstance(self.source.location, RelationalDB):
+            raise TypeError(
+                "A testkit writes its rows to a relational warehouse, so its source "
+                f"must read one. This one reads a "
+                f"{type(self.source.location).__name__}."
             )
 
         pl.from_arrow(self.data).write_database(
@@ -172,17 +174,18 @@ def source_factory(
 ) -> GeneratedSource:
     """Generate a complete source testkit from configured features.
 
-    Sources created with the factory system can only use a RelationalDBLocation,
+    Sources created with the factory system can only use a RelationalDB,
     and the data at that location will be stored in a single table.
 
     Args:
         features: List of FeatureConfig objects or dictionaries to use for generating
             the source data. If None, defaults to a set of common features.
         name: Name of the source. If None, a unique name is generated. This will be
-            used as the name of the table in the RelationalDBLocation, but also in
+            used as the name of the table in the RelationalDB, but also in
             the str for the source.
-        location_name: Name of the location for the source.
-        engine: SQLAlchemy engine to use for the source's RelationalDBLocation. If
+        location_name: The param name the engine is bound to, which is what a dumped
+            plan names and `load` must supply.
+        engine: SQLAlchemy engine to use for the source's RelationalDB. If
             None, an in-memory SQLite engine is created.
         n_true_entities: Number of true entities to generate. Defaults to 10.
         repetition: Number of times to repeat the generated data. Defaults to 0.
@@ -244,15 +247,15 @@ def source_factory(
     ]
 
     # Create source config
-    source = Source(
-        location=RelationalDBLocation(name=location_name, client=engine),
-        name=name,
-        extract_transform=select(
+    source = read_database(
+        name,
+        sql=select(
             cast(column("key"), "string").as_("key"),
             *[column(feature.name) for feature in features],
         )
         .from_(name)
         .sql(),
+        client=Resource(location_name, engine),
         key_field="key",
     )
 
@@ -303,15 +306,15 @@ def source_from_tuple(
     ]
 
     # Create source config
-    source = Source(
-        location=RelationalDBLocation(name=location_name, client=engine),
-        name=name,
-        extract_transform=select(
+    source = read_database(
+        name,
+        sql=select(
             cast(column("key"), "string").as_("key"),
             *[column(field) for field in data_tuple[0]],
         )
         .from_(name)
         .sql(),
+        client=Resource(location_name, engine),
         key_field="key",
     )
 

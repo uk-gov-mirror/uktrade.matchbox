@@ -19,10 +19,6 @@ class SchemaMismatch(MatchlabError):
         super().__init__(f"Schema mismatch. Expected:\n{expected}\nGot:\n{actual}")
 
 
-class ExtractTransformError(MatchlabError):
-    """A source's extract/transform SQL is not valid."""
-
-
 class SourceTableError(MatchlabError):
     """A source's table could not be read from its location."""
 
@@ -38,3 +34,7 @@ class StepNotFound(MatchlabError):
             )
         super().__init__(message)
         self.name = name
+
+
+class ResourceError(ValueError):
+    """A resource could not be named, resolved, or bound unambiguously."""

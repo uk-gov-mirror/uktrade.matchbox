@@ -5,19 +5,21 @@
 Record matching is a chore. matchlab makes it a pipeline you can build, run, query and measure — on your machine, against your warehouse, with nothing to deploy.
 
 ```python
-from matchlab import Source
-from matchlab.models.dedupers import NaiveDeduper
+import matchlab as mb
 
-companies = Source(
-    location=warehouse,
+companies = mb.read_database(
     name="crn",
-    extract_transform="select pk, company, town from companies",
+    sql="select pk, company, town from companies",
+    client=warehouse,
     key_field="pk",
 )
 
 entities = (
     companies.clean({"name": "lower(crn_company)"})
-    .dedupe(model_class=NaiveDeduper, model_settings={"unique_fields": ["name"]})
+    .dedupe(
+        model_class=mb.NaiveDeduper,
+        model_settings={"unique_fields": ["name"]},
+    )
     .resolve()
     .collect()
 )

@@ -14,7 +14,7 @@ import pytest
 
 from matchlab.models import Model
 from matchlab.models.dedupers.base import Deduper
-from matchlab.models.dedupers.naive import NaiveDeduper, NaiveSettings
+from matchlab.models.dedupers.naive import NaiveDeduper
 from matchlab.sources import Source
 from matchlab.testkit.features import FeatureConfig, SourceParameters
 from matchlab.testkit.linked import linked_sources_factory
@@ -27,7 +27,7 @@ def configure_naive_deduper(testkit: GeneratedSource) -> dict[str, Any]:
     """Build validated `NaiveDeduper` settings over every field but `key` and `id`."""
     fields = [name for name in testkit.field_names if name not in ("key", "id")]
     settings_dict = {"id": "id", "unique_fields": fields}
-    NaiveSettings.model_validate(settings_dict)
+    NaiveDeduper.model_validate(settings_dict)
     return settings_dict
 
 
@@ -70,8 +70,7 @@ def test_recovers_planted(
     )
 
     linked = linked_sources_factory(source_parameters=(source_parameters,), seed=42)
-    for testkit in linked.sources.values():
-        testkit.write_to_location()
+    linked.write_to_location()
     source = linked.sources["source_exact"]
 
     # Mock the record step read so the deduper scores the generated rows directly.

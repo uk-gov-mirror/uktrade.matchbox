@@ -20,7 +20,7 @@ from splink import Linker as SplinkLibLinkerClass
 from splink.internals.linker_components.training import LinkerTraining
 
 from matchlab.core.logging import logger
-from matchlab.models.linkers.base import Linker, LinkerSettings
+from matchlab.models.linkers.base import Linker
 
 
 class SplinkLinkerFunction(BaseModel):
@@ -54,8 +54,8 @@ class SplinkLinkerFunction(BaseModel):
         return self
 
 
-class SplinkSettings(LinkerSettings):
-    """A data class to enforce the Splink linker's settings dictionary shape.
+class SplinkLinker(Linker):
+    """A linker that leverages Bayesian record linkage using Splink.
 
     !!! warning "Pass a seed to any sampling training function"
         Step fingerprints are derived from configuration, so two collections that
@@ -143,14 +143,14 @@ class SplinkSettings(LinkerSettings):
     )
 
     @model_validator(mode="after")
-    def check_link_only(self) -> "SplinkSettings":
+    def check_link_only(self) -> "SplinkLinker":
         """Ensure link_type is set to "link_only"."""
         if self.linker_settings.link_type != "link_only":
             raise ValueError('link_type must be set to "link_only"')
         return self
 
     @model_validator(mode="after")
-    def add_enforced_settings(self) -> "SplinkSettings":
+    def add_enforced_settings(self) -> "SplinkLinker":
         """Ensure ID is the only field we link on."""
         self.linker_settings.unique_id_column_name = self.left_id
         return self
@@ -170,12 +170,6 @@ class SplinkSettings(LinkerSettings):
         """Convert Splink settings to string."""
         return json.dumps(value.create_settings_dict("duckdb"))
 
-
-class SplinkLinker(Linker):
-    """A linker that leverages Bayesian record linkage using Splink."""
-
-    settings: SplinkSettings
-
     _linker: SplinkLibLinkerClass
     _id_dtype_l: pl.DataType
     _id_dtype_r: pl.DataType
@@ -192,16 +186,12 @@ class SplinkLinker(Linker):
                 "share the same column names and data formats."
             )
 
-        self._id_dtype_l = left[self.settings.left_id].dtype
-        self._id_dtype_r = right[self.settings.right_id].dtype
+        self._id_dtype_l = left[self.left_id].dtype
+        self._id_dtype_r = right[self.right_id].dtype
 
         # Convert to pandas for Splink compatibility
-        left_pd = left.with_columns(
-            pl.col(self.settings.left_id).cast(pl.String)
-        ).to_pandas()
-        right_pd = right.with_columns(
-            pl.col(self.settings.right_id).cast(pl.String)
-        ).to_pandas()
+        left_pd = left.with_columns(pl.col(self.left_id).cast(pl.String)).to_pandas()
+        right_pd = right.with_columns(pl.col(self.right_id).cast(pl.String)).to_pandas()
 
         # A copy, because building a Splink linker writes into the settings it is
         # given: it stamps a random `linker_uid` onto them. Handed our own object,
@@ -212,11 +202,11 @@ class SplinkLinker(Linker):
         self._linker = SplinkLibLinkerClass(
             input_table_or_tables=[left_pd, right_pd],
             input_table_aliases=["l", "r"],
-            settings=deepcopy(self.settings.linker_settings),
+            settings=deepcopy(self.linker_settings),
             db_api=DuckDBAPI(),
         )
 
-        for func in self.settings.linker_training_functions:
+        for func in self.linker_training_functions:
             proc_func = getattr(self._linker.training, func.function)
             proc_func(**func.arguments)
 
@@ -235,9 +225,7 @@ class SplinkLinker(Linker):
                 "These values will be ignored"
             )
 
-        res = self._linker.inference.predict(
-            threshold_match_probability=self.settings.threshold
-        )
+        res = self._linker.inference.predict(threshold_match_probability=self.threshold)
 
         return (
             res.as_duckdbpyrelation()
@@ -245,17 +233,15 @@ class SplinkLinker(Linker):
             .lazy()
             .select(
                 [
-                    f"{self.settings.left_id}_l",
-                    f"{self.settings.right_id}_r",
+                    f"{self.left_id}_l",
+                    f"{self.right_id}_r",
                     "match_probability",
                 ]
             )
             .with_columns(
                 [
-                    pl.col(f"{self.settings.left_id}_l")
-                    .cast(self._id_dtype_l)
-                    .alias("left_id"),
-                    pl.col(f"{self.settings.right_id}_r")
+                    pl.col(f"{self.left_id}_l").cast(self._id_dtype_l).alias("left_id"),
+                    pl.col(f"{self.right_id}_r")
                     .cast(self._id_dtype_r)
                     .alias("right_id"),
                     pl.col("match_probability").cast(pl.Float32).alias("score"),
