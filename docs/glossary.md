@@ -50,13 +50,23 @@ The 32-byte SHA-256 digest that keys a step's stored [artifact](#artifact). Two 
 
 A person's decision that one reviewed cluster's records do, or do not, describe the same [entity](#entity), recorded by matchlab's evaluation tools and scored against a [resolver](#resolver)'s clusters. A judgement is anchored to the content a reviewer was shown, not to any record's key, which is why a [leaf](#leaf) ID, a hash of content, rather than a key, is what a judgement endorses or rejects.
 
+## Key
+
+A record's identifier at the origin, in the [source](#source)'s own data. Its column is named by `key_field`, which defaults to `id`.
+
+A key is not the `id` a [record step](#record-step) carries. That one is a [leaf](#leaf) or a [root](#root), derived by hashing content when the plan is collected. The two never collide, because every column an [extract](#extract) returns is [qualified](#qualify) with the source name first, so a key named `id` reaches a record step as `crn_id`. `leaves()` returns both, under the names `key` and `leaf`.
+
+A key is read as a string whatever the location stores it as, and a null key is refused. `get_lookup()` returns keys, which is how a plan's result joins back to your own tables.
+
+Distinct from an [answer key](#answer-key), which is a [testkit](#testkit) term that shares only the word.
+
 ## Label
 
 A pointer from a name someone chose to a [resolver](#resolver)'s [fingerprint](#fingerprint), created by [publishing](#publish) a resolver's output. A label belongs to the store, not the plan. It can be re-aimed at a different resolver, whereas a source's `name` is part of that source's own output and never moves.
 
 ## Leaf
 
-The stable ID of one record, a hash of its content rather than its key. Identity coming from content rather than key is why a leaf ID changes only when the underlying data does, which is the basis matchlab anchors evaluation judgements to. Reading a source or record step directly, without going through a resolver, exposes the leaf as the `id` column.
+The stable ID of one record, a hash of its content rather than its [key](#key). Identity coming from content rather than key is why a leaf ID changes only when the underlying data does, which is the basis matchlab anchors evaluation judgements to. Reading a source or record step directly, without going through a resolver, exposes the leaf as the `id` column.
 
 ## Linker
 
@@ -162,7 +172,7 @@ Every field of a location or methodology is a setting unless the class marks it 
 
 ## Source
 
-The leaf a plan starts from: a [location](#location) to read, plus the column that keys it. Every column the location returns is part of a record's identity, so two rows are the same record exactly when it returns identical values for both. Build one with `read_database` or `read_dataframe`.
+The leaf a plan starts from: a [location](#location) to read, plus the column that [keys](#key) it. Every column the location returns is part of a record's identity, so two rows are the same record exactly when it returns identical values for both. Build one with `read_database` or `read_dataframe`.
 
 ## Step
 

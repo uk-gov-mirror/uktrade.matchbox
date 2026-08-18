@@ -8,10 +8,13 @@ from collections.abc import Callable
 
 import polars as pl
 import pytest
+from pydantic import ValidationError
 
 from matchlab import Source
+from matchlab.adapters import DuckDBAdapter
 from matchlab.transformers import (
     Clean,
+    Group,
     Select,
     Transform,
     Transformer,
@@ -94,3 +97,58 @@ def test_add_transformer_class_rejects_non_transformer() -> None:
     """The registry only accepts `Transformer` subclasses."""
     with pytest.raises(ValueError, match="not a subclass of Transformer"):
         add_transformer_class(str)
+
+
+# -- `id` is not writable -------------------------------------------------------------
+#
+# `id` is the grouping a model matches on, derived by matchlab from record content.
+# A transformer that writes one changes which records count as the same, and the
+# fingerprint covers the expression rather than what the expression displaced, so
+# nothing downstream could notice.
+
+
+@pytest.mark.parametrize(
+    ("transformer", "settings"),
+    [
+        pytest.param(Clean, {"cleaning": {"id": "crn_company"}}, id="clean"),
+        pytest.param(
+            Group, {"aggregates": {"id": "any_value(crn_company)"}}, id="group"
+        ),
+    ],
+)
+def test_id_output_refused(transformer: type, settings: dict) -> None:
+    """Refused when the transformer is built, before a plan can be collected."""
+    with pytest.raises(ValidationError, match="`id` is not a column you can write"):
+        transformer(**settings)
+
+
+def test_custom_transformer_id_replaced(
+    source: Callable[..., Source], adapter: DuckDBAdapter
+) -> None:
+    """The backstop for a transformer matchlab did not write.
+
+    A custom one bypasses the checks above, so `Transform._execute` verifies `id`
+    survived rather than storing a record step whose grouping is somebody's data.
+    """
+
+    class ClobbersId(Transformer):
+        def apply(self, data: pl.DataFrame) -> pl.DataFrame:
+            return data.with_columns(pl.col("crn_company").alias("id"))
+
+    step = source("crn").transform(ClobbersId())
+    with pytest.raises(ValueError, match="ClobbersId replaced the `id` column"):
+        step.collect(adapter)
+
+
+def test_custom_transformer_id_drop(
+    source: Callable[..., Source], adapter: DuckDBAdapter
+) -> None:
+    """Losing `id` altogether is the same failure, one step earlier."""
+
+    class DropsId(Transformer):
+        def apply(self, data: pl.DataFrame) -> pl.DataFrame:
+            return data.drop("id")
+
+    step = source("crn").transform(DropsId())
+    with pytest.raises(ValueError, match="DropsId dropped the `id` column"):
+        step.collect(adapter)

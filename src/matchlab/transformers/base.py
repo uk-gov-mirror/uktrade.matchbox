@@ -10,6 +10,7 @@ callables, exactly as a `Deduper`'s settings are.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 
 import duckdb
 import polars as pl
@@ -39,6 +40,25 @@ class Transformer(BaseModel, ABC):
     def apply(self, data: pl.DataFrame) -> pl.DataFrame:
         """Return `data` reshaped. Both the input and the output carry `id`."""
         ...
+
+
+def reject_id_output(names: Iterable[str]) -> None:
+    """Refuse `id` as a column a transformer writes.
+
+    `id` is the grouping every model matches on, derived by matchlab from record
+    content. A transformer that assigns to it changes which records a model treats as
+    the same, and nothing downstream can tell that happened: the fingerprint covers the
+    expression, not what the expression displaced.
+
+    Raises:
+        ValueError: If `id` is among the output names.
+    """
+    if "id" in names:
+        raise ValueError(
+            "`id` is not a column you can write. It is the grouping every model "
+            "matches on, derived from record content, so replacing it would silently "
+            "change which records count as the same. Give the expression another name."
+        )
 
 
 def run_sql(query: SQLQuery, data: pl.DataFrame) -> pl.DataFrame:

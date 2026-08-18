@@ -394,6 +394,26 @@ def test_source_no_rows_raises(source: Callable[..., mb.Source]) -> None:
         empty.collect()
 
 
+def test_key_field_vs_mb_id(adapter: mb.DuckDBAdapter) -> None:
+    """`key_field` defaults to `id`, which is also what a record step calls its own.
+
+    The two never meet: `build_record_step` prefixes every column an extract returns
+    with the source name before anything else, so no origin column of any name can reach
+    a record step as bare `id`. The key is then renamed to `key`,
+    joined on, and dropped. A record step's `id` is always the derived leaf.
+    """
+    source = mb.read_dataframe(
+        "crn",
+        df=pl.DataFrame({"id": ["a1", "a2"], "company": ["acme", "beta"]}),
+    )
+    source.collect(adapter)
+
+    records = source.data()
+    assert set(records.columns) == {"crn_company", "id"}
+    assert set(records["id"]).isdisjoint({"a1", "a2"}), "origin keys reached `id`"
+    assert set(source.leaves()["key"]) == {"a1", "a2"}
+
+
 def test_source_missing_key_field(warehouse: Engine) -> None:
     """A missing key column is explained, including where the name came from."""
     with pytest.raises(ValueError, match="has no column 'id'") as caught:

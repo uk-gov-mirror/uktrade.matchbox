@@ -134,7 +134,24 @@ class Transform(RecordStep):
         )
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
-        reshaped = self.transformer.apply(self._input._read_cache(adapter))
+        records = self._input._read_cache(adapter)
+        reshaped = self.transformer.apply(records)
+
+        # The built-ins refuse an `id` output when they are built. This catches a custom
+        # transformer that writes one anyway.
+        if "id" not in reshaped.columns:
+            raise ValueError(
+                f"{self.transformer_class.__name__} dropped the `id` column. A "
+                "transformer reshapes a record step's columns and must pass `id` "
+                "through, since it is the grouping a model matches on."
+            )
+        if reshaped["id"].dtype != records["id"].dtype:
+            raise ValueError(
+                f"{self.transformer_class.__name__} replaced the `id` column, which "
+                f"held {records['id'].dtype} and now holds {reshaped['id'].dtype}. "
+                "`id` is derived from record content and must pass through untouched."
+            )
+
         adapter.store_transform(fp, reshaped)
 
     # -- RecordStep contract ------------------------------------------------------
