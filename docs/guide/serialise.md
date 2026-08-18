@@ -9,11 +9,10 @@ from pathlib import Path
 
 import matchlab as mb
 
-document = mb.dump(entities)
-Path("plan.json").write_text(document.model_dump_json(indent=2))
+Path("plan.json").write_text(mb.dump(entities))
 ```
 
-`dump()` takes the apex of the plan and walks upstream, covering exactly what `collect()` would run.
+`dump()` takes the apex of the plan and walks upstream, covering exactly what `collect()` would run. It hands back JSON, so where the document goes is your call: a file, a column, an object store.
 
 ## What a document holds
 
@@ -136,22 +135,17 @@ name rather than the value, and no credential is serialised.
 
 ## Loading
 
-`load()` rebuilds the plan and returns its apex. Nothing is collected.
+`load()` rebuilds the plan and returns its apex. Nothing is collected. Hand it the JSON:
 
 ```python
-document = mb.PlanDocument.model_validate_json(Path("plan.json").read_text())
-
-entities = mb.load(document, resources={"warehouse": create_engine("postgresql://...")})
+entities = mb.load(
+    Path("plan.json").read_text(),
+    resources={"warehouse": create_engine("postgresql://...")},
+)
 entities.collect()
 ```
 
-`resources` is keyed by resource name, not by settings field. Ask the document what it wants:
-
-```python
-document.required_resources()  # {'warehouse'}
-```
-
-Miss one out and `load()` fails at once, rather than several steps into a collect.
+`resources` is keyed by resource name. Miss any out and `load()` says so before rebuilding anything.
 
 ## Fingerprints transfer
 
