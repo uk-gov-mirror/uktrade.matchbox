@@ -174,20 +174,51 @@ class SplinkLinker(Linker):
     _id_dtype_l: pl.DataType
     _id_dtype_r: pl.DataType
 
+    @staticmethod
+    def _schema_summary(data: pl.DataFrame) -> str:
+        """Render a compact column-to-dtype summary for diagnostics."""
+        return (
+            ", ".join(f"{column}={dtype}" for column, dtype in data.schema.items())
+            or "<empty>"
+        )
+
+    @classmethod
+    def _conformancy_error(cls, left: pl.DataFrame, right: pl.DataFrame) -> ValueError:
+        """Build a detailed error describing how the two inputs differ."""
+        left_only = [column for column in left.columns if column not in right.columns]
+        right_only = [column for column in right.columns if column not in left.columns]
+        shared = [column for column in left.columns if column in right.columns]
+        differing_dtypes = [
+            f"{column}: left={left.schema[column]}, right={right.schema[column]}"
+            for column in shared
+            if left.schema[column] != right.schema[column]
+        ]
+
+        details = [
+            "SplinkLinker requires input data to be conformant, meaning they "
+            "share the same column names and data formats.",
+            f"Left schema: {cls._schema_summary(left)}",
+            f"Right schema: {cls._schema_summary(right)}",
+        ]
+        if left_only:
+            details.append(f"Columns only on left: {left_only}")
+        if right_only:
+            details.append(f"Columns only on right: {right_only}")
+        if differing_dtypes:
+            details.append("Differing dtypes: " + "; ".join(differing_dtypes))
+        return ValueError("\n".join(details))
+
     def prepare(self, left: pl.DataFrame, right: pl.DataFrame) -> None:
         """Build the Splink linker over left and right, and run its training functions.
 
         Runs each function in `settings.linker_training_functions`, in order, against
         the built linker. `link()` then just predicts against the trained state.
         """
-        if (set(left.columns) != set(right.columns)) or not left.dtypes == right.dtypes:
-            raise ValueError(
-                "SplinkLinker requires input data to be conformant, meaning they "
-                "share the same column names and data formats."
-            )
-
         self._id_dtype_l = left[self.left_id].dtype
         self._id_dtype_r = right[self.right_id].dtype
+
+        if (set(left.columns) != set(right.columns)) or not left.dtypes == right.dtypes:
+            raise self._conformancy_error(left, right)
 
         # Convert to pandas for Splink compatibility
         left_pd = left.with_columns(pl.col(self.left_id).cast(pl.String)).to_pandas()
