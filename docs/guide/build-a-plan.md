@@ -166,6 +166,8 @@ source.transform(mb.Clean(cleaning={...}))  # the explicit form
 source.transform(MyTransformer(...))  # your own, once registered
 ```
 
+[Custom methodologies](./custom-methodologies.md) covers writing one, and the pitfalls that come with it.
+
 ### Deduplicating and linking
 
 ```python
@@ -324,12 +326,22 @@ INFO  Collected 7 steps (7 ran, 0 cached) in 1.402s. Store 3.0 MB (+3.0 MB), 7 a
 
 The summary also says what the store now costs, and what this run added to it. A store keeps everything you collect into it, so editing a cleaning expression and re-collecting leaves the old artifacts behind. The `(+3.0 MB)` is what tells you which edit did that, while it's still a few megabytes rather than a full disk. A fully cached re-run reads `(+0 B)`. See [Reclaiming storage](#reclaiming-storage).
 
-Work done is logged at `INFO`. Skipping a cached step is logged at `DEBUG`, and the closing summary totals those so an `INFO` reader still sees what the run avoided. Anything a step logs while it runs is prefixed the same way, so a linker reporting its rounds lands under the position it belongs to. Like any library logger, it's silent until you configure logging:
+Work done is logged at `INFO`. Skipping a cached step is logged at `DEBUG`, and the closing summary totals those so an `INFO` reader still sees what the run avoided. Anything a step logs while it runs is prefixed the same way, so a linker reporting its rounds lands under the position it belongs to.
+
+**You don't have to configure logging to see any of this.** If you haven't, matchlab prints the records itself while a collection runs. The output above is what a bare script or a fresh notebook gives you.
+
+If you have, matchlab prints nothing of its own. The records go wherever you send everything else, at the level you chose:
 
 ```python
 import logging
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO)  # or DEBUG, to see the cached steps too
+```
+
+To turn the reporting off, silence the `matchlab` logger the way you'd silence any library:
+
+```python
+logging.getLogger("matchlab").addHandler(logging.NullHandler())
 ```
 
 The plan is put in **one** place, never two. A drawn tree is already the key those `[step N]` lines need. It's on screen throughout, and left there in full when the run ends, so it isn't logged as well. The per-step records are the same either way.
@@ -351,7 +363,7 @@ A plan taller than your window is windowed rather than dropped. The frame shows 
 ○ waiting   ◐ running   ◍ cached
 ```
 
-That works alongside the live tree with nothing further to set up. `basicConfig` binds whatever `sys.stderr` was at the time. Left alone, that would write over the frame being redrawn, so a running collection borrows handlers pointed at its terminal and routes them through its console until it's finished. Records appear above the tree as they arrive.
+Your own handlers work alongside the live tree with nothing further to set up. `basicConfig` binds whatever `sys.stderr` was at the time. Left alone, that would write over the frame being redrawn, so a running collection borrows handlers pointed at its terminal and routes them through its console until it's finished. Records appear above the tree as they arrive.
 
 ## Inspecting
 
@@ -407,6 +419,8 @@ Positions are relative to the apex you collected or drew from, so a plan and a s
 ## Reclaiming storage
 
 **A store keeps everything you collect into it, until you delete the file.** matchlab never removes an artifact on its own initiative. That's deliberate. An artifact's value has nothing to do with whether your program still holds the variable that produced it. The next process to rebuild the same plan wants a cache hit, not a rerun.
+
+A step that refreshes stores a new artifact every run rather than replacing the last, so a plan holding one grows the store steadily. Prune it as you go.
 
 The cost of that is real, so every collect reports it. That's the `Store 3.0 MB (+3.0 MB), 7 artifacts` clause above. You can also ask directly:
 

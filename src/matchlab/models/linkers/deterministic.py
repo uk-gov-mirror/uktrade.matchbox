@@ -1,6 +1,7 @@
 """A linking methodology based on a deterministic set of conditions."""
 
 import json
+from typing import ClassVar
 
 import duckdb
 import polars as pl
@@ -20,6 +21,8 @@ class DeterministicLinker(Linker):
     and sequential matching (multiple rounds where matched records are removed
     after each round).
     """
+
+    version: ClassVar[int] = 1
 
     comparisons: list[SQLCondition] | list[list[SQLCondition]] = Field(
         description="""

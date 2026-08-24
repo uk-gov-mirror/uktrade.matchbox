@@ -133,6 +133,10 @@ class Transform(RecordStep):
             transformer_settings=self.transformer_settings,
         )
 
+    def _methodology_class(self) -> type:
+        """The transformer whose code this transform runs."""
+        return self.transformer_class
+
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         records = self._input._read_cache(adapter)
         reshaped = self.transformer.apply(records)

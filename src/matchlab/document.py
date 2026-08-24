@@ -41,6 +41,11 @@ identity and a document that cannot be rebuilt.
   Same rows give the same fingerprints, so the target store hits cache instead of
   recomputing. Different rows give different fingerprints, so it re-runs. Both are the
   intended behaviour.
+
+A rebuilt plan therefore fingerprints identically, as long as every methodology it names
+declares a version. One that declares none is keyed by a nonce on every collect, here as
+anywhere else, so the steps from it down re-run wherever the document is loaded. See
+`matchlab.core.versioning`.
 """
 
 from collections.abc import Mapping

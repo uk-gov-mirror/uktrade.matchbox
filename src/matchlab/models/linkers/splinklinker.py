@@ -3,7 +3,7 @@
 import inspect
 import json
 from copy import deepcopy
-from typing import Any
+from typing import Any, ClassVar
 
 import polars as pl
 from pydantic import (
@@ -64,6 +64,8 @@ class SplinkLinker(Linker):
         given a `seed` in their `arguments`, and without one the first result is
         cached and silently reused. See `Step._fingerprint`.
     """
+
+    version: ClassVar[int] = 1
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

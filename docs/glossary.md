@@ -28,7 +28,9 @@ Run a plan. `collect()` walks a plan upstream-first and runs only the steps that
 
 ## Content-addressed
 
-Identified by what it is, not by when or how it was built. A step's [fingerprint](#fingerprint) comes from its own configuration and its inputs' fingerprints, so the same plan always keys the same artifact. Collecting it twice reads the cached one back rather than recomputing it.
+Identified by what it is, not by when or how it was built. A step's [fingerprint](#fingerprint) comes from its own configuration and its inputs' fingerprints, so the same plan keys the same artifact. Collecting it twice reads the cached one back rather than recomputing it.
+
+This holds for a step whose [methodology](#methodology) declares a [version](#version). One that declares none is keyed afresh every time, so it is never read back from the store.
 
 ## Deduper
 
@@ -45,6 +47,8 @@ The rows a [source](#source)'s query returns, cached exactly as read so they can
 ## Fingerprint
 
 The 32-byte SHA-256 digest that keys a step's stored [artifact](#artifact). Two steps with identical configuration and identical input fingerprints hash to the same fingerprint, which is what makes a store [content-addressed](#content-addressed).
+
+A fingerprint covers configuration, never the code that configuration runs. A [methodology](#methodology) closes that gap by declaring a [version](#version). Declaring none puts fresh random bytes in the fingerprint instead, so the step re-runs on every [collect](#collect), and so does every step below it.
 
 ## Judgement
 
@@ -97,6 +101,8 @@ The pluggable class a [step](#step) runs. Every kind of step has one. A [source]
 Every step is built the same way. It names its methodology in a `*_class` argument and configures it with `*_settings`. Anything that cannot be serialised goes in `*_resources`. Swapping a methodology means changing `*_class`, never restructuring the plan around it.
 
 Each kind keeps its own registry, so a custom methodology can be named in a [plan document](#plan-document). Register with `add_location_class`, `add_transformer_class`, `add_model_class`, or `add_resolver_class`.
+
+A methodology also says whether matchlab may cache what it computes, by declaring a [version](#version). See [Custom methodologies](guide/custom-methodologies.md).
 
 ## Model
 
@@ -201,3 +207,13 @@ A step that reshapes a [record step](#record-step) with a pluggable, serialisabl
 🧪 Testkits
 
 The planted answer a [testkit](#testkit) generated data from. It is one real-world thing, identified by the values it was generated from, spanning every source it landed in. Project it onto the sources under test to get a [cluster](#cluster), the only form that is comparable with an actual result. `TrueEntity` is the class.
+
+## Version
+
+What a [methodology](#methodology) promises about its own code. Declared as a class attribute, `version: ClassVar[int] = 1`, never as a [setting](#settings).
+
+Declaring one says the methodology computes a deterministic function of its settings, so matchlab may cache what it produces and read it back on a later [collect](#collect). Count it up by one whenever a change to the code changes what the class computes. That retires every [artifact](#artifact) the previous code wrote.
+
+Declaring none is the default, and it says the opposite. matchlab knows nothing about the code, so it refuses to trust a stored artifact. The step re-runs on every collect, and so does every step below it. This is what makes editing a methodology and re-running work as you would expect.
+
+A [location](#location) declares no version and needs none. A [source](#source) hashes the rows it read into its own [fingerprint](#fingerprint), so a change in what a location returns already moves it.

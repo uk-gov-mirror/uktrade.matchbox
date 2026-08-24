@@ -20,6 +20,8 @@ class Components(ResolverMethod):
     A threshold defaults to 0.0 if not set.
     """
 
+    version: ClassVar[int] = 1
+
     resolver_type: ClassVar[ResolverType] = ResolverType.COMPONENTS
     thresholds: dict[int, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
         default_factory=dict,

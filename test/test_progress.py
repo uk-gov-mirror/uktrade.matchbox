@@ -84,6 +84,20 @@ class StoringStep(Step):
         adapter.store_transform(fp, pl.DataFrame({"x": [1]}))
 
 
+class _Unversioned:
+    """A methodology declaring no version, so its step can never be cached."""
+
+    version = None
+
+
+class RefreshingStep(StoringStep):
+    """A step whose methodology promises nothing about its own code."""
+
+    def _methodology_class(self) -> type:
+        """Report an unversioned methodology, which is what makes this uncacheable."""
+        return _Unversioned
+
+
 class FailingStep(StoringStep):
     """A step that always raises."""
 
@@ -203,6 +217,30 @@ def test_report_warm_store_all_cached(store: DuckDBAdapter) -> None:
 
     assert state[id(apex)].status is StepStatus.CACHED
     assert source.executions == 0
+
+
+def test_report_refreshed(
+    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An uncacheable step reads as refreshed rather than as work an edit caused.
+
+    It re-runs on every collect, so a reader who cannot tell the two apart sees a plan
+    that never settles and nothing saying why. The status carries that. Its record and
+    its place in the summary are looked up in dicts keyed by status, which raise rather
+    than degrade when a status is missing from them.
+    """
+    source = StoringStep("source")
+    apex = RefreshingStep("apex", parents=(source,))
+    apex.collect(adapter=store, interactive=False)
+
+    with caplog.at_level(logging.INFO, logger="matchlab"):
+        reporter = _run(apex, store)
+
+    assert reporter.state[id(source)].status is StepStatus.CACHED
+    assert reporter.state[id(apex)].status is StepStatus.REFRESHED
+    assert apex.executions == 2
+    assert "1 refreshed" in reporter.summary()
+    assert any("Refreshed in" in message for message in _messages(caplog))
 
 
 def test_report_failure_reraised(store: DuckDBAdapter) -> None:
@@ -657,6 +695,109 @@ def test_log_console_handler_shares_terminal(
     # Written at the console's full width, not wrapped into a narrow message column
     # the way `RichHandler` would lay it out.
     assert f"[step 1] {long_record}" in output
+
+
+# -- reporting with nothing configured -----------------------------------------------
+
+
+@pytest.fixture
+def unconfigured(monkeypatch: pytest.MonkeyPatch) -> logging.Logger:
+    """Matchlab's logger as a fresh interpreter has it: no handler, no level set.
+
+    A detached `Logger` rather than the real one, because under pytest the real one
+    can't be unconfigured: the capture handlers are always somewhere up the chain, and
+    those count as an application listening — the one condition these tests need
+    absent. Detached, it has no parent to inherit them from. Everything reads the
+    logger through the module (`mlog.logger`), so patching it here is enough.
+    """
+    isolated = logging.Logger("matchlab.isolated")
+    monkeypatch.setattr(mlog, "logger", mlog.PrefixedLoggerAdapter(isolated, {}))
+    return isolated
+
+
+def test_log_unconfigured_still_reports(
+    store: DuckDBAdapter, terminal: io.StringIO, unconfigured: logging.Logger
+) -> None:
+    """A collection is worth watching, so it doesn't wait to be asked.
+
+    Nobody running a plan for the first time has called `basicConfig`, and the summary
+    is the only line saying what the run cost. Dropped, it leaves a tree on screen with
+    no hint that anything is missing.
+    """
+    apex, _source, _view = _plan()
+
+    apex.collect(adapter=store, interactive=True)
+
+    output = terminal.getvalue()
+    assert "Ran in" in output
+    assert "Collected 3 steps" in output
+
+
+def test_log_lent_handler_taken_back(
+    store: DuckDBAdapter, terminal: io.StringIO, unconfigured: logging.Logger
+) -> None:
+    """The handler is lent for one collection, not installed.
+
+    Logging state belongs to the application, including one that configures it after
+    its first collect. A handler left behind would duplicate everything it then set up.
+    """
+    apex, _source, _view = _plan()
+
+    apex.collect(adapter=store, interactive=True)
+
+    assert unconfigured.handlers == []
+    assert unconfigured.level == logging.NOTSET
+
+
+def test_log_configured_wins(
+    store: DuckDBAdapter, terminal: io.StringIO, unconfigured: logging.Logger
+) -> None:
+    """An application that configured logging gets what it configured, once."""
+    apex, _source, _view = _plan()
+    buffer = io.StringIO()
+    handler = logging.StreamHandler(buffer)
+    handler.setFormatter(logging.Formatter("APP %(message)s"))
+    unconfigured.addHandler(handler)
+    unconfigured.setLevel(logging.INFO)
+
+    apex.collect(adapter=store, interactive=False)
+
+    assert "APP Collected 3 steps" in buffer.getvalue()
+    # And not through a console handler of ours as well, which would say it twice.
+    assert "Collected 3 steps" not in terminal.getvalue()
+
+
+def test_log_silenced_by_null_handler(
+    store: DuckDBAdapter, terminal: io.StringIO, unconfigured: logging.Logger
+) -> None:
+    """`NullHandler` is how a library is silenced, and it has to work here too.
+
+    It is a handler, so it counts as somebody listening, and a collection then adds
+    nothing of its own. That leaves the tree on screen and nothing beside it.
+    """
+    apex, _source, _view = _plan()
+    unconfigured.addHandler(logging.NullHandler())
+
+    apex.collect(adapter=store, interactive=False)
+
+    assert "Collected 3 steps" not in terminal.getvalue()
+
+
+def test_log_chosen_level_respected(
+    store: DuckDBAdapter, terminal: io.StringIO, unconfigured: logging.Logger
+) -> None:
+    """A level set without a handler is still a decision, and outranks the default.
+
+    Lending a logger somewhere to write fills a gap. Raising a level someone chose
+    would be overruling them.
+    """
+    apex, _source, _view = _plan()
+    unconfigured.setLevel(logging.WARNING)
+
+    apex.collect(adapter=store, interactive=False)
+
+    assert "Collected 3 steps" not in terminal.getvalue()
+    assert unconfigured.level == logging.WARNING
 
 
 # -- the drawn channel ---------------------------------------------------------------

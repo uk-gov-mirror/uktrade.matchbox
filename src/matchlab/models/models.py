@@ -200,6 +200,10 @@ class Model(Step):
             model_settings=self.model_settings,
         )
 
+    def _methodology_class(self) -> type:
+        """The deduper or linker whose code this model runs."""
+        return self.model_class
+
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         left = self.left._read_cache(adapter)
         right = self.right._read_cache(adapter) if self.right else None

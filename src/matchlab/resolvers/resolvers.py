@@ -219,6 +219,10 @@ class Resolver(RecordStep):
 
     # -- Step contract ----------------------------------------------------------------
 
+    def _methodology_class(self) -> type:
+        """The resolver methodology whose code this resolver runs."""
+        return self.resolver_class
+
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         edges = {
             position: adapter.read_model(model._fp)

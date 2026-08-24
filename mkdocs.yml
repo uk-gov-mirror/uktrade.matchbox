@@ -15,6 +15,7 @@ nav:
   - Query the result: guide/query.md
   - Evaluate: guide/evaluate.md
   - Serialise a plan: guide/serialise.md
+  - Custom methodologies: guide/custom-methodologies.md
 - Migration:
   - Matchbox to matchlab: migration/matchbox-to-matchlab.md
 - API reference:

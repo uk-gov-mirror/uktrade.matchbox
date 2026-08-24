@@ -1,5 +1,7 @@
 """A deduplication methodology based on a deterministic set of conditions."""
 
+from typing import ClassVar
+
 import duckdb
 import polars as pl
 from pydantic import Field
@@ -9,6 +11,8 @@ from matchlab.models.dedupers.base import Deduper
 
 class NaiveDeduper(Deduper):
     """Groups records that match exactly on every field in `unique_fields`."""
+
+    version: ClassVar[int] = 1
 
     unique_fields: list[str] = Field(
         description="A list of fields that will form a unique, deduplicated record"

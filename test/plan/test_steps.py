@@ -10,10 +10,14 @@ from sqlalchemy import Engine
 from matchlab import FromResources, Resource, Source, read_database
 from matchlab.core.exceptions import ResourceError
 from matchlab.core.kinds import StepKind
+from matchlab.core.versioning import declared_version
 from matchlab.models.dedupers.base import Deduper
+from matchlab.models.linkers.base import Linker
+from matchlab.resolvers.base import ResolverMethod
 from matchlab.resolvers.components import Components
 from matchlab.steps import Step
 from matchlab.transformers import Select
+from matchlab.transformers.base import Transformer
 
 
 def library_steps() -> set[type[Step]]:
@@ -193,3 +197,42 @@ def test_unknown_field(warehouse: Engine) -> None:
 
     with pytest.raises(ResourceError, match="Select has no field 'nonexistent'"):
         source.transform(Select, transformer_resources={"nonexistent": 1})
+
+
+def library_methodologies() -> set[type]:
+    """Every concrete methodology matchlab ships, whatever kind of step runs it.
+
+    Walked the same way as `library_steps`, and filtered by module for the same
+    reason: the test doubles in this suite subclass these bases too.
+    """
+    found: set[type] = set()
+    stack: list[type] = [Transformer, Deduper, Linker, ResolverMethod]
+    while stack:
+        for subclass in stack.pop().__subclasses__():
+            stack.append(subclass)
+            if not inspect.isabstract(subclass) and subclass.__module__.startswith(
+                "matchlab."
+            ):
+                found.add(subclass)
+    return found
+
+
+def test_methodology_versions_declared() -> None:
+    """Every methodology matchlab ships declares a version.
+
+    A methodology that declares none is re-keyed on every collect, taking everything
+    below it with it. That is the right default for code matchlab knows nothing about,
+    and the wrong one for code it ships, which would refresh a plan forever. Bump the
+    version instead when a change here changes what the class computes.
+    """
+    assert library_methodologies(), "found no methodologies, so this asserted nothing"
+
+    unversioned = sorted(
+        methodology.__name__
+        for methodology in library_methodologies()
+        if declared_version(methodology) is None
+    )
+    assert not unversioned, (
+        f"{', '.join(unversioned)} ship without a version, so any plan using one "
+        "re-runs it and everything below it on every collect"
+    )

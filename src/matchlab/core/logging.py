@@ -4,7 +4,9 @@ Two objects, one each for the two ways output leaves the library:
 
 * `logger` — the `matchlab` logger, wrapped so any record can carry a prefix saying
   which part of a plan produced it. Like any library logger it has no handler of its
-  own, and is silent until the application configures logging.
+  own, so an application that configures logging gets these records wherever it sends
+  everything else. One that never configures any still sees a collection, because
+  `audible` lends the logger a console handler for the length of one.
 * `console` — the Rich console. `matchlab.progress` draws the collection tree on it,
   and tests swap it for a quiet one.
 
@@ -135,7 +137,7 @@ def through_console() -> Generator[None]:
     terminal = {sys.stdout, sys.stderr, console.file}
     patched: list[tuple[logging.StreamHandler, IO[str]]] = []
 
-    target: logging.Logger | None = logging.getLogger("matchlab")
+    target: logging.Logger | None = logger.logger
     while target is not None:
         for handler in target.handlers:
             stream = getattr(handler, "stream", None)
@@ -188,3 +190,57 @@ class ConsoleHandler(logging.Handler):
             console.print(self.format(record), markup=False, highlight=False)
         except Exception:  # noqa: BLE001 - a handler must never raise into the caller
             self.handleError(record)
+
+
+@contextmanager
+def audible() -> Generator[None]:
+    """Give matchlab's records somewhere to go when the application never said.
+
+    A library logger has no handler of its own, so everything a collection reports —
+    the plan, the per-step records, the closing summary — is dropped unless the
+    application called `logging.basicConfig()` first. That is the right default for a
+    library being embedded in something larger, and the wrong one for the ordinary
+    case: someone at a prompt running a plan, watching the tree fill in, and never
+    told why the line saying what it cost isn't there.
+
+    So for the length of a collection, and only where nothing is listening, this
+    attaches a `ConsoleHandler` and opens the `matchlab` logger to `INFO`. Through the
+    console, because that is what coexists with a live tree — see `ConsoleHandler`.
+    Both changes are undone on the way out, so global logging state is left exactly as
+    it was found, and an application that configures logging later still gets what it
+    configures.
+
+    **A handler anywhere up the chain counts as listening**, and this then does nothing
+    at all. An application that configured logging gets what it asked for, at the level
+    it chose, including a level that drops these records. That is also how to turn this
+    off:
+
+    ```python
+    logging.getLogger("matchlab").addHandler(logging.NullHandler())
+    ```
+
+    the standard way to silence a library, which works here for the same reason a real
+    handler does.
+    """
+    target = logger.logger
+    if target.hasHandlers():
+        yield
+        return
+
+    handler = ConsoleHandler()
+    # A level and the message, nothing else. No timestamp or logger name, which would
+    # push a `[step 7]` off to the right of every line and indent a logged tree out of
+    # shape. The level stays because it is what separates a step that ran from one
+    # that failed.
+    handler.setFormatter(logging.Formatter("%(levelname)-5s %(message)s"))
+    # Only where the level was left unset. A caller who set one without attaching a
+    # handler has still said what they want to see, and `INFO` is not it.
+    level = target.level
+    target.addHandler(handler)
+    if level == logging.NOTSET:
+        target.setLevel(logging.INFO)
+    try:
+        yield
+    finally:
+        target.removeHandler(handler)
+        target.setLevel(level)
