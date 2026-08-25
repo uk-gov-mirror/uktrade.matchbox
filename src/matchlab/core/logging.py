@@ -1,17 +1,20 @@
-"""The logger and console everything in matchlab reports through.
+"""The logger and consoles everything in matchlab reports through.
 
-Two objects, one each for the two ways output leaves the library:
+Three module attributes decide how output leaves the library:
 
 * `logger` — the `matchlab` logger, wrapped so any record can carry a prefix saying
-  which part of a plan produced it. Like any library logger it has no handler of its
-  own, so an application that configures logging gets these records wherever it sends
-  everything else. One that never configures any still sees a collection, because
-  `audible` lends the logger a console handler for the length of one.
-* `console` — the Rich console. `matchlab.progress` draws the collection tree on it,
-  and tests swap it for a quiet one.
+  which part of a plan produced it. Like any library logger it starts with no handler of
+  its own, so an application that configures logging gets these records wherever it
+  sends everything else.  If no application handler is configured, audible temporarily
+  lends the logger a console handler for the duration of a collection.
+* `console` — the Rich UI console. `matchlab.progress` draws the collection tree on
+  it, and tests swap it for a quiet one.
+* `diagnostic_console` — a Rich console bound to stderr. `ConsoleHandler` uses
+  it when stdout may belong to data rather than to a human-facing display.
 
-Both are module attributes rather than values passed around, so `matchlab.progress`
-reads them through the module (`mlog.console`) instead of importing them directly.
+The consoles are module attributes rather than values passed around, so
+`matchlab.progress` reads them through the module (`mlog.console`) instead of
+importing them directly.
 That indirection is what lets a test patch one and have the library pick it up.
 
 **A prefix is usually ambient, not passed.** The thing worth quoting is a step's
@@ -99,6 +102,13 @@ console: Final[Console] = Console()
 Where `matchlab.progress` draws a collection's plan, and where any CLI utility writes.
 """
 
+diagnostic_console: Final[Console] = Console(stderr=True)
+"""Console for fallback diagnostics.
+
+Used for log records when matchlab is running without a terminal-backed UI
+console, so machine-readable stdout stays clean.
+"""
+
 
 @contextmanager
 def through_console() -> Generator[None]:
@@ -170,6 +180,8 @@ class ConsoleHandler(logging.Handler):
     table and would wrap a logged plan inside its narrow message column. What matchlab
     logs is mostly trees, and a tree that wraps is not a tree. Records are written at
     the console's full width, unstyled, and formatted however the application asked.
+    Where stdout is carrying data or has been redirected away from a terminal, they go
+    to stderr through `diagnostic_console` so the data stream stays clean.
 
     You do not need this to run a collection at a terminal: `through_console` already
     borrows a handler bound to one for as long as a live tree is up. This is for saying
@@ -182,12 +194,17 @@ class ConsoleHandler(logging.Handler):
     """
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Write `record` to the console."""
+        """Write `record` to the appropriate console."""
         try:
             # `markup=False` matters: a drawn tree is full of `[2]`, which Rich would
             # otherwise try to parse as a style tag. `highlight=False` likewise — its
             # guesses at numbers and brackets colour the tree into confetti.
-            console.print(self.format(record), markup=False, highlight=False)
+            target = (
+                console
+                if console.is_terminal or console.is_jupyter
+                else diagnostic_console
+            )
+            target.print(self.format(record), markup=False, highlight=False)
         except Exception:  # noqa: BLE001 - a handler must never raise into the caller
             self.handleError(record)
 
