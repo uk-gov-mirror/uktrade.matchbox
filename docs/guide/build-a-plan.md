@@ -1,12 +1,12 @@
 # Build a plan
 
-A plan is a tree of steps. Each step holds a reference to its inputs, so the node you are holding *is* the pipeline. There is no separate container object to register things with.
+A plan is a tree of steps. Each step holds a reference to its inputs, so the node you are holding *is* the pipeline.
 
 Nothing runs until you call `collect()`.
 
 ## Sources
 
-A source is a leaf: where to read rows from, plus the column that keys them.
+A source is the start of any plan. It defines how rows are read, plus the column that keys them.
 
 ```python
 import matchlab as mb
@@ -21,7 +21,7 @@ crn = mb.read_database(
 )
 ```
 
-Several sources can share one engine. Pass the same object to each. The engine is *how* the rows are obtained rather than part of what they are, so it's never written into a plan, which is what lets a plan move between environments. See [Serialise a plan](./serialise.md).
+Several sources can share one engine. Pass the same object to each.
 
 !!! warning "Your query is run as written"
 
@@ -33,18 +33,15 @@ Reading a dataframe you've already shaped needs no query at all:
 dh = mb.read_dataframe("dh", df=my_polars_df)
 ```
 
-`key_field` is the identifier you'll get back in results. It's read as a string whatever type it has in the data, so an integer primary key needs no ceremony.
+The first argument (`name`) prefixes every column this source contributes. For `"crn"`, `company` becomes `crn_company`. Those names end up in cleaning SQL, so a name must start with a letter or underscore, then hold only letters, digits and underscores.
 
-`name` qualifies every column this source contributes. `company` becomes `crn_company`. Those names end up in cleaning SQL, so a name must start with a letter or underscore, then hold only letters, digits and underscores. A hyphen or a dot would parse as arithmetic or as a table reference. This means matchlab rejects an invalid name when you build the source, rather than letting it fail three steps later. SQL keywords are fine, since the name is only ever a prefix.
+`key_field` is the identifier you'll get back in results. It needs to match an existing column in your source data. It's read as a string whatever type it has in the data. It defaults to `"id"`.
 
-**What a source returns is the whole declaration.** Every column becomes part of the record, and so part of that record's identity. Two rows are the same record exactly when every column comes back identical for both. Above, a company appearing twice with the same name and town is one record. Change the town, and it's two. With `read_dataframe` the same rule applies to whatever columns the frame carries, so shape it before you hand it over.
-
-There's no separate list of fields to index. That means:
+**The identity of each row is defined by all values returned by the source.** Two rows are considered to be the same entity when every column comes back identical for both. Above, a company appearing twice with the same name and town is one entity. Change the town, and it's two. With `read_dataframe` the same rule applies to whatever columns the frame carries. This means:
 
 * **A column you don't want to affect identity is a column that shouldn't come back.** Pull a `last_updated` timestamp through and every row becomes distinct.
-* **A type you want pinned is a `cast` in the SQL**, or a cast on the frame.
+* **A type you want pinned is a `cast`** in the SQL, on the frame.
 * **Changing the data behind any returned column invalidates the source**, and everything downstream of it.
-* **How the rows were fetched *is* part of the plan.** The query is hashed alongside the rows, so editing it re-runs the source and everything below, even if the rows come back identical. The client is not hashed. Point the same query at a second engine holding the same rows and you get the same source.
 
 You can still return a column purely to look at. `view_entity` and the evaluation samplers show every column the source returned, reading it back from the copy cached at collect time, but selecting it still makes it count.
 
@@ -72,9 +69,9 @@ crn.link(dh, model_class=mb.DeterministicLinker, model_settings={...})
 
 Both sides of a link are covered. Reach for the reshaping verbs (`select`, `clean`, `group`) only when you want to change what a model sees. They each return a new step, so they chain, and each does one job.
 
-### Reshaping records
+## Reshaping records
 
-A **record step** is a step that produces data for a model to match over. It is not itself a table, but produces one, always with an `id` column. A `Source`, a resolver, and the output of a reshape step are all record steps, one shared type. That's why `RecordStep` is what you see in a signature or a hover tooltip wherever one of these is expected. `select`, `clean` and `group` each reshape a record step into a new record step. `transform` is the general verb they desugar to. `source.clean(...)` is shorthand for `source.transform(Clean(...))`.
+A **record step** is a step that produces data for a model to match over. It is not itself a table, but produces one, always with an `id` column. A `Source`, a resolver, and the output of a reshape step are all record steps. That's why `RecordStep` is what you see in a signature or a hover tooltip wherever one of these is expected. `select`, `clean` and `group` each reshape a record step into a new record step. `transform` is the general verb they translate to. `source.clean(...)` is shorthand for `source.transform(Clean(...))`.
 
 Not every registered transformer has a dedicated verb. The [API reference](../api/transformers.md) lists all of them, including ones you reach only through `transform(...)`, such as `Explode`.
 
@@ -92,13 +89,13 @@ crn.select("crn_company", "crn_town")
 cleaned = crn.clean({"name": f"lower({crn.f('company')})"})
 ```
 
-`name` is added. `crn_company`, `crn_town` and `id` all pass through untouched. Dropping unrelated columns is `select`'s job, not `clean`'s. Chain them when you want both:
+`name` is added. `crn_company`, `crn_town` and `id` all pass through untouched. Dropping unrelated columns is `select`'s job. Chain them when you want both:
 
 ```python
 crn.clean({"name": f"lower({crn.f('company')})"}).select("name")
 ```
 
-#### What `id` is, and when to group
+### What `id` is, and when to group
 
 Read a source directly and `id` is the record, one row each. **A resolver is itself a
 record step**, reshaped with the same verbs. Its `id` is the entity, so several records can
@@ -157,18 +154,7 @@ resolver.group(
 
 Grouping changes what the *model* sees. It never changes the resolver output. Record identity travels separately, so a resolver below a grouped step still carries every record forward.
 
-#### Custom transformers
-
-`select`, `clean` and `group` are the built-in transformers. `transform` takes any transformer object, so you can pass one explicitly. A custom transformer plugs in the same way a custom deduper does. Subclass `Transformer` and register it with `add_transformer_class`. It can then be named in a plan and in a [document](./serialise.md):
-
-```python
-source.transform(mb.Clean(cleaning={...}))  # the explicit form
-source.transform(MyTransformer(...))  # your own, once registered
-```
-
-[Custom methodologies](./custom-methodologies.md) covers writing one, and the pitfalls that come with it.
-
-### Deduplicating and linking
+## Deduplicating and linking
 
 ```python
 deduped = cleaned.dedupe(
@@ -183,9 +169,9 @@ linked = crn.link(
 )
 ```
 
-Models produce scored *edges*, not clusters. Turning edges into entities is the resolver's job.
+Models produce scored *edges*, not clusters. An edge is a scored pair of IDs. The score reflects the model's confidence that those two rows are a match. Turning edges into entities is the resolver's job.
 
-### Resolving
+## Resolving
 
 ```python
 entities = deduped.resolve()
@@ -203,9 +189,9 @@ entities = crn_dedupe.resolve(
 )
 ```
 
-Thresholds take the model itself, not its name. You're already holding it. Any model with no threshold will contribute every edge.
+Thresholds take the model itself, not its name. Any model with no threshold will contribute every edge.
 
-## Layering
+### Layering
 
 A resolver is a record step. To match **on top of** an earlier resolver output, match on the resolver directly with the same verbs. Now `id` means entity, not record:
 
@@ -225,20 +211,106 @@ The link now sees crn's deduplicated clusters rather than its raw rows. Records 
 entities.collect()
 ```
 
-`collect()` walks the plan upstream-first and runs only what isn't already stored. Steps are content-addressed by their configuration and their inputs' fingerprints, so:
+`collect()` walks the plan upstream-first and runs only what isn't already stored.
+
+### Store cache
+
+Steps are content-addressed by their configuration and their inputs' fingerprints, so:
 
 * re-collecting an unchanged plan does no work
 * adding a step to a collected plan runs only the new step
-* rebuilding the same plan in a new process is a cache hit, provided the warehouse data hasn't changed
+* rebuilding the same plan in a new process is a cache hit, provided the source data hasn't changed
 
-Sources are the exception. They hash the data they read, which is how a plan notices the warehouse has moved. Constructing a *fresh* `Source` re-reads the data. An existing `Source` object remembers it.
+Sources are the exception. They hash the data they read, which is how a plan notices that a warehouse table or in-memory dataframe has changed. Constructing a *fresh* `Source` re-reads the data. An existing `Source` object remembers it. If you mutate a dataframe behind `read_dataframe(...)`, redefine the source before collecting again. **Re-collecting the existing source keeps using the memoised read.**
 
-!!! warning "Seed anything non-deterministic"
-    A step's cache key comes from its configuration, not from its output, so a step's output has to be a deterministic function of its inputs and its settings. If a model can produce different results from the same settings, the first result is cached and reused. In practice, this means passing a `seed` to Splink training functions that sample. Otherwise, re-running gives you the cache, not a second opinion.
+**How the rows were fetched *is* part of the plan.** When reading from a database, the query is hashed alongside the rows, so editing it re-runs the source and everything below, even if the rows come back identical. The client is not hashed. Point the same query at a second engine holding the same rows and you get the same source.
 
-Because the key is configuration-derived, it is also conservative. Editing a cleaning expression in a way that doesn't change the data still re-runs everything below it.
+Because the cache key is configuration-derived, it is also conservative. Editing a cleaning expression in a way that doesn't change the data still re-runs everything below it.
 
-### Changing a plan
+### Watching the plan run
+
+In a notebook or terminal, `collect()` draws the plan as a tree and redraws it in place as each step settles:
+
+```
+○ [6] resolver(Components)
+    ├── ◐ [5] model(NaiveDeduper) running 2.6s
+    │   └── ● [3] transform(Clean) 0.4s
+    │       └── ● [2] source 'crn' 0.3s
+    └── ● [4] model(DeterministicLinker) 0.5s
+        ├── ● [3] transform(Clean) 0.4s ↑
+        └── ● [1] transform(Clean) 0.2s
+            └── ● [0] source 'dh' 0.2s
+○ waiting   ◐ running   ● ran
+```
+
+This is called *interactive mode*. An interactive plan taller than your screen is "windowed": the frame shows the rows around the running step and says how many are hidden either side, following the run down the tree.
+
+The number in brackets is the step's **position**. It's the same number everywhere. `[5]` here is `[step 5]` in the log and `steps[5]` in a [document](../api/steps.md). Except for sources, steps have no names, so that cross-reference is how you know which node a line is about.
+
+Next to it is what the step *is*. A model, a resolver and a transform name the class implementing them in parentheses. A source names itself in quotes.
+
+A step feeding two parents is still one step. It's drawn in full where you first meet it, and marked `↑` after. `[3]` above feeds both models but runs once, computed once and read back by each of them. Its inputs are listed only under its first appearance.
+
+`cached` tells you your edit didn't invalidate that step, so nothing was recomputed.
+
+The summary at the end says what the store now costs, and what this run added to it. Here, the store is the DuckDB cache that holds artifacts, and the adapter is the Python object that talks to that store. A store keeps everything you collect into it, so editing a cleaning expression and re-collecting leaves the old artifacts behind. The `(+3.0 MB)` is what tells you which edit did that, while it's still a few megabytes rather than a full disk. A fully cached re-run reads `(+0 B)`. See [Reclaiming storage](#reclaiming-storage).
+
+!!! info "Interactive trees and logs"
+    Your own logging handlers work alongside the interactive tree with nothing further to set up. `basicConfig` binds whatever `sys.stderr` was at the time. A running collection borrows handlers pointed at its terminal and routes them through its console until it's finished. Records appear above the tree as they arrive. matchlab's own fallback handler keeps the same split: logs use stderr when stdout is reserved for some other payload.
+
+### Plan logs
+
+When interactive mode is off, the same tree is logged **once**, up front, with each step reporting beneath it:
+
+```
+INFO  Collecting 7 steps:
+○ [6] resolver(Components)
+    ├── ○ [5] model(NaiveDeduper)
+    │   └── ○ [3] transform(Clean)
+    │       └── ○ [2] source 'crn'
+    └── ○ [4] model(DeterministicLinker)
+        ├── ○ [3] transform(Clean) ↑
+        └── ○ [1] transform(Clean)
+            └── ○ [0] source 'dh'
+INFO  [step 0] Reading from the warehouse
+INFO  [step 0] Ran in 0.160s
+INFO  [step 1] Ran in 0.198s
+INFO  [step 2] Reading from the warehouse
+INFO  [step 2] Ran in 0.255s
+INFO  [step 3] Ran in 0.390s
+INFO  [step 4] Round 1: Found 2 matches
+INFO  [step 4] Ran in 0.515s
+INFO  [step 5] Ran in 0.284s
+INFO  [step 6] Ran in 0.104s
+INFO  Collected 7 steps (7 ran, 0 cached) in 1.402s. Store 3.0 MB (+3.0 MB), 7 artifacts
+```
+
+**You don't have to configure logging to see any of this.** If you haven't, matchlab attaches its own handler while a collection runs. At a terminal it writes through the same console as the tree; where stdout is being captured for some other purpose, it writes the records to stderr instead. The output above is what a bare script or a fresh notebook gives you.
+
+If you configure logging, matchlab prints nothing of its own. The records go wherever you send everything else, at the level you chose:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)  # or DEBUG, to see extra logs
+```
+
+To turn the reporting off, silence the `matchlab` as you would any library:
+
+```python
+logging.getLogger("matchlab").addHandler(logging.NullHandler())
+```
+
+## Changing a plan
+
+You can print the current version of a plan from a step:
+
+```python
+entities.draw()  # the plan, as a tree
+entities.lineage()  # every step, inputs first
+```
+
+Both look *upstream* only. A source can't reach the resolver built on top of it, because a step knows its inputs and nothing else. `crn.lineage()` is just `[crn]`, however much is built above it.
 
 **A step is settled once it's built.** To change one, rebuild the plan:
 
@@ -267,112 +339,9 @@ model.model_settings = {"unique_fields": ["crn_town"]}
 # so rebuild the plan to change it.
 ```
 
-Note that the old artifacts stay in the store. See [Reclaiming storage](#reclaiming-storage).
+Note that if you recollect, the old artifacts stay in the store. See [Reclaiming storage](#reclaiming-storage).
 
-To collect somewhere other than the default store:
-
-```python
-entities.collect(adapter=mb.DuckDBAdapter("./run.duckdb"))
-```
-
-### Watching it run
-
-At a terminal, `collect()` draws the plan as a tree and redraws it in place as each step settles. That's one frame, not one tree per step:
-
-```
-○ [6] resolver(Components)
-    ├── ◐ [5] model(NaiveDeduper) running 2.6s
-    │   └── ● [3] transform(Clean) 0.4s
-    │       └── ● [2] source 'crn' 0.3s
-    └── ● [4] model(DeterministicLinker) 0.5s
-        ├── ● [3] transform(Clean) 0.4s ↑
-        └── ● [1] transform(Clean) 0.2s
-            └── ● [0] source 'dh' 0.2s
-○ waiting   ◐ running   ● ran
-```
-
-The number in brackets is the step's **position**. It's the same number everywhere. `[5]` here is `[step 5]` in the log and `steps[5]` in a [document](../api/steps.md). Steps have no names, so that cross-reference is how you know which node a line is about. That's why every mode puts the tree somewhere.
-
-Next to it is what the step *is*. A model, a resolver and a transform name the class implementing them in parentheses, so `[5]` reads as the naive dedupe and `[3]` as the clean rather than as another anonymous line. A source names itself in quotes, since a source is the one step with a name.
-
-The legend lists only what's on screen. A node feeding two branches is still one node. It's drawn in full where you first meet it, and marked `↑` after. `[3]` above feeds both models but runs once, computed once and read back by each of them. Its inputs are listed only under its first appearance, not repeated. On plans with a shared base, that's the difference between a readable tree and a few hundred lines.
-
-`cached` is the one to watch. It tells you your edit didn't invalidate that step, so nothing was recomputed.
-
-Where nothing is drawn (a scheduler, CI, a redirected stream), the same tree is logged **once**, up front, with each step reporting beneath it:
-
-```
-INFO  Collecting 7 steps:
-○ [6] resolver(Components)
-    ├── ○ [5] model(NaiveDeduper)
-    │   └── ○ [3] transform(Clean)
-    │       └── ○ [2] source 'crn'
-    └── ○ [4] model(DeterministicLinker)
-        ├── ○ [3] transform(Clean) ↑
-        └── ○ [1] transform(Clean)
-            └── ○ [0] source 'dh'
-INFO  [step 0] Reading from the warehouse
-INFO  [step 0] Ran in 0.160s
-INFO  [step 1] Ran in 0.198s
-INFO  [step 2] Reading from the warehouse
-INFO  [step 2] Ran in 0.255s
-INFO  [step 3] Ran in 0.390s
-INFO  [step 4] Round 1: Found 2 matches
-INFO  [step 4] Ran in 0.515s
-INFO  [step 5] Ran in 0.284s
-INFO  [step 6] Ran in 0.104s
-INFO  Collected 7 steps (7 ran, 0 cached) in 1.402s. Store 3.0 MB (+3.0 MB), 7 artifacts
-```
-
-The summary also says what the store now costs, and what this run added to it. A store keeps everything you collect into it, so editing a cleaning expression and re-collecting leaves the old artifacts behind. The `(+3.0 MB)` is what tells you which edit did that, while it's still a few megabytes rather than a full disk. A fully cached re-run reads `(+0 B)`. See [Reclaiming storage](#reclaiming-storage).
-
-Work done is logged at `INFO`. Skipping a cached step is logged at `DEBUG`, and the closing summary totals those so an `INFO` reader still sees what the run avoided. Anything a step logs while it runs is prefixed the same way, so a linker reporting its rounds lands under the position it belongs to.
-
-**You don't have to configure logging to see any of this.** If you haven't, matchlab prints the records itself while a collection runs. The output above is what a bare script or a fresh notebook gives you.
-
-If you have, matchlab prints nothing of its own. The records go wherever you send everything else, at the level you chose:
-
-```python
-import logging
-
-logging.basicConfig(level=logging.INFO)  # or DEBUG, to see the cached steps too
-```
-
-To turn the reporting off, silence the `matchlab` logger the way you'd silence any library:
-
-```python
-logging.getLogger("matchlab").addHandler(logging.NullHandler())
-```
-
-The plan is put in **one** place, never two. A drawn tree is already the key those `[step N]` lines need. It's on screen throughout, and left there in full when the run ends, so it isn't logged as well. The per-step records are the same either way.
-
-That choice is `collect(interactive=...)`, named for the assumption it makes rather than the widget it produces. Drawing means *someone is watching*, so the plan can be a thing on screen that the session throws away. `interactive=False` puts the tree in the log instead. That's what a run whose output outlives the session wants. The default, `interactive=None`, reads a terminal or a notebook as a yes, and anything else as a no.
-
-A plan taller than your window is windowed rather than dropped. The frame shows the rows around the running step and says how many are hidden either side, following the run down the tree. The last frame is the whole thing.
-
-```
-⋮ 4 more above · 27 more below
-    │   │   └── ○ [12] resolver(Components)
-    │   │       ├── ○ [11] model(NaiveDeduper)
-    │   │       │   └── ○ [10] transform(Clean)
-    │   │       │       └── ○ [9] source 'crn' ↑
-    │   │       ├── ◐ [8] model(NaiveDeduper) running 0.4s
-    │   │       │   └── ◍ [7] transform(Clean) cached
-    │   │       │       └── ◍ [6] source 'dh' cached
-    │   │       ├── ◍ [5] model(NaiveDeduper) cached
-○ waiting   ◐ running   ◍ cached
-```
-
-Your own handlers work alongside the live tree with nothing further to set up. `basicConfig` binds whatever `sys.stderr` was at the time. Left alone, that would write over the frame being redrawn, so a running collection borrows handlers pointed at its terminal and routes them through its console until it's finished. Records appear above the tree as they arrive.
-
-## Inspecting
-
-```python
-entities.draw()  # the plan, as a tree
-entities.lineage()  # every step, inputs first
-```
-
-Both look *upstream* only. A source can't reach the resolver built on top of it, because a step knows its inputs and nothing else. `crn.lineage()` is just `[crn]`, however much is built above it.
+### Step variables
 
 There's no lookup-by-name. To hold on to a step, hold on to the variable.
 
@@ -383,46 +352,33 @@ entities = cleaned.dedupe(...).resolve().collect()
 cleaned.data()  # still yours to inspect
 ```
 
-That goes for settings too. A resolver's per-model thresholds take the model itself, not its name.
+That goes for settings too. A resolver's per-model thresholds take the model object itself, not its name.
 
-Steps have no names at all. To find a resolver output later, **publish** it under a label. That's an operation on the collected result, not a property of the plan:
+### Collecting again
+
+
+To collect somewhere other than the default store, pass an adapter pointing at the store you want to use:
+
+```python
+entities.collect(adapter=mb.DuckDBAdapter("./run.duckdb"))
+```
+
+## Publishing
+
+To find a resolver output later, **publish** it under a label. That's an operation on the collected result:
 
 ```python
 entities = crn_dedupe.resolve(dh_dedupe).collect().publish("entities")
 ```
 
-Republishing the same label for the same resolver output is a no-op. Aiming it at a different one needs `overwrite=True`. A plan you never publish still runs. It's just unlabelled.
+A label belongs to the store, and points at whichever resolver output you last aimed it at. Republishing the same label for the same resolver output doesn't do anything. Aiming it at a different one needs `overwrite=True`. A plan you never publish still runs, it's just unlabelled.
 
-A label is not a name. A *name* belongs to a source and is part of its output. A label belongs to the store, and points at whichever resolver output you last aimed it at.
-
-Everything else goes by **position**. That's the order `collect` runs it in, which is what logs quote and what `draw()` shows in brackets.
-
-```
-[step 2] Ran in 0.041s
-```
-
-```python
-print(entities.draw())
-```
-```
-● [6] resolver(Components)
-    ├── ● [5] model(NaiveDeduper)
-    │   └── ● [4] transform(Clean)
-    │       └── ● [3] source 'crn'
-    └── ● [2] model(NaiveDeduper)
-        └── ● [1] transform(Clean)
-            └── ● [0] source 'dh'
-```
-
-Positions are relative to the apex you collected or drew from, so a plan and a sub-plan of it number differently, but a run and that run's drawing always agree.
 
 ## Reclaiming storage
 
-**A store keeps everything you collect into it, until you delete the file.** matchlab never removes an artifact on its own initiative. That's deliberate. An artifact's value has nothing to do with whether your program still holds the variable that produced it. The next process to rebuild the same plan wants a cache hit, not a rerun.
+**A store keeps everything you collect into it, until you delete the file.** matchlab never removes an artifact on its own initiative.
 
-A step that refreshes stores a new artifact every run rather than replacing the last, so a plan holding one grows the store steadily. Prune it as you go.
-
-The cost of that is real, so every collect reports it. That's the `Store 3.0 MB (+3.0 MB), 7 artifacts` clause above. You can also ask directly:
+A step that refreshes stores a new artifact every run rather than replacing the last, so a plan holding one grows the store steadily. This has a cost, so every collect reports it. That's the `Store 3.0 MB (+3.0 MB), 7 artifacts` clause above. You can also ask directly:
 
 ```python
 stats = mb.default_adapter().stats()
@@ -432,9 +388,8 @@ print(stats.artifacts)  # {'source': 8, 'transform': 40, 'model': 32, 'resolver'
 print(stats.describe())  # 'Store 1.2 GB, 104 artifacts'
 ```
 
-Watch the artifact count rather than the size to see this happen. Edit a cleaning expression, re-collect, and the count grows while the plan stays the same size. The old artifacts are still there, and nothing will remove them.
+Watch the artifact count rather than the size to see this happen. Edit a cleaning expression, re-collect, and the count grows while the plan stays the same size. The old artifacts are still there. For this reason, you may want to prune the store as you go, using its adapter.
 
-Each adapter reports what only it can measure. A `DuckDBAdapter` hands back a `DuckDBStoreStats`, with a `path` you can pass to `unlink()`, and a `free_bytes` for space already freed inside the file.
 
 ### Pruning
 
@@ -448,21 +403,21 @@ print(result.describe())
 # 'Removed 80 artifacts, kept 24, reclaimed 416.2 MB'
 ```
 
-`plan.fingerprints()` names every artifact a plan is made of, its own and its inputs'. Which artifacts those are is the plan's business, not the store's, so the plan is what answers. `keep` also takes the name of a published label, which keeps that resolver output and the sources it reads through:
+`plan.fingerprints()` names every artifact a plan is made of, its own and its inputs'. Which artifacts those are is the plan's business, not the store's. `keep` also takes the name of a published label, which keeps that resolver output and the sources it reads through:
 
 ```python
 mb.default_adapter().prune(keep=[*entities.fingerprints(), "production"])
 ```
 
-**Published labels are kept whether or not you list them**, because publishing is the strongest way this library has of saying "keep this". Losing one to a forgotten argument would be indefensible. Pruning with nothing to keep and nothing published raises, rather than emptying the store.
+**Published labels are kept whether or not you list them**.
 
-Nothing is inferred about what you are still using. matchlab does not watch which objects your program is holding and treat the rest as rubbish. A store outlives the process that wrote it, so what some interpreter happens to have in scope says nothing about what is worth keeping. You say what to keep.
+Nothing is inferred about what you are still using. matchlab does not watch which objects your program is holding. A store outlives the process that wrote it. You say what to keep.
 
 Pruning rewrites the store, which reopens its connection. Any session setting applied through `adapter.conn` (see [Keeping memory bounded](#keeping-memory-bounded)) has to be applied again afterwards.
 
 ### Starting from cold
 
-Deleting the file is still the way to throw everything away:
+Deleting the file is the way to throw everything away:
 
 ```python
 from pathlib import Path
@@ -480,9 +435,7 @@ The default store lives in your user cache directory. `mb.default_adapter().stat
     after DROP + CHECKPOINT:   149.7 MB
     ```
 
-    This is why `prune()` **rewrites** the store rather than deleting inside it. Purging artifacts alone would buy reuse headroom while your disk usage stayed exactly the same. On a real 575 MB store, deleting 77% of its artifacts freed nothing at all. Copying what survives into a fresh file and swapping it in recovered 437 MB of that store, in half a second. It is the manual "collect what you want into a new store and delete the old one", done for you and without the re-collect.
-
-    A prune reports what it actually recovered, measured before and after. It never reports what it deleted. Those are different numbers, and only one of them is on your disk.
+    This is why `prune()` **rewrites** the store rather than deleting inside it. Purging artifacts alone would buy reuse headroom while your disk usage stayed exactly the same. A prune reports what it actually recovered, measured before and after.
 
 ### Keeping memory bounded
 
