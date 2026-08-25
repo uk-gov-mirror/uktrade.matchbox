@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 import polars as pl
 import pytest
 from splink import SettingsCreator
+from splink import blocking_rule_library as brl
 from splink import comparison_library as cl
 
 from matchlab.models import Model
@@ -230,3 +231,63 @@ def test_probabilistic_scores_vary(
     # Expect no wrong or invalid matches (perfect possible but unlikely)
     assert report["wrong"] == 0
     assert report["invalid"] == 0
+
+
+def test_splink_default_seed() -> None:
+    """Sampling Splink training calls become deterministic when no seed is given."""
+    linker = SplinkLinker.model_validate(
+        {
+            "left_id": "id",
+            "right_id": "id",
+            "linker_training_functions": [
+                {
+                    "function": "estimate_u_using_random_sampling",
+                    "arguments": {"max_pairs": 1e4},
+                },
+                {
+                    "function": "estimate_u_using_random_sampling",
+                    "arguments": {"max_pairs": 2e4, "seed": 7},
+                },
+            ],
+            "linker_settings": SettingsCreator(
+                link_type="link_only",
+                retain_matching_columns=False,
+                retain_intermediate_calculation_columns=False,
+                blocking_rules_to_generate_predictions=[brl.block_on("company")],
+                comparisons=[cl.ExactMatch("company")],
+            ),
+            "threshold": None,
+        }
+    )
+
+    left = pl.DataFrame({"id": [1], "company": ["acme"]})
+    right = pl.DataFrame({"id": [2], "company": ["acme"]})
+
+    class FakeTraining:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def estimate_u_using_random_sampling(
+            self, *, max_pairs: float, seed: int
+        ) -> None:
+            self.calls.append({"max_pairs": max_pairs, "seed": seed})
+
+    class FakeSplinkLibraryLinker:
+        def __init__(self, **_: Any) -> None:
+            self.training = FakeTraining()
+
+    with patch(
+        "matchlab.models.linkers.splinklinker.SplinkLibLinkerClass",
+        FakeSplinkLibraryLinker,
+    ):
+        linker.prepare(left, right)
+
+    assert linker.linker_training_functions[0].arguments == {"max_pairs": 1e4}
+    assert linker.linker_training_functions[1].arguments == {
+        "max_pairs": 2e4,
+        "seed": 7,
+    }
+    assert linker._linker.training.calls == [
+        {"max_pairs": 1e4, "seed": 0},
+        {"max_pairs": 2e4, "seed": 7},
+    ]

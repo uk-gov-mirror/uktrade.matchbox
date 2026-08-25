@@ -363,13 +363,13 @@ class Step(ABC):
         clothes:
 
         * **Resources.** Anything passed in a step's `*_resources` reaches no spec, so
-          it must be something the step reads *through* and never data it reads. See
-          `matchlab.resources`.
+            it must be something the step reads *through* and never data it reads. See
+            `matchlab.resources`.
         * **Randomness.** A methodology that samples is not a function of its settings
-          unless it is seeded. `SplinkLinker` without a `seed` in a sampling training
-          function's arguments is the live example.
+            unless it is seeded or otherwise made deterministic. `SplinkLinker` fills
+            in `seed=0` for any training function that accepts a seed and omits it.
         * **Ambient state.** A library version, a locale, a clock. Upgrade a matcher and
-          the same settings produce different edges under the same key.
+            the same settings produce different edges under the same key.
 
         Each is a reason to leave `version` unset, or to bump it once the cause is
         fixed. Code matchlab ships declares one, so a change here is a bump.
@@ -381,13 +381,13 @@ class Step(ABC):
         Break the rule and the key disagrees with the bytes, in one of two directions.
 
         * the spec omits something that changes the output, a **stale hit**, because
-          `_ensure` never runs the step and reads the old artifact. This is the
-          dangerous direction: it is silent, and it hands back wrong results. All three
-          breakers above land here.
+            `_ensure` never runs the step and reads the old artifact. This is the
+            dangerous direction: it is silent, and it hands back wrong results.
+            All three breakers above land here.
         * the spec includes something that doesn't change the output, a **spurious
-          miss**, re-running the step and everything below it for nothing. Wasteful and
-          safe. For example, in `SourceSpec.location_settings` the query is hashed
-          even though the data hash already covers anything it could change.
+            miss**, re-running the step and everything below it for nothing. Wasteful
+            but safe. For example, in `SourceSpec.location_settings` the query is hashed
+            even though the data hash already covers anything it could change.
 
         There is also no early cutoff. A `Transform` whose SQL is reformatted but
         semantically unchanged invalidates the whole subtree beneath it.
