@@ -71,7 +71,7 @@ Both sides of a link are covered. Reach for the reshaping verbs (`select`, `clea
 
 ## Reshaping records
 
-A **record step** is a step that produces data for a model to match over. It is not itself a table, but produces one, always with an `id` column. A `Source`, a resolver, and the output of a reshape step are all record steps. That's why `RecordStep` is what you see in a signature or a hover tooltip wherever one of these is expected. `select`, `clean` and `group` each reshape a record step into a new record step. `transform` is the general verb they translate to. `source.clean(...)` is shorthand for `source.transform(Clean(...))`.
+A **record step** is a step that produces data for a model to match over. It is not itself a table, but reading one gives a table with an `id` column. On a source or reshaped record step, that `id` is the content-derived identity of the row, not the source key field, which may have another name. On a resolver, `id` is the entity. A `Source`, a resolver, and the output of a reshape step are all record steps. That's why `RecordStep` is what you see in a signature or a hover tooltip wherever one of these is expected. `select`, `clean` and `group` each reshape a record step into a new record step. `transform` is the general verb they translate to. `source.clean(...)` is shorthand for `source.transform(Clean(...))`.
 
 Not every registered transformer has a dedicated verb. The [API reference](../api/transformers.md) lists all of them, including ones you reach only through `transform(...)`, such as `Explode`.
 
@@ -403,13 +403,9 @@ print(result.describe())
 # 'Removed 80 artifacts, kept 24, reclaimed 416.2 MB'
 ```
 
-`plan.fingerprints()` names every artifact a plan is made of, its own and its inputs'. Which artifacts those are is the plan's business, not the store's. `keep` also takes the name of a published label, which keeps that resolver output and the sources it reads through:
+`plan.fingerprints()` names every artifact a plan is made of, its own and its inputs'. Which artifacts those are is the plan's business, not the store's. `prune()` takes those fingerprints directly.
 
-```python
-mb.default_adapter().prune(keep=[*entities.fingerprints(), "production"])
-```
-
-**Published labels are kept whether or not you list them**.
+**Published labels are kept whether or not you list their fingerprints**. A published resolver output also keeps the source extracts it needs, so you can still read it back later without the plan.
 
 Nothing is inferred about what you are still using. matchlab does not watch which objects your program is holding. A store outlives the process that wrote it. You say what to keep.
 

@@ -112,7 +112,7 @@ A setting that must point at one of a step's own inputs uses the other sense. It
 
 ### Prune
 
-Delete every artifact except the ones named or [published](#publish), and reclaim the space that frees. A file-backed store's prune rewrites the file itself, because deleting rows inside it does not return space to the operating system.
+Delete every artifact except the fingerprints you name and the sources needed by a [published](#publish) resolver output, and reclaim the space that frees. A file-backed store's prune rewrites the file itself, because deleting rows inside it does not return space to the operating system.
 
 ### Publish
 
@@ -122,9 +122,9 @@ Re-publishing the same label at the same resolver output is a no-op. Aiming an e
 
 ### Record step
 
-A record step is a kind of step whose job is to hold data that a [model](#model) can match over. It is not a table. It is the step that produces one, a table with an id column holding the records a model reads.
+A record step is a kind of step whose job is to hold data that a [model](#model) can match over. It is not a table. Reading one gives a table with an id column holding the identity a model reads.
 
-A [source](#source), a [transform](#transform), and a [resolver](#resolver) are the three kinds of record step. On a source, id is the leaf. On a resolver, id is the entity root, which is what makes layering possible. Every record step chains the same verbs, `select`, `clean`, `group`, `transform`, `dedupe` and `link`.
+A [source](#source), a [transform](#transform), and a [resolver](#resolver) are the three kinds of record step. On a source or reshaped record step, id is the content-derived leaf, not the source key field. On a resolver, id is the entity root, which is what makes layering possible. Every record step chains the same verbs, `select`, `clean`, `group`, `transform`, `dedupe` and `link`.
 
 A [model](#model) is the one step that is not a record step. It yields edges rather than records.
 
@@ -199,7 +199,7 @@ A [testkit's](#testkit) map from a generated row's own values to the [true entit
 ### Cluster
 
 In a [testkit](#testkit), a set of records claimed to be one entity, an answer rather than the answer. It carries only membership, which is what an actual model or resolver result can be compared against. Contrast [true entity](#true-entity), which is the planted answer a cluster is checked against. `Cluster` is the class.
-#
+
 ### Matcher
 
 A model in a [testkit](#testkit) that already knows the answer, built from an [answer key](#answer-key) instead of scoring anything. `PerfectDeduper` and `PerfectLinker` are the two matchers. A matcher makes no mistakes, so pointing one at generated data leaves the plan as the only variable under test. Build one through `LinkedSources.dedupe()` or `.link()` rather than directly.
