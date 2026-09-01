@@ -152,7 +152,7 @@ The sources decide it. A source's fingerprint folds in a hash of the rows it rea
 
 * **Resources.** Only the name each one was given. Nothing secret enters a document.
 * **Code.** `location_class`, `model_class` and the rest are registry names.
-* **Labels.** [Publishing](./build-a-plan.md#inspecting) is something you do to a collected result. Load, collect, then publish under whatever label that environment wants.
+* **Labels.** [Publishing](./build-a-plan.md#publishing) is something you do to a collected result. Load, collect, then publish under whatever label that environment wants.
 * **Data.** Rows are read from the target's own warehouse.
 
 ## Custom classes

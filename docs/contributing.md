@@ -9,7 +9,7 @@ This document describes how to get started developing matchlab.
 
 ## Setup
 
-This project is managed by [uv](https://docs.astral.sh/uv/), linted and formatted with [ruff](https://docs.astral.sh/ruff/), type checked with [ty](https://docs.astral.sh/ty/), and tested with [pytest](https://docs.pytest.org/en/stable/). Documentation is built with [mkdocs](https://www.mkdocs.org).
+This project is managed by [uv](https://docs.astral.sh/uv/), linted and formatted with [ruff](https://docs.astral.sh/ruff/), type checked with [ty](https://docs.astral.sh/ty/), and tested with [pytest](https://docs.pytest.org/en/stable/). Documentation is built with [Zensical](https://zensical.org/docs/get-started/).
 
 Install all dependencies:
 
@@ -59,7 +59,7 @@ just docs
 Serves the site with live reload. CI builds the site in strict mode, so broken cross-references fail the build. Check this before you push:
 
 ```shell
-uv run mkdocs build --strict
+uv run zensical build --strict
 ```
 
 ## Releasing

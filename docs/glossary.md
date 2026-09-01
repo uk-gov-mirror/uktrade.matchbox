@@ -48,11 +48,11 @@ A person's decision that one reviewed cluster's records do, or do not, describe 
 
 A record's identifier at the origin, in the [source](#source)'s own data. Its column is named by `key_field`, which defaults to `id`.
 
-A key is not the `id` a [record step](#record-step) carries. That one is a [leaf](#leaf) or a [root](#root), derived by hashing content when the plan is collected. The two never collide, because every column an [extract](#extract) returns is [qualified](#qualify) with the source name first, so a key named `id` reaches a record step as `crn_id`. `leaves()` returns both, under the names `key` and `leaf`.
+A key is not the `id` a [record step](#record-step) carries. That one is a [leaf](#leaf) or a [root](#root), derived by hashing content when the plan is collected. The two never collide, because every column an [extract](#extract) returns is qualified with the source name first, so a key named `id` reaches a record step as `crn_id`. `leaves()` returns both, under the names `key` and `leaf`.
 
 A key is read as a string whatever the location stores it as, and a null key is refused. `get_lookup()` returns keys, which is how a plan's result joins back to your own tables.
 
-Distinct from an [answer key](#answer-key), which is a [testkit](#testkit) term that shares only the word.
+Distinct from an [answer key](#answer-key), which is a [testkit](#testkits) term that shares only the word.
 
 ### Label
 
@@ -194,16 +194,16 @@ The package checks a plan's answer two ways, because matchlab derives a record's
 
 ### Answer key
 
-A [testkit's](#testkit) map from a generated row's own values to the [true entity](#true-entity) that produced it. It exists because matchlab derives a row's real ID by content-hashing at collect time, so no ID is knowable when the answer key is built. A [matcher](#matcher) built from one reads a row's values back out of whatever record step it is handed, and looks up the entity that row belongs to, which is what lets it score a plan it has never seen. `AnswerKey` is the class.
+A [testkit's](#testkits) map from a generated row's own values to the [true entity](#true-entity) that produced it. It exists because matchlab derives a row's real ID by content-hashing at collect time, so no ID is knowable when the answer key is built. A [matcher](#matcher) built from one reads a row's values back out of whatever record step it is handed, and looks up the entity that row belongs to, which is what lets it score a plan it has never seen. `AnswerKey` is the class.
 
 ### Cluster
 
-In a [testkit](#testkit), a set of records claimed to be one entity, an answer rather than the answer. It carries only membership, which is what an actual model or resolver result can be compared against. Contrast [true entity](#true-entity), which is the planted answer a cluster is checked against. `Cluster` is the class.
+In a [testkit](#testkits), a set of records claimed to be one entity, an answer rather than the answer. It carries only membership, which is what an actual model or resolver result can be compared against. Contrast [true entity](#true-entity), which is the planted answer a cluster is checked against. `Cluster` is the class.
 
 ### Matcher
 
-A model in a [testkit](#testkit) that already knows the answer, built from an [answer key](#answer-key) instead of scoring anything. `PerfectDeduper` and `PerfectLinker` are the two matchers. A matcher makes no mistakes, so pointing one at generated data leaves the plan as the only variable under test. Build one through `LinkedSources.dedupe()` or `.link()` rather than directly.
+A model in a [testkit](#testkits) that already knows the answer, built from an [answer key](#answer-key) instead of scoring anything. `PerfectDeduper` and `PerfectLinker` are the two matchers. A matcher makes no mistakes, so pointing one at generated data leaves the plan as the only variable under test. Build one through `LinkedSources.dedupe()` or `.link()` rather than directly.
 
 ### True entity
 
-The planted answer a [testkit](#testkit) generated data from. It is one real-world thing, identified by the values it was generated from, spanning every source it landed in. Project it onto the sources under test to get a [cluster](#cluster), the only form that is comparable with an actual result. `TrueEntity` is the class.
+The planted answer a [testkit](#testkits) generated data from. It is one real-world thing, identified by the values it was generated from, spanning every source it landed in. Project it onto the sources under test to get a [cluster](#cluster), the only form that is comparable with an actual result. `TrueEntity` is the class.

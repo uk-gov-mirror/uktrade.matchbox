@@ -168,7 +168,7 @@ def blocks_from_md(path: Path) -> Iterator[tuple[str, str]]:
     text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)  # headings
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)  # bold
     text = re.sub(r"\*([^*]+)\*", r"\1", text)  # italic
-    # admonition marker lines (mkdocs-style), e.g. !!! warning "title"
+    # admonition marker lines (zensical-style), e.g. !!! warning "title"
     text = re.sub(r'^!!!\s+\S+(\s+".*?")?\s*$', "", text, flags=re.MULTILINE)
 
     table_row = re.compile(r"^\s*\|.*\|\s*$")
