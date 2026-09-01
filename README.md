@@ -1,4 +1,10 @@
-# matchlab
+<p align="center">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/uktrade/matchbox/refs/heads/matchlab/docs/assets/matchlab-logo-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/uktrade/matchbox/refs/heads/matchlab/docs/assets/matchlab-logo-light.svg">
+      <img alt="Shows the matchlab logo in light or dark color mode." src="https://raw.githubusercontent.com/uktrade/matchbox/refs/heads/matchlab/docs/assets/matchlab-logo-light.svg">
+    </picture>
+</p>
 
 **A local-first library for building, running and evaluating entity resolution pipelines.**
 
