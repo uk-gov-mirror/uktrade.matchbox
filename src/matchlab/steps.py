@@ -316,13 +316,14 @@ class Step(ABC):
             self._methodology_class()
         )
 
+    @abstractmethod
     def _methodology_class(self) -> type | None:
         """The class whose code this step runs, where there is one.
 
         `None` for a step keyed by something other than code. `Source` is the real
         case, hashing the rows it read, so its location needs no version.
         """
-        return None
+        ...
 
     @property
     def _cacheable(self) -> bool:

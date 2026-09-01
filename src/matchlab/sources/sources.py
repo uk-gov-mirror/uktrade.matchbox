@@ -168,6 +168,10 @@ class Source(RecordStep):
         """A source's name is part of its output, so no two in one plan may share it."""
         return self.name
 
+    def _methodology_class(self) -> type | None:
+        """A source is keyed by a hash of the rows it read, not by any code."""
+        return None
+
     # -- spec -------------------------------------------------------------------------
 
     def __str__(self) -> str:

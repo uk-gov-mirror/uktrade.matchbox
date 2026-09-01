@@ -83,6 +83,10 @@ class StoringStep(Step):
         self.executions += 1
         adapter.store_transform(fp, pl.DataFrame({"x": [1]}))
 
+    def _methodology_class(self) -> type | None:
+        """StoringStep runs no methodology of its own."""
+        return None
+
 
 class _Unversioned:
     """A methodology declaring no version, so its step can never be cached."""

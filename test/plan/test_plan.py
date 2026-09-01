@@ -589,6 +589,9 @@ def test_editable_step_attributes() -> None:
         def _execute(self, adapter: object, fp: bytes) -> None:  # pragma: no cover
             raise NotImplementedError
 
+        def _methodology_class(self) -> type | None:  # pragma: no cover
+            return None
+
     assert Custom().label == "mine"
 
 
