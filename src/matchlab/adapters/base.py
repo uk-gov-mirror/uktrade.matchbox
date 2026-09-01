@@ -396,7 +396,7 @@ class Adapter(ABC):
     # -- maintenance ------------------------------------------------------------------
 
     @abstractmethod
-    def prune(self, keep: Iterable[Fingerprint | str] = ()) -> PruneResult:
+    def prune(self, keep: Iterable[Fingerprint] = ()) -> PruneResult:
         """Delete every artifact except the ones named, and reclaim what that frees.
 
         **You say what to keep. Nothing is inferred.** This is deliberately not the
@@ -407,10 +407,9 @@ class Adapter(ABC):
         do with whether some process is holding the variable that produced it. The root
         set therefore arrives as an argument, from a caller who has just named it.
 
-        Both kinds of name are ones a store already understands. A plan is different.
-        Which artifacts belong to one is the plan's business, and `Step.fingerprints()`
-        answers that question. Storage should not have to learn to walk a graph in
-        order to know what it may delete.
+        The caller names those roots as fingerprints. `Step.fingerprints()` gives the
+        fingerprints relevant to a plan, so storage does not have to learn to walk a
+        graph in order to know what it may delete.
 
         **Published labels are kept whether or not they are named**, along with the
         sources their resolver output needs in order to stay readable. Publishing is the
@@ -426,9 +425,8 @@ class Adapter(ABC):
           something it did not is worse than one that frees nothing.
 
         Args:
-            keep: What to preserve. Either a `Fingerprint`, or a `str` naming a
-                published label, which keeps that resolver output and the sources it
-                reads through.
+            keep: Fingerprints to preserve. Published labels are kept whether or not
+                their fingerprints are listed.
 
         Returns:
             What was removed and what that recovered.

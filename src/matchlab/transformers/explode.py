@@ -2,6 +2,7 @@
 
 from functools import reduce
 from operator import mul
+from typing import ClassVar
 
 import polars as pl
 from pydantic import Field, field_validator
@@ -23,6 +24,8 @@ class Explode(Transformer):
     `max_combinations` caps it and raises, naming the `id`, rather than silently
     building an enormous table.
     """
+
+    version: ClassVar[int] = 1
 
     max_combinations: int = Field(
         default=100,

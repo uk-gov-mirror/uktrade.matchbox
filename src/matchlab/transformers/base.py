@@ -11,6 +11,7 @@ callables, exactly as a `Deduper`'s settings are.
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
+from typing import ClassVar
 
 import duckdb
 import polars as pl
@@ -35,6 +36,11 @@ class Transformer(BaseModel, ABC):
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # Bump it to retire every artifact the previous body wrote.
+    # Left unset, the step re-runs on every collect, and so does everything below it.
+    # See `matchlab.core.versioning`.
+    version: ClassVar[int | None] = None
 
     @abstractmethod
     def apply(self, data: pl.DataFrame) -> pl.DataFrame:

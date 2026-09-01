@@ -343,6 +343,18 @@ def test_prune_keeps_named(
     assert store.read_source_extract(fp.src).height == extract.height
 
 
+def test_prune_rejects_non_fingerprint(
+    store: Adapter, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
+) -> None:
+    """Prune rejects roots that are not artifact fingerprints."""
+    store.store_source(fp.src, "key", extract, leaves)
+
+    with pytest.raises(TypeError, match="expects fingerprints"):
+        store.prune(keep=["entities"])
+
+    assert store.has(fp.src)
+
+
 def test_prune_keeps_label_and_sources(
     store: Adapter,
     fp: Fingerprints,

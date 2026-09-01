@@ -22,8 +22,9 @@ and the per-step detail has to quote the position.
 A drawn tree already answers what a logged one would, so a collection never prints
 both. Printing the plan twice into the same screen would just be noise.
 
-The per-step records are logged either way, each prefixed with its position. They land
-on the `matchlab` logger and stay silent unless you have configured logging.
+The per-step records are logged either way, each prefixed with its position, along
+with a closing summary of what the collection did and what the store now costs. They
+land on the `matchlab` logger.
 
 Which of the two you get is the `interactive` argument to `Step.collect`, and that
 argument is honoured as given. It is named for the assumption behind it (someone is
@@ -89,6 +90,7 @@ _REPORTING = False
 _RECORDS: dict[StepStatus, tuple[int, str]] = {
     StepStatus.DONE: (logging.INFO, "Ran in {elapsed:.3f}s"),
     StepStatus.CACHED: (logging.DEBUG, "Cached"),
+    StepStatus.REFRESHED: (logging.INFO, "Refreshed in {elapsed:.3f}s"),
     StepStatus.FAILED: (logging.ERROR, "Failed after {elapsed:.3f}s"),
 }
 
@@ -98,6 +100,7 @@ _LABELS: dict[StepStatus, str] = {
     StepStatus.RUNNING: "running",
     StepStatus.DONE: "ran",
     StepStatus.CACHED: "cached",
+    StepStatus.REFRESHED: "refreshed",
     StepStatus.FAILED: "failed",
 }
 
@@ -317,10 +320,17 @@ class Progress:
         """
         counts = self._counts(self.state)
         elapsed = time.perf_counter() - self._started if self._started else 0.0
+        # Refreshed steps are counted apart from the ones that ran because something
+        # moved. They will run again next collect, so the number is what a reader needs
+        # to explain a plan that never seems to settle.
+        parts = [
+            f"{counts[StepStatus.DONE]} ran",
+            f"{counts[StepStatus.CACHED]} cached",
+        ]
+        if refreshed := counts[StepStatus.REFRESHED]:
+            parts.append(f"{refreshed} refreshed")
         line = (
-            f"Collected {len(self.steps)} steps ("
-            f"{counts[StepStatus.DONE]} ran, "
-            f"{counts[StepStatus.CACHED]} cached) in {elapsed:.3f}s"
+            f"Collected {len(self.steps)} steps ({', '.join(parts)}) in {elapsed:.3f}s"
         )
         if self._adapter is None:
             return line

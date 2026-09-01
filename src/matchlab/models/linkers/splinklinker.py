@@ -3,7 +3,7 @@
 import inspect
 import json
 from copy import deepcopy
-from typing import Any
+from typing import Any, ClassVar
 
 import polars as pl
 from pydantic import (
@@ -21,6 +21,8 @@ from splink.internals.linker_components.training import LinkerTraining
 
 from matchlab.core.logging import logger
 from matchlab.models.linkers.base import Linker
+
+DEFAULT_TRAINING_SEED = 0
 
 
 class SplinkLinkerFunction(BaseModel):
@@ -57,13 +59,12 @@ class SplinkLinkerFunction(BaseModel):
 class SplinkLinker(Linker):
     """A linker that leverages Bayesian record linkage using Splink.
 
-    !!! warning "Pass a seed to any sampling training function"
-        Step fingerprints are derived from configuration, so two collections that
-        share these settings share a cache entry. Training functions that sample —
-        `estimate_u_using_random_sampling`, for one — are non-deterministic unless
-        given a `seed` in their `arguments`, and without one the first result is
-        cached and silently reused. See `Step._fingerprint`.
+    Sampling training functions are seeded automatically with `0` when they
+    accept a `seed` argument and none was provided, so repeated collections with
+    the same settings stay deterministic and cache-safe.
     """
+
+    version: ClassVar[int] = 1
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -239,7 +240,13 @@ class SplinkLinker(Linker):
 
         for func in self.linker_training_functions:
             proc_func = getattr(self._linker.training, func.function)
-            proc_func(**func.arguments)
+            arguments = dict(func.arguments)
+            if (
+                "seed" in inspect.signature(proc_func).parameters
+                and "seed" not in arguments
+            ):
+                arguments["seed"] = DEFAULT_TRAINING_SEED
+            proc_func(**arguments)
 
     def link(
         self, left: pl.DataFrame = None, right: pl.DataFrame = None

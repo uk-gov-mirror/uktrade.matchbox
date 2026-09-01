@@ -17,6 +17,7 @@ minting.
 
 from collections.abc import Iterable
 from itertools import combinations
+from typing import ClassVar
 
 import polars as pl
 from pydantic import BaseModel, ConfigDict
@@ -194,6 +195,8 @@ class AnswerKey(BaseModel):
 class PerfectDeduper(Deduper):
     """A perfect deduper. Emits every within-entity pair it is given."""
 
+    version: ClassVar[int] = 1
+
     truth_id: str
 
     def prepare(self, data: pl.DataFrame) -> None:
@@ -206,6 +209,8 @@ class PerfectDeduper(Deduper):
 
 class PerfectLinker(Linker):
     """A perfect linker. Emits every cross-side pair sharing a true entity."""
+
+    version: ClassVar[int] = 1
 
     truth_id: str
 

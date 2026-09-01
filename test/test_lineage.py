@@ -54,6 +54,10 @@ class FakeStep(Step):
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         raise AssertionError("FakeStep never executes")
 
+    def _methodology_class(self) -> type | None:
+        """FakeStep runs no methodology; it computes nothing."""
+        return None
+
 
 def test_walk_inputs_before_consumers() -> None:
     """Walk yields every input before the step that consumes it."""

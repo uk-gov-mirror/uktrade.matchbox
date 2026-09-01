@@ -1,5 +1,7 @@
 """Group changes granularity. Collapse each `id` to one row."""
 
+from typing import ClassVar
+
 import polars as pl
 from pydantic import Field, field_validator
 from sqlglot import expressions, parse_one
@@ -19,6 +21,8 @@ class Group(Transformer):
     don't. Only `id` and the named aggregates survive, since grouping has to decide how
     every column collapses.
     """
+
+    version: ClassVar[int] = 1
 
     aggregates: dict[str, SQLExpression] = Field(
         description="Output column name to a DuckDB aggregate expression."

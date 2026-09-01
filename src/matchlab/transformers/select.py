@@ -1,5 +1,7 @@
 """Select projects. Keep the named columns, drop the rest."""
 
+from typing import ClassVar
+
 import polars as pl
 from pydantic import Field
 
@@ -13,6 +15,8 @@ class Select(Transformer):
     not name is dropped. `id` survives whether or not you name it, since it is the
     grouping a model matches on. Columns are the source-qualified names (`crn_company`).
     """
+
+    version: ClassVar[int] = 1
 
     columns: tuple[str, ...] = Field(
         default=(),

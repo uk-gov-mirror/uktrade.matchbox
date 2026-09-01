@@ -16,6 +16,8 @@ a3/b2, reachable but matched by nothing, must stay singletons (merge-forward).
 
 import json
 from collections.abc import Callable, Iterator
+from typing import ClassVar
+from unittest.mock import patch
 
 import polars as pl
 import pytest
@@ -586,6 +588,9 @@ def test_editable_step_attributes() -> None:
 
         def _execute(self, adapter: object, fp: bytes) -> None:  # pragma: no cover
             raise NotImplementedError
+
+        def _methodology_class(self) -> type | None:  # pragma: no cover
+            return None
 
     assert Custom().label == "mine"
 
@@ -1251,7 +1256,9 @@ def test_spec_serialisable(source: Callable[..., mb.Source]) -> None:
     for step in apex.lineage():
         dumped = step.spec.model_dump(mode="json")
         assert json.loads(json.dumps(dumped)) == dumped
-        # The spec is the fingerprint payload, so it must be stable.
+        # The spec is the fingerprint payload, so it must be stable. That holds
+        # because every methodology here declares a version. An unversioned one
+        # keys off a fresh nonce and is deliberately different every call.
         assert step._spec_key() == step._spec_key()
         kinds.add(step.kind)
 
@@ -1365,6 +1372,36 @@ def test_publish_idempotent(
     assert adapter.find("entities") == other._fp
 
 
+def test_publish_pins_a_refreshed_run(
+    source: Callable[..., mb.Source], adapter: mb.DuckDBAdapter
+) -> None:
+    """A label keeps resolving to the output it was published against.
+
+    An unversioned step re-keys on every collect, so a later collect writes a second
+    artifact rather than replacing the first. That is what keeps a label meaningful,
+    and what lets `publish` tell a moved result from an unchanged one: were the run
+    stored back over its own fingerprint, the label would follow the new bytes with
+    nothing raised and nothing said.
+    """
+    global _SUFFIX
+    crn = source("crn")
+    tagged = crn.transform(_Unversioned(column=crn.f("company")))
+    resolver = tagged.dedupe(mb.NaiveDeduper, {"unique_fields": ["tag"]}).resolve()
+    resolver.collect(adapter).publish("entities")
+    published = adapter.find("entities")
+
+    _SUFFIX = "-second"
+    resolver.collect(adapter)
+    _SUFFIX = "-first"
+
+    assert adapter.find("entities") == published
+    assert resolver._fp != published, "a refreshed run must not overwrite the old one"
+    with pytest.raises(
+        ValueError, match="already points at a different resolver output"
+    ):
+        resolver.publish("entities")
+
+
 def test_publish_needs_collected(
     source: Callable[..., mb.Source],
 ) -> None:
@@ -1444,3 +1481,118 @@ def test_edges_keyed_by_position(
     assert set(seen) == {0, 1}
     assert methodology.thresholds == {1: 0.8}
     assert seen[1] == len(second.edges())
+
+
+# -- methodology versions -------------------------------------------------------------
+#
+# A fingerprint covers a step's settings, never the code those settings configure. A
+# methodology that declares a `version` promises its output is a deterministic function
+# of its settings, and is cached. One that declares none is re-keyed on every collect.
+#
+# These assert on what a caller reads back, rather than on how often `_execute` ran,
+# so `_SUFFIX` stands in for the edit that starts the whole problem.
+
+_SUFFIX = "-first"
+
+
+class _Unversioned(mb.Transformer):
+    """A transformer whose output depends on code it never declared a version for."""
+
+    column: str
+
+    def apply(self, data: pl.DataFrame) -> pl.DataFrame:
+        return data.with_columns((pl.col(self.column) + _SUFFIX).alias("tag"))
+
+
+class _Versioned(_Unversioned):
+    """The same transformer, promising its output follows from its settings."""
+
+    version: ClassVar[int] = 1
+
+
+def test_version_unset_refreshes(source: Callable[..., mb.Source]) -> None:
+    """An unversioned methodology re-runs, so an edit to its code is picked up.
+
+    The regression this pins: editing a custom methodology used to change nothing the
+    cache could see, so `collect` handed back the artifact the previous body wrote.
+    """
+    global _SUFFIX
+    crn = source("crn")
+    step = crn.transform(_Unversioned(column=crn.f("company"))).collect()
+    assert sorted(step.data()["tag"].to_list()) == [
+        "acme-first",
+        "acme-first",
+        "beta-first",
+    ]
+
+    _SUFFIX = "-second"  # the edit
+    step.collect()
+
+    assert sorted(step.data()["tag"].to_list()) == [
+        "acme-second",
+        "acme-second",
+        "beta-second",
+    ]
+    _SUFFIX = "-first"
+
+
+def test_version_unset_refreshes_downstream(source: Callable[..., mb.Source]) -> None:
+    """A versioned step below an unversioned one re-runs too.
+
+    Its own fingerprint moves because it folds in its parent's. The step it holds is
+    settled, though, so without `_cacheable` it would short-circuit on the fingerprint
+    it already had and report a cache hit against a parent that just moved.
+    """
+    global _SUFFIX
+    crn = source("crn")
+    unversioned = crn.transform(_Unversioned(column=crn.f("company")))
+    downstream = unversioned.clean({"shout": "upper(tag)"}).collect()
+    assert sorted(downstream.data()["shout"].to_list()) == [
+        "ACME-FIRST",
+        "ACME-FIRST",
+        "BETA-FIRST",
+    ]
+
+    _SUFFIX = "-second"
+    downstream.collect()
+
+    assert sorted(downstream.data()["shout"].to_list()) == [
+        "ACME-SECOND",
+        "ACME-SECOND",
+        "BETA-SECOND",
+    ]
+    _SUFFIX = "-first"
+
+
+def test_version_bump_invalidates(source: Callable[..., mb.Source]) -> None:
+    """Bumping a version retires the artifacts the previous body wrote.
+
+    A versioned methodology is cached, so this is the only way to tell matchlab that
+    the code behind one changed.
+    """
+    global _SUFFIX
+    crn = source("crn")
+    first = crn.transform(_Versioned(column=crn.f("company"))).collect()
+    assert sorted(first.data()["tag"].to_list()) == [
+        "acme-first",
+        "acme-first",
+        "beta-first",
+    ]
+
+    _SUFFIX = "-second"
+    unbumped = crn.transform(_Versioned(column=crn.f("company"))).collect()
+    assert sorted(unbumped.data()["tag"].to_list()) == [
+        "acme-first",
+        "acme-first",
+        "beta-first",
+    ], "a versioned methodology is cached, which is what a version promises"
+
+    with patch.object(_Versioned, "version", 2):
+        bumped = crn.transform(_Versioned(column=crn.f("company"))).collect()
+        assert sorted(bumped.data()["tag"].to_list()) == [
+            "acme-second",
+            "acme-second",
+            "beta-second",
+        ]
+
+    _SUFFIX = "-first"

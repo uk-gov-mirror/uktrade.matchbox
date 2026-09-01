@@ -375,17 +375,19 @@ class DuckDBAdapter(Adapter):
 
     # -- maintenance ------------------------------------------------------------------
 
-    def _keep_set(self, keep: Iterable[Fingerprint | str]) -> set[Fingerprint]:
+    def _keep_set(self, keep: Iterable[Fingerprint]) -> set[Fingerprint]:
         """Every fingerprint that must survive a prune.
 
-        Labels go in whether or not they were named. A label also drags in the sources
-        its resolver output needs. Reading a published resolver output without a plan
-        goes through `resolver_output_sources` to each source's extract. Without them,
-        a kept label resolves to a fingerprint whose data is gone.
+        Published labels always go in. Each one also drags in the sources its
+        resolver output needs. Reading a published resolver output without a plan goes
+        through `resolver_output_sources` to each source's extract. Without them, a
+        kept label resolves to a fingerprint whose data is gone.
         """
         kept: set[Fingerprint] = set()
         for item in keep:
-            kept |= self._label_closure(item) if isinstance(item, str) else {item}
+            if not isinstance(item, bytes):
+                raise TypeError("`prune(keep=...)` expects fingerprints.")
+            kept.add(item)
 
         for label in self.labels():
             kept |= self._label_closure(label)
@@ -402,7 +404,7 @@ class DuckDBAdapter(Adapter):
             )
         return {fp, *self.resolver_output_sources(fp).values()}
 
-    def prune(self, keep: Iterable[Fingerprint | str] = ()) -> PruneResult:
+    def prune(self, keep: Iterable[Fingerprint] = ()) -> PruneResult:
         """Delete every artifact except the ones named, and reclaim what that frees.
 
         Deleting is only half of it. DuckDB marks freed blocks for reuse but never
@@ -433,8 +435,8 @@ class DuckDBAdapter(Adapter):
 
         if not kept and stored:
             raise ValueError(
-                "Pruning with nothing to keep would empty the store. Name a plan or a "
-                "label, or delete the file instead if that is what you meant."
+                "Pruning with nothing to keep would empty the store. Name a plan to "
+                "keep, or delete the file instead if that is what you meant."
             )
 
         before = self.stats().bytes

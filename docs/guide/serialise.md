@@ -59,7 +59,7 @@ Path("plan.json").write_text(mb.dump(entities))
 }
 ```
 
-Each node holds three things, and they stay separate.
+Each node holds three things:
 
 * `spec` is the step's own settings, and exactly what its [fingerprint](../glossary.md#fingerprint) hashes.
 * `inputs` names the steps it reads.
@@ -125,14 +125,6 @@ mb.Source(
 )
 ```
 
-Each field is checked against its own declaration rather than taken on trust. A resource passed among the settings would be hashed. A setting passed among the resources would drop out of the spec, so two steps doing different work would share one fingerprint.
-
-```
-ResourceError: 'client' on RelationalDB is marked `FromResources`, so must be passed
-in `location_resources` rather than `location_settings`. A document then records the
-name rather than the value, and no credential is serialised.
-```
-
 ## Loading
 
 `load()` rebuilds the plan and returns its apex. Nothing is collected. Hand it the JSON:
@@ -149,14 +141,12 @@ entities.collect()
 
 ## Fingerprints transfer
 
-A rebuilt plan fingerprints identically to the plan that was dumped, given the same data. That is the point of the exercise. A store already holding the original's artifacts serves them to the rebuilt plan instead of redoing the work.
+A rebuilt plan fingerprints identically to the plan that was dumped, given the same data. A store already holding the original's artifacts serves them to the rebuilt plan instead of redoing the work.
 
 The sources decide it. A source's fingerprint folds in a hash of the rows it read. A document carries no data and no hash of any, so that hash is derived on load, by reading the target's own rows.
 
 * Same rows, same fingerprints, and the target store hits cache.
 * Different rows, different fingerprints, and the plan re-runs.
-
-Both are the intended behaviour.
 
 ## What a document can't carry
 
@@ -181,3 +171,7 @@ ValueError: No location class named 'S3Location' is registered. Register it with
 ```
 
 `add_model_class`, `add_transformer_class` and `add_resolver_class` do the same for the other kinds of step. A document is portable across environments, not across codebases.
+
+## Next
+
+[Custom methodologies :octicons-arrow-right-16:](./custom-methodologies.md){ .md-button .md-button--primary }

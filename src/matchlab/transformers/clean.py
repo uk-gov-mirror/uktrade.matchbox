@@ -1,5 +1,7 @@
 """Clean derives columns. Add or replace named columns, keep the rest."""
 
+from typing import ClassVar
+
 import polars as pl
 from pydantic import Field, field_validator
 from sqlglot import expressions, parse_one
@@ -21,6 +23,8 @@ class Clean(Transformer):
     `id` is not writable. It is the grouping a model matches on, so an alias naming
     it is refused rather than allowed to displace it.
     """
+
+    version: ClassVar[int] = 1
 
     cleaning: dict[str, SQLExpression] = Field(
         description="Output column name to a DuckDB SQL expression over the step."

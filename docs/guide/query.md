@@ -26,8 +26,6 @@ Restrict it to the sources you care about:
 companies.entities(sources=["crn", "dh"])
 ```
 
-Naming a source this resolver never read is an error rather than an empty result, so a typo doesn't quietly look like "no matches".
-
 ## Looking up one record
 
 The common operational question: *given this record, what else is the same entity?*

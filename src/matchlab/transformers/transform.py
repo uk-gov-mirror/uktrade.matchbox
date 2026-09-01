@@ -44,7 +44,7 @@ class Transform(RecordStep):
         {"transformer", "transformer_settings", "transformer_resources", "_input"}
     )
 
-    #: Settled at construction. See `Step.parents` for why this is declared.
+    # Settled at construction. See `Step.parents` for why this is declared.
     transformer: Transformer
     transformer_settings: dict[str, Any]
     transformer_resources: dict[str, Resource]
@@ -106,7 +106,7 @@ class Transform(RecordStep):
         )
         self._check_names()
 
-    #: Settled at construction. The record step this transform reshapes.
+    # Settled at construction. The record step this transform reshapes.
     _input: RecordStep
 
     @property
@@ -132,6 +132,10 @@ class Transform(RecordStep):
             transformer_class=self.transformer_class.__name__,
             transformer_settings=self.transformer_settings,
         )
+
+    def _methodology_class(self) -> type:
+        """The transformer whose code this transform runs."""
+        return self.transformer_class
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         records = self._input._read_cache(adapter)

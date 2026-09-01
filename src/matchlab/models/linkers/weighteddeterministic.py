@@ -1,5 +1,7 @@
 """A linking methodology that applies different weights to field comparisons."""
 
+from typing import ClassVar
+
 import duckdb
 import polars as pl
 from pydantic import BaseModel, Field, field_validator
@@ -38,6 +40,8 @@ class WeightedComparison(BaseModel):
 
 class WeightedDeterministicLinker(Linker):
     """Scores a pair by the weighted share of comparisons it matches on."""
+
+    version: ClassVar[int] = 1
 
     weighted_comparisons: list[WeightedComparison] = Field(
         description="A list of tuples in the form of a comparison, and a weight."

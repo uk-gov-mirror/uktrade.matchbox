@@ -88,9 +88,9 @@ class Source(RecordStep):
         }
     )
 
-    #: Settled at construction. Declared, rather than only assigned, so a reader and a
-    #: type checker can both see what a source holds: `_set` writes them past
-    #: `__setattr__`, which is invisible to static analysis.
+    # Settled at construction. Declared, rather than only assigned, so a reader and a
+    # type checker can both see what a source holds: `_set` writes them past
+    # `__setattr__`, which is invisible to static analysis.
     location: Location
     location_class: type[Location]
     location_settings: dict[str, Any]
@@ -167,6 +167,10 @@ class Source(RecordStep):
     def _claimed_name(self) -> str:
         """A source's name is part of its output, so no two in one plan may share it."""
         return self.name
+
+    def _methodology_class(self) -> type | None:
+        """A source is keyed by a hash of the rows it read, not by any code."""
+        return None
 
     # -- spec -------------------------------------------------------------------------
 

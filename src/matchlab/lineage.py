@@ -28,16 +28,19 @@ if TYPE_CHECKING:
 class StepStatus(StrEnum):
     """Where a step has got to in a collection.
 
-    `CACHED` and `DONE` both mean the artifact is available. They differ in whether
-    this collection paid for it. That distinction is the whole point of showing
-    progress for a content-addressed plan. It is how you see what your edit
-    invalidated.
+    `CACHED`, `DONE` and `REFRESHED` all mean the artifact is available. They differ
+    in why.
+
+    `DONE` and `REFRESHED` both paid for the artifact. A `DONE` step ran because
+    something it depends on moved. A `REFRESHED` step ran because it cannot be cached
+    at all, and it will run again next time.
     """
 
     PENDING = "pending"
     RUNNING = "running"
     DONE = "done"
     CACHED = "cached"
+    REFRESHED = "refreshed"
     FAILED = "failed"
 
     @property
@@ -61,6 +64,7 @@ _MARKERS: dict[StepStatus, str] = {
     StepStatus.RUNNING: "◐",
     StepStatus.DONE: "●",
     StepStatus.CACHED: "◍",
+    StepStatus.REFRESHED: "↻",
     StepStatus.FAILED: "✗",
 }
 
@@ -69,12 +73,18 @@ _STYLES: dict[StepStatus, str] = {
     StepStatus.RUNNING: "bold yellow",
     StepStatus.DONE: "bold green",
     StepStatus.CACHED: "cyan",
+    StepStatus.REFRESHED: "bold magenta",
     StepStatus.FAILED: "bold red",
 }
 
 
 # Statuses where an elapsed time is worth showing, the ones that spent any.
-_TIMED = (StepStatus.RUNNING, StepStatus.DONE, StepStatus.FAILED)
+_TIMED = (
+    StepStatus.RUNNING,
+    StepStatus.DONE,
+    StepStatus.REFRESHED,
+    StepStatus.FAILED,
+)
 
 
 class StepState(BaseModel):

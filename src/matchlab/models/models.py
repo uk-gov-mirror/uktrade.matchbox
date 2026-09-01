@@ -112,7 +112,7 @@ class Model(Step):
         }
     )
 
-    #: Settled at construction. See `Step.parents` for why these are declared.
+    # Settled at construction. See `Step.parents` for why these are declared.
     left: RecordStep
     right: RecordStep | None
     model_class: type[Deduper] | type[Linker]
@@ -199,6 +199,10 @@ class Model(Step):
             model_class=self.model_class.__name__,
             model_settings=self.model_settings,
         )
+
+    def _methodology_class(self) -> type:
+        """The deduper or linker whose code this model runs."""
+        return self.model_class
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         left = self.left._read_cache(adapter)

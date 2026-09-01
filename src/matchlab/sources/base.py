@@ -18,6 +18,10 @@ class Location(BaseModel, ABC):
     """A place data is read from, holding everything needed to read it.
 
     Every field is a setting unless marked `matchlab.resources.FromResources`.
+
+    A location declares no `version`, unlike the methodologies the other kinds of step
+    run. A source hashes the rows it read into its own spec key, so a change in what a
+    location returns already moves the fingerprint.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)

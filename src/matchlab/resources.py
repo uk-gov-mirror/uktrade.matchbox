@@ -39,8 +39,8 @@ class Resource(Generic[T]):
 
     __slots__ = ("name", "value")
 
-    #: What a document records. `None` for an anonymous resource, which works in this
-    #: process and is refused by `dump`.
+    # What a document records. `None` for an anonymous resource, which works in this
+    # process and is refused by `dump`.
     name: str | None
     value: T
 

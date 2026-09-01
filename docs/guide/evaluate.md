@@ -14,7 +14,7 @@ The loop has three steps:
 2. **Review** each cluster. A person decides which records actually belong together, sorting them into groups. That decision is a judgement, stored under a tag.
 3. **Score** the resolver against the stored judgements. The result is a precision and a recall.
 
-Run the same loop for two resolvers built with different methodologies, and score them against the same judgements. That's a fair comparison, not a guess.
+Run the same loop for two resolvers built with different methodologies, and score them against the same judgements so the comparison is fair.
 
 The rest of this page works through each step, then compares methodologies directly.
 
@@ -54,7 +54,7 @@ mb.eval.review(companies, seed=7)
 
 Same store, same `n`, same seed, same clusters. Two people can judge the same work independently, and their judgements are directly comparable.
 
-There's a command too, for when you'd rather not open a REPL. It takes a `module:attribute` naming a resolver in your own code. That's the same shape `uvicorn` uses:
+There's a terminal command too. It takes a `module:attribute` naming a resolver in your own code:
 
 ```shell
 matchlab review pipeline:companies --tag review-2026-07

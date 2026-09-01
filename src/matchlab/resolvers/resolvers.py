@@ -51,7 +51,7 @@ class Resolver(RecordStep):
         }
     )
 
-    #: Settled at construction. See `Step.parents` for why these are declared.
+    # Settled at construction. See `Step.parents` for why these are declared.
     _inputs: tuple[Model, ...]
     resolver_class: type[ResolverMethod]
     resolver_settings: dict[str, Any]
@@ -218,6 +218,10 @@ class Resolver(RecordStep):
         return self
 
     # -- Step contract ----------------------------------------------------------------
+
+    def _methodology_class(self) -> type:
+        """The resolver methodology whose code this resolver runs."""
+        return self.resolver_class
 
     def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
         edges = {

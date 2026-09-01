@@ -99,6 +99,39 @@ def test_add_transformer_class_rejects_non_transformer() -> None:
         add_transformer_class(str)
 
 
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        pytest.param(
+            {"up": "upper(crn_company)", "tag": "up || '!'"},
+            {"tag": "up || '!'", "up": "upper(crn_company)"},
+            id="cleaning",
+        ),
+        pytest.param(
+            {"n": "count(*)", "double": "n * 2"},
+            {"double": "n * 2", "n": "count(*)"},
+            id="aggregates",
+        ),
+    ],
+)
+def test_spec_key_reordered(
+    source: Callable[..., Source],
+    first: dict[str, str],
+    second: dict[str, str],
+) -> None:
+    """Entry order is part of a `Clean` or a `Group`, so it belongs in the spec key.
+
+    Both project their entries in the order they were written, and DuckDB resolves an
+    alias only against entries defined before it. These two orders are therefore
+    different transforms, and the second cannot run at all. Hashing the settings with
+    sorted keys gave them one fingerprint, so the second read back the first's table.
+    """
+    crn = source("crn")
+    verb = crn.clean if "up" in first else crn.group
+
+    assert verb(first)._spec_key() != verb(second)._spec_key()
+
+
 # -- `id` is not writable -------------------------------------------------------------
 #
 # `id` is the grouping a model matches on, derived by matchlab from record content.

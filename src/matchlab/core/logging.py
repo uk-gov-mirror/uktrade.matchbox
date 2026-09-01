@@ -1,15 +1,20 @@
-"""The logger and console everything in matchlab reports through.
+"""The logger and consoles everything in matchlab reports through.
 
-Two objects, one each for the two ways output leaves the library:
+Three module attributes decide how output leaves the library:
 
 * `logger` — the `matchlab` logger, wrapped so any record can carry a prefix saying
-  which part of a plan produced it. Like any library logger it has no handler of its
-  own, and is silent until the application configures logging.
-* `console` — the Rich console. `matchlab.progress` draws the collection tree on it,
-  and tests swap it for a quiet one.
+  which part of a plan produced it. Like any library logger it starts with no handler of
+  its own, so an application that configures logging gets these records wherever it
+  sends everything else.  If no application handler is configured, audible temporarily
+  lends the logger a console handler for the duration of a collection.
+* `console` — the Rich UI console. `matchlab.progress` draws the collection tree on
+  it, and tests swap it for a quiet one.
+* `diagnostic_console` — a Rich console bound to stderr. `ConsoleHandler` uses
+  it when stdout may belong to data rather than to a human-facing display.
 
-Both are module attributes rather than values passed around, so `matchlab.progress`
-reads them through the module (`mlog.console`) instead of importing them directly.
+The consoles are module attributes rather than values passed around, so
+`matchlab.progress` reads them through the module (`mlog.console`) instead of
+importing them directly.
 That indirection is what lets a test patch one and have the library pick it up.
 
 **A prefix is usually ambient, not passed.** The thing worth quoting is a step's
@@ -97,6 +102,13 @@ console: Final[Console] = Console()
 Where `matchlab.progress` draws a collection's plan, and where any CLI utility writes.
 """
 
+diagnostic_console: Final[Console] = Console(stderr=True)
+"""Console for fallback diagnostics.
+
+Used for log records when matchlab is running without a terminal-backed UI
+console, so machine-readable stdout stays clean.
+"""
+
 
 @contextmanager
 def through_console() -> Generator[None]:
@@ -135,7 +147,7 @@ def through_console() -> Generator[None]:
     terminal = {sys.stdout, sys.stderr, console.file}
     patched: list[tuple[logging.StreamHandler, IO[str]]] = []
 
-    target: logging.Logger | None = logging.getLogger("matchlab")
+    target: logging.Logger | None = logger.logger
     while target is not None:
         for handler in target.handlers:
             stream = getattr(handler, "stream", None)
@@ -168,6 +180,8 @@ class ConsoleHandler(logging.Handler):
     table and would wrap a logged plan inside its narrow message column. What matchlab
     logs is mostly trees, and a tree that wraps is not a tree. Records are written at
     the console's full width, unstyled, and formatted however the application asked.
+    Where stdout is carrying data or has been redirected away from a terminal, they go
+    to stderr through `diagnostic_console` so the data stream stays clean.
 
     You do not need this to run a collection at a terminal: `through_console` already
     borrows a handler bound to one for as long as a live tree is up. This is for saying
@@ -180,11 +194,70 @@ class ConsoleHandler(logging.Handler):
     """
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Write `record` to the console."""
+        """Write `record` to the appropriate console."""
         try:
             # `markup=False` matters: a drawn tree is full of `[2]`, which Rich would
             # otherwise try to parse as a style tag. `highlight=False` likewise — its
             # guesses at numbers and brackets colour the tree into confetti.
-            console.print(self.format(record), markup=False, highlight=False)
+            target = (
+                console
+                if console.is_terminal or console.is_jupyter
+                else diagnostic_console
+            )
+            target.print(self.format(record), markup=False, highlight=False)
         except Exception:  # noqa: BLE001 - a handler must never raise into the caller
             self.handleError(record)
+
+
+@contextmanager
+def audible() -> Generator[None]:
+    """Give matchlab's records somewhere to go when the application never said.
+
+    A library logger has no handler of its own, so everything a collection reports —
+    the plan, the per-step records, the closing summary — is dropped unless the
+    application called `logging.basicConfig()` first. That is the right default for a
+    library being embedded in something larger, and the wrong one for the ordinary
+    case: someone at a prompt running a plan, watching the tree fill in, and never
+    told why the line saying what it cost isn't there.
+
+    So for the length of a collection, and only where nothing is listening, this
+    attaches a `ConsoleHandler` and opens the `matchlab` logger to `INFO`. Through the
+    console, because that is what coexists with a live tree — see `ConsoleHandler`.
+    Both changes are undone on the way out, so global logging state is left exactly as
+    it was found, and an application that configures logging later still gets what it
+    configures.
+
+    **A handler anywhere up the chain counts as listening**, and this then does nothing
+    at all. An application that configured logging gets what it asked for, at the level
+    it chose, including a level that drops these records. That is also how to turn this
+    off:
+
+    ```python
+    logging.getLogger("matchlab").addHandler(logging.NullHandler())
+    ```
+
+    This is the the standard way to silence a library, which works here for the same
+    reason a real handler does.
+    """
+    target = logger.logger
+    if target.hasHandlers():
+        yield
+        return
+
+    handler = ConsoleHandler()
+    # A level and the message, nothing else. No timestamp or logger name, which would
+    # push a `[step 7]` off to the right of every line and indent a logged tree out of
+    # shape. The level stays because it is what separates a step that ran from one
+    # that failed.
+    handler.setFormatter(logging.Formatter("%(levelname)-5s %(message)s"))
+    # Only where the level was left unset. A caller who set one without attaching a
+    # handler has still said what they want to see, and `INFO` is not it.
+    level = target.level
+    target.addHandler(handler)
+    if level == logging.NOTSET:
+        target.setLevel(logging.INFO)
+    try:
+        yield
+    finally:
+        target.removeHandler(handler)
+        target.setLevel(level)

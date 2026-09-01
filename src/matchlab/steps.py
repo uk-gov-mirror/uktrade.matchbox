@@ -11,17 +11,21 @@ runs only the steps whose artifact is not already stored.
 **Fingerprints identify artifacts.** A step's fingerprint combines its kind, its
 spec, and its inputs' fingerprints. Everything downstream of a source can therefore
 derive it from the *plan alone*, before any work happens, and `collect`
-can skip a cached step without running it. Sources are the exception. Raw data enters
-there, so a source's spec key includes a content hash of the data it read.
-Constructing a fresh `Source` therefore re-reads the warehouse (the documented way to
-refresh), while an existing `Source` object memoises its read.
+can skip a cached step without running it.
+
+Two kinds of step are keyed by more than their plan. A **source** is where raw data
+enters, so its spec key includes a content hash of the data it read. Constructing a
+fresh `Source` therefore re-reads the warehouse (the documented way to refresh), while
+an existing `Source` object memoises its read. A step whose **methodology declares no
+version** is keyed by a fresh nonce on every collect, because matchlab has been told
+nothing about that code and will not cache what it cannot identify. See
+`matchlab.core.versioning`.
 
 **A step is settled once built.** Everything its spec is derived from refuses
 assignment, so a plan is changed by rebuilding it, not by editing a node in place.
 """
 
 import inspect
-import json
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Self
 
@@ -30,9 +34,11 @@ from pydantic import BaseModel
 
 from matchlab import lineage
 from matchlab.adapters import Adapter, DuckDBAdapter, Fingerprint
+from matchlab.core import logging as mlog
 from matchlab.core.exceptions import ResourceError
 from matchlab.core.hash import HASH_FUNC
 from matchlab.core.kinds import StepKind
+from matchlab.core.versioning import declared_version, methodology_key
 from matchlab.lineage import StepStatus
 from matchlab.progress import report
 from matchlab.resources import (
@@ -67,8 +73,8 @@ class Step(ABC):
 
     kind: ClassVar[StepKind]
 
-    #: The prefix on this kind's `*_settings` and `*_resources` arguments. Empty for a
-    #: step that runs no methodology, which is `RecordStep` and any test double.
+    # The prefix on this kind's `*_settings` and `*_resources` arguments. Empty for a
+    # step that runs no methodology, which is `RecordStep` and any test double.
     # `_build_methodology` quotes it when a field was passed in the wrong one, so it
     # has to name arguments the step really takes
     _METHODOLOGY: ClassVar[str] = ""
@@ -199,10 +205,10 @@ class Step(ABC):
     # the same guarantee from the other side. `_ensure` short-circuits on a stored
     # fingerprint *because* a settled step cannot have changed.
 
-    #: Attributes only `__init__` may write. A kind names its own and unions this, so a
-    #: `Step` subclass keeps whatever attributes it likes. The guard protects what the
-    #: plan machinery reads, not every attribute on the object. `parents` is not
-    #: here: it is a property, which refuses assignment without any help.
+    # Attributes only `__init__` may write. A kind names its own and unions this, so a
+    # `Step` subclass keeps whatever attributes it likes. The guard protects what the
+    # plan machinery reads, not every attribute on the object. `parents` is not
+    # here: it is a property, which refuses assignment without any help.
     _READ_ONLY: ClassVar[frozenset[str]] = frozenset()
 
     def __setattr__(self, name: str, value: object) -> None:
@@ -299,8 +305,44 @@ class Step(ABC):
         `Source` extends this with a content hash of the data it read, so that the
         fingerprint tracks the warehouse. For every other kind the spec is the
         whole story.
+
+        Serialised through pydantic, which preserves both field order and a settings
+        dict's insertion order.
+
+        The methodology adds what it promises about its own code: a version where it
+        declares one, a fresh nonce where it does not. See `matchlab.core.versioning`.
         """
-        return json.dumps(self.spec.model_dump(mode="json"), sort_keys=True).encode()
+        return self.spec.model_dump_json().encode() + methodology_key(
+            self._methodology_class()
+        )
+
+    @abstractmethod
+    def _methodology_class(self) -> type | None:
+        """The class whose code this step runs, where there is one.
+
+        `None` for a step keyed by something other than code. `Source` is the real
+        case, hashing the rows it read, so its location needs no version.
+        """
+        ...
+
+    @property
+    def _cacheable(self) -> bool:
+        """Whether a later collect may reuse this step's stored artifact.
+
+        False as soon as this step's methodology declares no version, or any step above
+        it declares none. An unversioned step re-runs and may produce something else, so
+        nothing below it can trust what it stored last time either.
+
+        Fingerprints mostly take care of this on their own. `_spec_key` re-keys an
+        unversioned step through its nonce, and a child folds its parents' fingerprints
+        into its own. This method covers the one place they do not reach: `_ensure`
+        short-circuits on a fingerprint this object already holds, without recomputing
+        it, which would let a versioned step below an unversioned one report a cache hit
+        against a parent that had just moved.
+        """
+        methodology = self._methodology_class()
+        stable = methodology is None or declared_version(methodology) is not None
+        return stable and all(parent._cacheable for parent in self.parents)
 
     def _fingerprint(self) -> Fingerprint:
         """Address this step by kind, spec and inputs.
@@ -315,16 +357,23 @@ class Step(ABC):
         stand in for the inputs, the spec for the settings.
         Same fingerprint must therefore mean same output.
 
-        Three things break that rule, and they are one defect in different clothes:
+        That is what a methodology promises by declaring a `version`, and what one
+        declaring none refuses to promise. An unversioned methodology takes a fresh
+        nonce here instead, so it re-runs and takes everything below it with it. Three
+        things break the rule where it is claimed, and they are one defect in different
+        clothes:
 
         * **Resources.** Anything passed in a step's `*_resources` reaches no spec, so
-          it must be something the step reads *through* and never data it reads. See
-          `matchlab.resources`.
+            it must be something the step reads *through* and never data it reads. See
+            `matchlab.resources`.
         * **Randomness.** A methodology that samples is not a function of its settings
-          unless it is seeded. `SplinkLinker` without a `seed` in a sampling training
-          function's arguments is the live example.
+            unless it is seeded or otherwise made deterministic. `SplinkLinker` fills
+            in `seed=0` for any training function that accepts a seed and omits it.
         * **Ambient state.** A library version, a locale, a clock. Upgrade a matcher and
-          the same settings produce different edges under the same key.
+            the same settings produce different edges under the same key.
+
+        Each is a reason to leave `version` unset, or to bump it once the cause is
+        fixed. Code matchlab ships declares one, so a change here is a bump.
 
         A **source** is a special case. It has no parents, so its
         inputs live outside matchlab; `_spec_key` reads the rows and hashes them to make
@@ -333,13 +382,13 @@ class Step(ABC):
         Break the rule and the key disagrees with the bytes, in one of two directions.
 
         * the spec omits something that changes the output, a **stale hit**, because
-          `_ensure` never runs the step and reads the old artifact. This is the
-          dangerous direction: it is silent, and it hands back wrong results. All three
-          breakers above land here.
+            `_ensure` never runs the step and reads the old artifact. This is the
+            dangerous direction: it is silent, and it hands back wrong results.
+            All three breakers above land here.
         * the spec includes something that doesn't change the output, a **spurious
-          miss**, re-running the step and everything below it for nothing. Wasteful and
-          safe. For example, in `SourceSpec.location_settings` the query is hashed
-          even though the data hash already covers anything it could change.
+            miss**, re-running the step and everything below it for nothing. Wasteful
+            but safe. For example, in `SourceSpec.location_settings` the query is hashed
+            even though the data hash already covers anything it could change.
 
         There is also no early cutoff. A `Transform` whose SQL is reformatted but
         semantically unchanged invalidates the whole subtree beneath it.
@@ -378,6 +427,12 @@ class Step(ABC):
         would only confirm the fingerprint already held. That saves a spec hash per step
         per collect, which for a `Source` means re-hashing every row hash it memoised.
 
+        That holds only while the step is `_cacheable`. An unversioned methodology
+        re-keys on every collect, and so does everything below it, so a step in that
+        subtree recomputes its fingerprint and runs again. It reports `REFRESHED` rather
+        than `DONE`, since it did the work for want of a promise about the code rather
+        than because anything moved.
+
         This classifies the outcome but reports none of it. `collect` holds the walk,
         and therefore each step's position, the thing a record has to quote to be
         findable in the plan. Reporting belongs there, with the single
@@ -386,13 +441,16 @@ class Step(ABC):
 
         Returns:
             What it took. `DONE` if this call computed the step, `CACHED` if the
-            artifact was already stored.
+            artifact was already stored, `REFRESHED` if the step cannot be cached and
+            was computed again.
         """
         self._adapter = adapter
 
-        if self._fp is not None and adapter.has(self._fp):
+        if self._cacheable and self._fp is not None and adapter.has(self._fp):
             return StepStatus.CACHED
 
+        # Once per collect, and it has to stay that way. An unversioned methodology
+        # keys off a fresh nonce, so asking twice would address two artifacts.
         fp = self._fingerprint()
 
         if adapter.has(fp):  # cache hit, skip the work entirely
@@ -401,7 +459,7 @@ class Step(ABC):
 
         self._execute(adapter, fp)
         self._fp = fp
-        return StepStatus.DONE
+        return StepStatus.DONE if self._cacheable else StepStatus.REFRESHED
 
     # -- public API -------------------------------------------------------------------
 
@@ -412,6 +470,12 @@ class Step(ABC):
 
         Steps whose artifact is already stored are skipped without being run, so
         re-collecting after adding a downstream step only does the new work.
+
+        Reports as it goes: the plan, a record per step, and a closing summary of what
+        ran, what was cached, how long it took and what the store now holds. No logging
+        setup is needed for any of that — a collection lends the `matchlab` logger a
+        console handler where the application hasn't configured one, and leaves an
+        application that has entirely alone. See `matchlab.core.logging.audible`.
 
         Args:
             adapter: Where to read and write artifacts. Defaults to the module-level
@@ -429,7 +493,10 @@ class Step(ABC):
         # One walk, used for both. It fixes each step's position, so a `step 7` the
         # reporter logs is the node it drew as `[7]`.
         steps = lineage.walk(self)
-        with report(self, steps, interactive, adapter) as reporter:
+        # Outside the report, so it is still standing when the report logs its closing
+        # summary on the way out. Does nothing where the application configured logging
+        # itself; see `matchlab.core.logging.audible`.
+        with mlog.audible(), report(self, steps, interactive, adapter) as reporter:
             for step in steps:
                 reporter.begin(step)
                 try:
