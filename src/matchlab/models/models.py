@@ -112,7 +112,7 @@ class Model(Step):
         }
     )
 
-    #: Settled at construction. See `Step.parents` for why these are declared.
+    # Settled at construction. See `Step.parents` for why these are declared.
     left: RecordStep
     right: RecordStep | None
     model_class: type[Deduper] | type[Linker]

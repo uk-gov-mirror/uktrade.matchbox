@@ -33,14 +33,14 @@ Reading a dataframe you've already shaped needs no query at all:
 dh = mb.read_dataframe("dh", df=my_polars_df)
 ```
 
-The first argument (`name`) prefixes every column this source contributes. For `"crn"`, `company` becomes `crn_company`. Those names end up in cleaning SQL, so a name must start with a letter or underscore, then hold only letters, digits and underscores.
+The first argument (`name`) prefixes every column this source contributes. For `"crn"`, `company` becomes `crn_company`. A name must start with a letter or underscore, then hold only letters, digits and underscores.
 
 `key_field` is the identifier you'll get back in results. It needs to match an existing column in your source data. It's read as a string whatever type it has in the data. It defaults to `"id"`.
 
 **The identity of each row is defined by all values returned by the source.** Two rows are considered to be the same entity when every column comes back identical for both. Above, a company appearing twice with the same name and town is one entity. Change the town, and it's two. With `read_dataframe` the same rule applies to whatever columns the frame carries. This means:
 
 * **A column you don't want to affect identity is a column that shouldn't come back.** Pull a `last_updated` timestamp through and every row becomes distinct.
-* **A type you want pinned is a `cast`** in the SQL, on the frame.
+* **A type you want pinned is a `cast`** in the SQL, or the frame.
 * **Changing the data behind any returned column invalidates the source**, and everything downstream of it.
 
 You can still return a column purely to look at. `view_entity` and the evaluation samplers show every column the source returned, reading it back from the copy cached at collect time, but selecting it still makes it count.
@@ -285,7 +285,7 @@ INFO  [step 6] Ran in 0.104s
 INFO  Collected 7 steps (7 ran, 0 cached) in 1.402s. Store 3.0 MB (+3.0 MB), 7 artifacts
 ```
 
-**You don't have to configure logging to see any of this.** If you haven't, matchlab attaches its own handler while a collection runs. At a terminal it writes through the same console as the tree; where stdout is being captured for some other purpose, it writes the records to stderr instead. The output above is what a bare script or a fresh notebook gives you.
+If you don't configure logging, matchlab will automatically add a handler while a collection runs. The output above is what a bare script or a fresh notebook gives you.
 
 If you configure logging, matchlab prints nothing of its own. The records go wherever you send everything else, at the level you chose:
 
@@ -295,7 +295,7 @@ import logging
 logging.basicConfig(level=logging.INFO)  # or DEBUG, to see extra logs
 ```
 
-To turn the reporting off, silence the `matchlab` as you would any library:
+To turn the reporting off, silence `matchlab` as you would any library:
 
 ```python
 logging.getLogger("matchlab").addHandler(logging.NullHandler())

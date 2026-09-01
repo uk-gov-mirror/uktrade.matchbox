@@ -23,8 +23,8 @@ class Linker(BaseModel, ABC):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     # Bump it to retire every artifact the previous body wrote.
-    #: Left unset, the step re-runs on every collect, and so does everything below it.
-    #: See `matchlab.core.versioning`.
+    # Left unset, the step re-runs on every collect, and so does everything below it.
+    # See `matchlab.core.versioning`.
     version: ClassVar[int | None] = None
 
     left_id: Literal["id"] = Field(

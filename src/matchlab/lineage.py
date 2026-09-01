@@ -33,8 +33,7 @@ class StepStatus(StrEnum):
 
     `DONE` and `REFRESHED` both paid for the artifact. A `DONE` step ran because
     something it depends on moved. A `REFRESHED` step ran because it cannot be cached
-    at all, its methodology having declared no version, and it will run again next
-    time.
+    at all, and it will run again next time.
     """
 
     PENDING = "pending"

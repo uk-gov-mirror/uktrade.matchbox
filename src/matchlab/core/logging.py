@@ -236,8 +236,8 @@ def audible() -> Generator[None]:
     logging.getLogger("matchlab").addHandler(logging.NullHandler())
     ```
 
-    the standard way to silence a library, which works here for the same reason a real
-    handler does.
+    This is the the standard way to silence a library, which works here for the same
+    reason a real handler does.
     """
     target = logger.logger
     if target.hasHandlers():

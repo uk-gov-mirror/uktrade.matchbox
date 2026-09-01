@@ -134,7 +134,7 @@ class NeedyComponents(Components):
     session: FromResources[Engine]
 
 
-#: Where each kind of spec keeps its serialised settings.
+# Where each kind of spec keeps its serialised settings.
 SETTINGS_FIELD = {
     StepKind.SOURCE: "location_settings",
     StepKind.TRANSFORM: "transformer_settings",

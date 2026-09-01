@@ -3,7 +3,7 @@
 import secrets
 from typing import Any
 
-#: Length of the nonce an unversioned methodology gets. Matches a `Fingerprint`.
+# Length of the nonce an unversioned methodology gets. Matches a `Fingerprint`.
 NONCE_BYTES = 32
 
 # Tagged apart so a version can never be read as a nonce, however the bytes fall.

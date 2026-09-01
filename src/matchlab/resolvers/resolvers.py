@@ -51,7 +51,7 @@ class Resolver(RecordStep):
         }
     )
 
-    #: Settled at construction. See `Step.parents` for why these are declared.
+    # Settled at construction. See `Step.parents` for why these are declared.
     _inputs: tuple[Model, ...]
     resolver_class: type[ResolverMethod]
     resolver_settings: dict[str, Any]

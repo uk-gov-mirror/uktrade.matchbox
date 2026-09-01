@@ -73,8 +73,8 @@ class Step(ABC):
 
     kind: ClassVar[StepKind]
 
-    #: The prefix on this kind's `*_settings` and `*_resources` arguments. Empty for a
-    #: step that runs no methodology, which is `RecordStep` and any test double.
+    # The prefix on this kind's `*_settings` and `*_resources` arguments. Empty for a
+    # step that runs no methodology, which is `RecordStep` and any test double.
     # `_build_methodology` quotes it when a field was passed in the wrong one, so it
     # has to name arguments the step really takes
     _METHODOLOGY: ClassVar[str] = ""
@@ -205,10 +205,10 @@ class Step(ABC):
     # the same guarantee from the other side. `_ensure` short-circuits on a stored
     # fingerprint *because* a settled step cannot have changed.
 
-    #: Attributes only `__init__` may write. A kind names its own and unions this, so a
-    #: `Step` subclass keeps whatever attributes it likes. The guard protects what the
-    #: plan machinery reads, not every attribute on the object. `parents` is not
-    #: here: it is a property, which refuses assignment without any help.
+    # Attributes only `__init__` may write. A kind names its own and unions this, so a
+    # `Step` subclass keeps whatever attributes it likes. The guard protects what the
+    # plan machinery reads, not every attribute on the object. `parents` is not
+    # here: it is a property, which refuses assignment without any help.
     _READ_ONLY: ClassVar[frozenset[str]] = frozenset()
 
     def __setattr__(self, name: str, value: object) -> None:
@@ -332,9 +332,9 @@ class Step(ABC):
         it declares none. An unversioned step re-runs and may produce something else, so
         nothing below it can trust what it stored last time either.
 
-        Addresses mostly take care of this on their own. `_spec_key` re-keys an
+        Fingerprints mostly take care of this on their own. `_spec_key` re-keys an
         unversioned step through its nonce, and a child folds its parents' fingerprints
-        into its own. This covers the one place they do not reach: `_ensure`
+        into its own. This method covers the one place they do not reach: `_ensure`
         short-circuits on a fingerprint this object already holds, without recomputing
         it, which would let a versioned step below an unversioned one report a cache hit
         against a parent that had just moved.
