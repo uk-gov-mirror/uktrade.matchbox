@@ -328,10 +328,10 @@ def test_summary_no_growth(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> 
     assert "(+0 B)" in summary
 
 
-def test_summary_omits_store_without_store(
+def test_summary_omits_store(
     store: DuckDBStore,
 ) -> None:
-    """`Progress` is constructible without one, and then simply says less."""
+    """`Progress` is constructible without a store, and simply says less."""
     apex, _source, _view = _plan()
 
     summary = _run(apex, store).summary()
