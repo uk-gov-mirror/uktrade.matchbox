@@ -1,8 +1,4 @@
-# Sources
-
-The `Source` step, and the shorthands that build one. A source reads rows through a [location](locations.md) and content-addresses them, so it is where data enters a plan.
-
-::: matchlab.sources.sources
+::: matchlab.transformers.select
     options:
         show_root_heading: true
         show_root_full_path: true

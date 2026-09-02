@@ -104,7 +104,7 @@ Renaming a resource changes no fingerprint anywhere in the plan. Editing a setti
 
 ### Which fields are which
 
-Every field of a location, transformer, deduper, linker or resolver is a setting, unless its class marks it [`FromResources`](../api/resources.md):
+Every field of a location, transformer, deduper, linker or resolver is a setting, unless its class marks it [`FromResources`](../api/storage/resources.md):
 
 ```python
 # matchlab's own RelationalDB, quoted from source
@@ -171,7 +171,3 @@ ValueError: No location class named 'S3Location' is registered. Register it with
 ```
 
 `add_model_class`, `add_transformer_class` and `add_resolver_class` do the same for the other kinds of step. A document is portable across environments, not across codebases.
-
-## Next
-
-[Custom methodologies :octicons-arrow-right-16:](./custom-methodologies.md){ .md-button .md-button--primary }

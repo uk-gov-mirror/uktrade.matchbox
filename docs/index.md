@@ -5,7 +5,7 @@ hide:
 
 <figure markdown="span">
 
-![The Matchbox logo in light mode](./assets/matchblab-logo-light.svg#only-light){ width="500" } ![The Matchbox logo in dark mode](./assets/matchlab-logo-dark.svg#only-dark){ width="500" }
+![The Matchbox logo in light mode](./assets/matchlab-logo-light.svg#only-light){ width="500" } ![The Matchbox logo in dark mode](./assets/matchlab-logo-dark.svg#only-dark){ width="500" }
 
 </figure>
 
@@ -51,7 +51,7 @@ lookup = companies.collect().get_lookup()
 
     matchlab is more than Matchbox without the server.
 
-    [:octicons-arrow-right-16: Migration guide](./migration/matchbox-to-matchlab.md){ .md-button }
+    [:octicons-arrow-right-16: Migration guide](./guide/matchbox-to-matchlab.md){ .md-button }
 
 </div>
 

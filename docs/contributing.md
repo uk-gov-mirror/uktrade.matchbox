@@ -84,7 +84,7 @@ When contributing to matchlab and its associated repos, we try to follow consist
 
 ### Steps
 
-New plan steps subclass [`Step`](api/steps.md). A step must:
+New plan steps subclass [`Step`](api/plan/steps). A step must:
 
 * Hold references to its inputs, and to nothing downstream of it
 * Return a stable `_spec_key()` covering everything that changes its output, so caching is correct
@@ -99,7 +99,7 @@ A methodology must not write into its own settings either, for the same reason: 
 
 ### Adapters
 
-New storage backends subclass [`Adapter`](api/adapters.md). Beyond reading and writing, `stats()` must report the store's size and contents. Every collect calls it, and a store nobody can measure is one that quietly fills a disk.
+New storage backends subclass [`Adapter`](api/storage/adapters). Beyond reading and writing, `stats()` must report the store's size and contents. Every collect calls it, and a store nobody can measure is one that quietly fills a disk.
 
 `prune()` is the other half. Be careful with it, since it deletes. It must hold to three rules:
 

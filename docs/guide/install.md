@@ -15,7 +15,3 @@ print(mb.__version__)
 ```
 
 `mb` is the alias the rest of these guides use. Everything you need to write a plan hangs off it.
-
-## Next
-
-[Build a plan :octicons-arrow-right-16:](./build-a-plan.md){ .md-button .md-button--primary }

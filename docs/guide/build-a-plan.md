@@ -73,7 +73,7 @@ Both sides of a link are covered. Reach for the reshaping verbs (`select`, `clea
 
 A **record step** is a step that produces data for a model to match over. It is not itself a table, but reading one gives a table with an `id` column. On a source or reshaped record step, that `id` is the content-derived identity of the row, not the source key field, which may have another name. On a resolver, `id` is the entity. A `Source`, a resolver, and the output of a reshape step are all record steps. That's why `RecordStep` is what you see in a signature or a hover tooltip wherever one of these is expected. `select`, `clean` and `group` each reshape a record step into a new record step. `transform` is the general verb they translate to. `source.clean(...)` is shorthand for `source.transform(Clean(...))`.
 
-Not every registered transformer has a dedicated verb. The [API reference](../api/transformers.md) lists all of them, including ones you reach only through `transform(...)`, such as `Explode`.
+Not every registered transformer has a dedicated verb. The [API reference](../api/plan/steps/transformers) lists all of them, including ones you reach only through `transform(...)`, such as `Explode`.
 
 **`select` keeps only the columns you name**, plus `id`:
 
@@ -245,7 +245,7 @@ In a notebook or terminal, `collect()` draws the plan as a tree and redraws it i
 
 This is called *interactive mode*. An interactive plan taller than your screen is "windowed": the frame shows the rows around the running step and says how many are hidden either side, following the run down the tree.
 
-The number in brackets is the step's **position**. It's the same number everywhere. `[5]` here is `[step 5]` in the log and `steps[5]` in a [document](../api/steps.md). Except for sources, steps have no names, so that cross-reference is how you know which node a line is about.
+The number in brackets is the step's **position**. It's the same number everywhere. `[5]` here is `[step 5]` in the log and `steps[5]` in a [document](../api/plan/steps). Except for sources, steps have no names, so that cross-reference is how you know which node a line is about.
 
 Next to it is what the step *is*. A model, a resolver and a transform name the class implementing them in parentheses. A source names itself in quotes.
 
@@ -444,7 +444,3 @@ adapter.conn.execute("SET temp_directory = '/fast/scratch'")
 ```
 
 That bounds the resident footprint without discarding anything. That's almost always what you want from a cache. Paged out is cheap to read back, deleted has to be recomputed.
-
-## Next
-
-[Query the result :octicons-arrow-right-16:](./query.md){ .md-button .md-button--primary }

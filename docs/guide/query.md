@@ -57,7 +57,3 @@ companies.view_entity(root, merge_fields=True)
 Returns the underlying rows for every record in that entity, so you can see what was matched and judge whether it should have been. `merge_fields=True` collapses the source-qualified columns onto shared names, which makes cross-source entities readable. Key columns stay qualified, since they're what tells you where a row came from.
 
 Values come from the extract cached when each source was collected, the data the matching actually saw. This needs no warehouse connection, and it agrees with what the [reviewer](./evaluate.md) puts on screen.
-
-## Next
-
-[Evaluate the result :octicons-arrow-right-16:](./evaluate.md){ .md-button .md-button--primary }
