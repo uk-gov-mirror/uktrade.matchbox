@@ -43,7 +43,7 @@ def build():
 not_a_resolver = "just a string"
 """
 
-# The autouse `adapter` fixture (from `test/conftest.py`) keeps every test off the real
+# The autouse `store` fixture (from `test/conftest.py`) keeps every test off the real
 # store in the user's cache directory.
 
 
@@ -130,7 +130,7 @@ def test_review_launches_with_args(
     assert isinstance(captured["resolver"], Resolver)
     assert captured["n"] == 3
     assert captured["tag"] == "session-1"
-    assert captured["adapter"] is not None
+    assert captured["store"] is not None
     assert captured["seed"] == 7
 
 

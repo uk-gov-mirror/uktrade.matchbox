@@ -4,7 +4,6 @@ from typing import Any, ClassVar, Self
 
 import polars as pl
 
-from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.dataframes import qualify
 from matchlab.core.exceptions import StepNotFound
 from matchlab.core.kinds import StepKind
@@ -16,6 +15,7 @@ from matchlab.resolvers.components import Components
 from matchlab.resources import Resource
 from matchlab.sources import Source
 from matchlab.specs import ResolverSpec
+from matchlab.stores import Fingerprint, Store
 
 _RESOLVER_CLASSES: dict[str, type[ResolverMethod]] = {}
 
@@ -206,15 +206,15 @@ class Resolver(RecordStep):
             ValueError: If `label` already points at a different resolver output and
                 `overwrite` is not set.
         """
-        adapter, fp = self._collected()
-        existing = adapter.find(label)
+        store, fp = self._collected()
+        existing = store.find(label)
         if existing is not None and existing != fp and not overwrite:
             raise ValueError(
                 f"The label '{label}' already points at a different resolver output "
                 f"({existing.hex()[:8]}). Pass overwrite=True to move it, or publish "
                 "under another label."
             )
-        adapter.publish(label, fp)
+        store.publish(label, fp)
         return self
 
     # -- Step contract ----------------------------------------------------------------
@@ -223,9 +223,9 @@ class Resolver(RecordStep):
         """The resolver methodology whose code this resolver runs."""
         return self.resolver_class
 
-    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+    def _execute(self, store: Store, fp: Fingerprint) -> None:
         edges = {
-            position: adapter.read_model(model._fp)
+            position: store.read_model(model._fp)
             for position, model in enumerate(self.parents)
         }
         clusters = self.resolver_instance.compute_clusters(model_edges=edges)
@@ -247,7 +247,7 @@ class Resolver(RecordStep):
             for read in record_step._identifier_reads
         )
         upstream = pl.concat(
-            [adapter.read_identifiers(*read) for read in reads],
+            [store.read_identifiers(*read) for read in reads],
             how="vertical",
         ).unique()
 
@@ -256,7 +256,7 @@ class Resolver(RecordStep):
         # name. That is what lets it be read back without the plan that built it.
         # Those names are data, tagging which source each row came from. They are
         # nothing to do with publishing, which is `publish()` and happens after this.
-        adapter.store_resolver(
+        store.store_resolver(
             fp=fp,
             resolver_output=materialise_resolver_output(clusters, upstream),
             sources={source.name: source._fp for source in self.sources},
@@ -283,8 +283,8 @@ class Resolver(RecordStep):
         """
         if not self.is_collected:
             self.collect()
-        adapter, fp = self._collected()
-        resolver_output = adapter.read_resolver(fp)
+        store, fp = self._collected()
+        resolver_output = store.read_resolver(fp)
 
         if sources is None:
             return resolver_output
@@ -368,9 +368,9 @@ class Resolver(RecordStep):
         Raises:
             KeyError: If no source has a record in that entity.
         """
-        adapter, fp = self._collected()
+        store, fp = self._collected()
         resolver_output = self.entities().filter(pl.col("root") == root)
-        stored = adapter.resolver_output_sources(fp)
+        stored = store.resolver_output_sources(fp)
 
         rows: list[pl.DataFrame] = []
         key_columns: list[str] = []
@@ -379,7 +379,7 @@ class Resolver(RecordStep):
             if keys.len() == 0:
                 continue
 
-            records, qualified_key = adapter.read_source_records(
+            records, qualified_key = store.read_source_records(
                 stored[source.name], source.name, keys
             )
             if merge_fields:
@@ -434,7 +434,7 @@ class Resolver(RecordStep):
 
     # -- RecordStep contract -------------------------------------------------------
 
-    def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
+    def _read_cache(self, store: Store) -> pl.DataFrame:
         """Derive the table, this resolver's sources with `id` set to the entity root.
 
         A re-derivable join over artifacts already stored (the source extracts and this
@@ -444,7 +444,7 @@ class Resolver(RecordStep):
             raise RuntimeError(
                 "This resolver has not been collected. Call collect() first."
             )
-        return build_record_step(adapter, self.sources, self)
+        return build_record_step(store, self.sources, self)
 
     @property
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:

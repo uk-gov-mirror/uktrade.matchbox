@@ -18,7 +18,7 @@ from pathlib import Path
 from benchmarks.cases import Case, Store
 from benchmarks.measurements import Measurement
 from benchmarks.topologies import build, declare
-from matchlab.adapters import DuckDBAdapter
+from matchlab.stores import DuckDBStore
 
 
 def peak_rss() -> int:
@@ -58,7 +58,7 @@ def measure(case: Case, path: Path, warehouse_rows: int) -> Measurement:
             if case.store is Store.MEMORY
             else str(Path(directory) / "store.duckdb")
         )
-        store = DuckDBAdapter(location)
+        store = DuckDBStore(location)
         try:
             plan = build(case.topology, declare(path, case.warehouse.sources))
 

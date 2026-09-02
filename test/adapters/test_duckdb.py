@@ -3,7 +3,7 @@
 The backend-agnostic storage contract lives in `test_contract.py`. What stays here is
 DuckDB's own file semantics: reclaiming space to disk, the difference between resident
 and on-disk bytes, the high-water mark, and the `:memory:` prune hazard. None of that
-fits in a contract written against the `Adapter` ABC.
+fits in a contract written against the `Store` ABC.
 """
 
 from collections.abc import Iterator
@@ -12,15 +12,15 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from matchlab.adapters import DuckDBAdapter, DuckDBStoreStats
+from matchlab.stores import DuckDBStore, DuckDBStoreStats
 
 from .conftest import Fingerprints
 
 
 @pytest.fixture
-def memory_store() -> Iterator[DuckDBAdapter]:
+def memory_store() -> Iterator[DuckDBStore]:
     """An ephemeral in-memory DuckDB store, built directly for the engine tests."""
-    store = DuckDBAdapter(":memory:")
+    store = DuckDBStore(":memory:")
     yield store
     store.close()
 
@@ -38,7 +38,7 @@ def test_stats_resident_vs_on_disk() -> None:
 
 
 def test_stats_in_memory_size(
-    memory_store: DuckDBAdapter,
+    memory_store: DuckDBStore,
     fp: Fingerprints,
     extract: pl.DataFrame,
     leaves: pl.DataFrame,
@@ -47,7 +47,7 @@ def test_stats_in_memory_size(
 
     An in-memory store allocates no blocks, so anything reading DuckDB's block count
     reports `0 B`. That is true for every test in this suite, and for every
-    `DuckDBAdapter(":memory:")` a user writes. It has no file either, so there is
+    `DuckDBStore(":memory:")` a user writes. It has no file either, so there is
     nothing to `stat`.
     """
     memory_store.store_source(fp.src, "key", extract, leaves)
@@ -72,7 +72,7 @@ def test_stats_on_disk_size(
     measured before that reads orders of magnitude low.
     """
     db = tmp_path / "store.duckdb"
-    store = DuckDBAdapter(db)
+    store = DuckDBStore(db)
     try:
         store.store_resolver(fp.resolver, resolver_output)
         stats = store.stats()
@@ -89,7 +89,7 @@ def test_stats_on_disk_size(
 
 def test_stats_grows_with_data(tmp_path: Path, fp: Fingerprints) -> None:
     """Storing more data grows the reported on-disk size."""
-    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    store = DuckDBStore(tmp_path / "store.duckdb")
     try:
         empty = store.stats().bytes
         store.store_transform(
@@ -112,7 +112,7 @@ def test_prune_reclaims_disk_space(
     Purging alone frees nothing. DuckDB reuses freed blocks but never hands them back,
     so the file stays at its high-water mark until it is rewritten.
     """
-    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    store = DuckDBStore(tmp_path / "store.duckdb")
     try:
         store.store_source(fp.src, "key", extract, leaves)
         store.store_transform(
@@ -130,7 +130,7 @@ def test_prune_reclaims_disk_space(
 
 
 def test_prune_in_memory_keeps_data(
-    memory_store: DuckDBAdapter,
+    memory_store: DuckDBStore,
     fp: Fingerprints,
     extract: pl.DataFrame,
     leaves: pl.DataFrame,

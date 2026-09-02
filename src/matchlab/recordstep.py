@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.dataframes import (
     DataFrameClass,
     DataFrameType,
@@ -29,6 +28,7 @@ from matchlab.core.dataframes import (
 )
 from matchlab.core.sql import SQLExpression
 from matchlab.steps import Step
+from matchlab.stores import Fingerprint, Store
 
 if TYPE_CHECKING:
     # Each of these modules imports this one. Only for annotations, so importing the
@@ -41,13 +41,13 @@ if TYPE_CHECKING:
     from matchlab.transformers import Transform, Transformer
 
 # What one source's identifiers are read with, `(source_fp, source_name, resolver_fp)`,
-# the arguments of `Adapter.read_identifiers`. Deduplicating these is deduplicating the
+# the arguments of `Store.read_identifiers`. Deduplicating these is deduplicating the
 # queries, which is why they travel as a value rather than as a call.
 IdentifierRead = tuple[Fingerprint | None, str, Fingerprint | None]
 
 
 def build_record_step(
-    adapter: Adapter,
+    store: Store,
     sources: "tuple[Source, ...]",
     resolver: "Resolver | None",
 ) -> pl.DataFrame:
@@ -62,14 +62,14 @@ def build_record_step(
     resolver_fp = resolver._fp if resolver is not None else None
     identifiers = pl.concat(
         [
-            adapter.read_identifiers(source._fp, source.name, resolver_fp)
+            store.read_identifiers(source._fp, source.name, resolver_fp)
             for source in sources
         ],
         how="vertical",
     )
 
     extracts = [
-        adapter.read_source_extract(source._fp)
+        store.read_source_extract(source._fp)
         .select(pl.all().name.prefix(qualify(source.name)))
         .with_columns(pl.lit(source.name).alias("source"))
         .rename({source.qualified_key: "key"})
@@ -89,14 +89,14 @@ class RecordStep(Step):
     # -- RecordStep contract -------------------------------------------------------
 
     @abstractmethod
-    def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
+    def _read_cache(self, store: Store) -> pl.DataFrame:
         """Return this record step's records from wherever they are materialised."""
         ...
 
     @property
     @abstractmethod
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:
-        """The `Adapter.read_identifiers` arguments this record step's data comes from.
+        """The `Store.read_identifiers` arguments this record step's data comes from.
 
         One per source, naming what is read rather than reading it. Two record steps
         built from the same source and resolver read identical rows, even if they then
@@ -106,7 +106,7 @@ class RecordStep(Step):
         """
         ...
 
-    def identifiers(self, adapter: Adapter) -> pl.DataFrame:
+    def identifiers(self, store: Store) -> pl.DataFrame:
         """Return `(id, source, key, leaf)` for every record this record step reads.
 
         `id` is the resolver's entity root when reading through one, otherwise the
@@ -114,7 +114,7 @@ class RecordStep(Step):
         carry every reachable leaf forward, including records no model matched.
         """
         return pl.concat(
-            [adapter.read_identifiers(*read) for read in self._identifier_reads],
+            [store.read_identifiers(*read) for read in self._identifier_reads],
             how="vertical",
         )
 
@@ -122,7 +122,7 @@ class RecordStep(Step):
         """Return this record step's records, collecting the plan first if needed."""
         if not self.is_collected:
             self.collect()
-        return to_dataframe(self._read_cache(self._require_adapter()), return_type)
+        return to_dataframe(self._read_cache(self._require_store()), return_type)
 
     # -- verbs ------------------------------------------------------------------------
 

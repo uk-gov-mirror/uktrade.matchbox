@@ -16,13 +16,13 @@ import pytest
 from sqlalchemy import Engine, create_engine, text
 
 from matchlab import Resolver, Source
-from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import SourceTableError
 from matchlab.eval import EvalData, get_samples
 from matchlab.eval.judgements import Judgement
 from matchlab.models.dedupers import NaiveDeduper
+from matchlab.stores import DuckDBStore
 
-# The `adapter` fixture comes from `test/conftest.py`.
+# The `store` fixture comes from `test/conftest.py`.
 
 
 @pytest.fixture
@@ -157,24 +157,24 @@ def test_seed_fixes_merged(by_company: Resolver, by_town: Resolver) -> None:
 
 
 @pytest.fixture
-def judged(by_company: Resolver, adapter: DuckDBAdapter) -> DuckDBAdapter:
+def judged(by_company: Resolver, store: DuckDBStore) -> DuckDBStore:
     """A judgement saying a1 and a2 are the same company, and a3 is not.
 
     Deduplicating on `company` reached exactly this conclusion. Deduplicating on
     `town` did not, because it grouped a1 with a3 instead.
     """
     leaves = _leaves(by_company)
-    adapter.store_judgement(
+    store.store_judgement(
         Judgement(
             tag="bakeoff",
             shown=sorted(leaves.values()),
             endorsed=[sorted([leaves["a1"], leaves["a2"]]), [leaves["a3"]]],
         )
     )
-    return adapter
+    return store
 
 
-def test_score_one_resolver(judged: DuckDBAdapter, by_company: Resolver) -> None:
+def test_score_one_resolver(judged: DuckDBStore, by_company: Resolver) -> None:
     """One resolver scores to a single precision/recall pair."""
     precision, recall = EvalData(judged, tag="bakeoff").precision_recall(by_company)
 
@@ -182,7 +182,7 @@ def test_score_one_resolver(judged: DuckDBAdapter, by_company: Resolver) -> None
 
 
 def test_score_several_resolvers(
-    judged: DuckDBAdapter, by_company: Resolver, by_town: Resolver
+    judged: DuckDBStore, by_company: Resolver, by_town: Resolver
 ) -> None:
     """Ranked against one another over the same records, in the order given."""
     scores = EvalData(judged, tag="bakeoff").precision_recall([by_company, by_town])
@@ -190,7 +190,7 @@ def test_score_several_resolvers(
     assert scores == [(1.0, 1.0), (0.0, 0.0)]
 
 
-def test_score_by_label(judged: DuckDBAdapter, by_company: Resolver) -> None:
+def test_score_by_label(judged: DuckDBStore, by_company: Resolver) -> None:
     """Scoring a label matches scoring the resolver it points at."""
     by_company.publish("companies")
     evaluation = EvalData(judged, tag="bakeoff")

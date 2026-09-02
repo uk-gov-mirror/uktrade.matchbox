@@ -54,7 +54,7 @@ pip install matchlab
 
 ## Coming from Matchbox?
 
-matchlab is the successor to `matchbox-db`, with the server removed and the client API rebuilt. It's a hard break — see the [migration guide](https://uktrade.github.io/matchlab/migration/matchbox-to-matchlab/).
+matchlab is the successor to `matchbox-db`, with the server removed and the client API rebuilt. It's a hard break — see the [migration guide](https://uktrade.github.io/matchlab/guide/matchbox-to-matchlab/).
 
 ## Development
 

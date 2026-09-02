@@ -22,13 +22,13 @@ from matchlab.eval.tui.modals import HelpModal, NoSamplesModal
 from matchlab.eval.tui.widgets.assignment import AssignmentBar
 from matchlab.eval.tui.widgets.styling import get_group_style
 from matchlab.eval.tui.widgets.table import ComparisonDisplayTable
-from matchlab.steps import default_adapter
+from matchlab.stores.default import default_store
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from matchlab.adapters import Adapter
     from matchlab.eval.samples import ResolverRef
+    from matchlab.stores import Store
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ class EntityResolutionApp(App):
 
     sample_limit: int
     resolver: "ResolverRef | Sequence[ResolverRef]"
-    adapter: "Adapter | None"
+    store: "Store | None"
     session_tag: str | None
     seed: int | None
     show_help: bool
@@ -125,7 +125,7 @@ class EntityResolutionApp(App):
         self,
         resolver: "ResolverRef | Sequence[ResolverRef]",
         num_samples: int = 5,
-        adapter: "Adapter | None" = None,
+        store: "Store | None" = None,
         session_tag: str | None = None,
         seed: int | None = None,
         show_help: bool = False,
@@ -138,7 +138,7 @@ class EntityResolutionApp(App):
                 published under. The second form reviews a store without the plan
                 that built it. Several of either reviews their merged components.
             num_samples: Number of clusters to sample for evaluation.
-            adapter: Where judgements are stored. Defaults to the module default.
+            store: Where judgements are stored. Defaults to the module default.
             session_tag: String to use for tagging judgements.
             seed: Fixes which clusters the session draws, so it can be reproduced.
             show_help: Whether to show help on start.
@@ -149,7 +149,7 @@ class EntityResolutionApp(App):
 
         self.resolver = resolver
         self.sample_limit = num_samples
-        self.adapter = adapter
+        self.store = store
         self.session_tag = session_tag
         self.seed = seed
         self._refills = 0
@@ -326,7 +326,7 @@ class EntityResolutionApp(App):
             new_samples_dict = get_samples(
                 n=needed,
                 resolver=self.resolver,
-                adapter=self.adapter,
+                store=self.store,
                 seed=None if self.seed is None else self.seed + self._refills,
             )
         except Exception as e:  # noqa: BLE001
@@ -377,8 +377,8 @@ class EntityResolutionApp(App):
                 assignments=current.assignments,
                 tag=self.session_tag,
             )
-            adapter = self.adapter or default_adapter()
-            adapter.store_judgement(judgement)
+            store = self.store or default_store()
+            store.store_judgement(judgement)
         except Exception as exc:
             self._update_status("⚠ Send failed", "red", clear_after=4.0)
             logger.exception(f"Failed to submit: {exc}")

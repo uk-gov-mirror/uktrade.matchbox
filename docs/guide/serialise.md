@@ -104,7 +104,7 @@ Renaming a resource changes no fingerprint anywhere in the plan. Editing a setti
 
 ### Which fields are which
 
-Every field of a location, transformer, deduper, linker or resolver is a setting, unless its class marks it [`FromResources`](../api/resources.md):
+Every field of a location, transformer, deduper, linker or resolver is a setting, unless its class marks it [`FromResources`](../api/plan/resources.md):
 
 ```python
 # matchlab's own RelationalDB, quoted from source
@@ -152,7 +152,7 @@ The sources decide it. A source's fingerprint folds in a hash of the rows it rea
 
 * **Resources.** Only the name each one was given. Nothing secret enters a document.
 * **Code.** `location_class`, `model_class` and the rest are registry names.
-* **Labels.** [Publishing](./build-a-plan.md#inspecting) is something you do to a collected result. Load, collect, then publish under whatever label that environment wants.
+* **Labels.** [Publishing](./build-a-plan.md#publishing) is something you do to a collected result. Load, collect, then publish under whatever label that environment wants.
 * **Data.** Rows are read from the target's own warehouse.
 
 ## Custom classes
@@ -171,7 +171,3 @@ ValueError: No location class named 'S3Location' is registered. Register it with
 ```
 
 `add_model_class`, `add_transformer_class` and `add_resolver_class` do the same for the other kinds of step. A document is portable across environments, not across codebases.
-
-## Next
-
-[Custom methodologies :octicons-arrow-right-16:](./custom-methodologies.md){ .md-button .md-button--primary }

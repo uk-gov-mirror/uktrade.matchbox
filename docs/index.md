@@ -3,7 +3,13 @@ hide:
   - toc
 ---
 
-# matchlab
+<figure markdown="span">
+
+![The Matchbox logo in light mode](./assets/matchlab-logo-light.svg#only-light){ width="500" } ![The Matchbox logo in dark mode](./assets/matchlab-logo-dark.svg#only-dark){ width="500" }
+
+</figure>
+
+# Introducing matchlab
 
 **A local-first library for building, running and evaluating entity resolution pipelines.**
 
@@ -43,9 +49,9 @@ lookup = companies.collect().get_lookup()
 
     ---
 
-    matchlab is Matchbox without the server. The API changed substantially.
+    matchlab is more than Matchbox without the server.
 
-    [:octicons-arrow-right-16: Migration guide](./migration/matchbox-to-matchlab.md){ .md-button }
+    [:octicons-arrow-right-16: Migration guide](./guide/matchbox-to-matchlab.md){ .md-button }
 
 </div>
 

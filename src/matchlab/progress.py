@@ -65,9 +65,9 @@ from rich.console import Group, RenderableType
 from rich.live import Live
 from rich.text import Text
 
-from matchlab.adapters import Adapter, StoreStats
 from matchlab.core import logging as mlog
 from matchlab.lineage import StepState, StepStatus, draw, render
+from matchlab.stores import Store, StoreStats
 
 if TYPE_CHECKING:
     # `matchlab.steps` imports this module
@@ -125,7 +125,7 @@ class Progress:
         *,
         live: bool = False,
         nested: bool = False,
-        adapter: Adapter | None = None,
+        store: Store | None = None,
     ) -> None:
         """Prepare a report for collecting `root`, whose plan is `steps`.
 
@@ -135,12 +135,12 @@ class Progress:
             live: Draw the tree as a live frame. Independent of what gets logged.
             nested: Whether an outer collection is already reporting. A nested report
                 does not claim the console. It logs as any other does.
-            adapter: Where the collection stores what it computes, so the summary can
+            store: Where the collection stores what it computes, so the summary can
                 say how much room it is taking and how much this run added. Optional,
                 since without one the summary simply drops that clause.
         """
         self.root = root
-        self._adapter = adapter
+        self._store = store
         # The store's size before anything ran, so the summary can report what this
         # collection cost rather than only what the store now weighs. Taken in
         # `__enter__`, since a report that is built and never entered has no run to
@@ -234,8 +234,8 @@ class Progress:
         """Start reporting, putting the plan on screen or in the log."""
         global _REPORTING  # one report per console
         self._started = time.perf_counter()
-        if self._adapter is not None:
-            self._store_before = self._adapter.stats()
+        if self._store is not None:
+            self._store_before = self._store.stats()
         stack = ExitStack()
         try:
             if self._live is not None:
@@ -298,7 +298,7 @@ class Progress:
         # Drop the display, breaking the reference cycle it forms with this object
         # (`Live` holds `self._renderable`, a bound method, and this holds `Live`).
         # This object holds every step, so the cycle would keep a whole plan, and
-        # through it the adapter, alive until the cyclic collector happened to run.
+        # through it the store, alive until the cyclic collector happened to run.
         # Releasing here lets the plan die with `collect`'s frame, by refcount.
         self._live = None
 
@@ -332,13 +332,13 @@ class Progress:
         line = (
             f"Collected {len(self.steps)} steps ({', '.join(parts)}) in {elapsed:.3f}s"
         )
-        if self._adapter is None:
+        if self._store is None:
             return line
 
         # The store says this part itself, because what is worth saying about it
         # depends on the backend. `DuckDBStoreStats` distinguishes bytes in memory
         # from bytes on a disk, and another store will have its own qualification.
-        return f"{line}. {self._adapter.stats().describe(since=self._store_before)}"
+        return f"{line}. {self._store.stats().describe(since=self._store_before)}"
 
     # -- rendering ------------------------------------------------------------------
 
@@ -441,7 +441,7 @@ def report(
     root: "Step",
     steps: Sequence["Step"],
     interactive: bool | None,
-    adapter: Adapter | None = None,
+    store: Store | None = None,
 ) -> Progress:
     """Build the reporter for collecting `root`.
 
@@ -452,7 +452,7 @@ def report(
             than just logged. `None`, the default, takes a terminal or a notebook as
             a yes, and anything else as a no. How tall the plan is doesn't enter into
             it. One too tall to show is windowed, not cropped.
-        adapter: Where the collection stores what it computes, so the summary can
+        store: Where the collection stores what it computes, so the summary can
             report the store's size and what this run added to it.
     """
     if interactive is None:
@@ -462,4 +462,4 @@ def report(
     # Rich allows one live display per console, so an inner collection goes undrawn
     # whatever it asked for. It still logs, tree and all.
     live = live and not _REPORTING
-    return Progress(root, steps, live=live, nested=_REPORTING, adapter=adapter)
+    return Progress(root, steps, live=live, nested=_REPORTING, store=store)

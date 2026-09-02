@@ -148,17 +148,17 @@ def main(argv: list[str] | None = None) -> None:
     if args.log_file:
         _redirect_logging(args.log_file)
 
-    from matchlab.adapters import DuckDBAdapter  # noqa: PLC0415
     from matchlab.eval import review  # noqa: PLC0415
+    from matchlab.stores import DuckDBStore  # noqa: PLC0415
 
-    adapter = DuckDBAdapter(args.store) if args.store else None
+    store = DuckDBStore(args.store) if args.store else None
 
     # With a store, a bare word is a label on a stored resolver output, so it needs no
     # plan.
     targets: list[Any] = []
     for target in args.targets:
-        if adapter is not None and ":" not in target:
-            known = adapter.labels()
+        if store is not None and ":" not in target:
+            known = store.labels()
             if target not in known:
                 raise SystemExit(
                     f"No resolver output is labelled '{target}' in {args.store}. "
@@ -171,7 +171,7 @@ def main(argv: list[str] | None = None) -> None:
     review(
         targets if len(targets) > 1 else targets[0],
         n=args.samples,
-        adapter=adapter,
+        store=store,
         tag=args.tag,
         seed=args.seed,
     )

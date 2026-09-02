@@ -114,7 +114,7 @@ Everything below an unversioned step re-runs too. The expensive steps are usuall
 Each run stores its own artifact rather than replacing the last. That is what keeps a published label pointing at the result you published. It also means the store grows by one artifact per refreshed step per run. Prune it as you go:
 
 ```python
-adapter.prune(keep=plan.fingerprints())
+store.prune(keep=plan.fingerprints())
 ```
 
 Set a version once your methodology settles, then bump it when the code changes. That gets the caching back without asking matchlab to take your code on trust.

@@ -17,7 +17,7 @@ clean:
 
 # Run a local documentation development server
 docs:
-    uv run mkdocs serve --livereload
+    uv run zensical serve
 
 # Reformat and lint
 format:

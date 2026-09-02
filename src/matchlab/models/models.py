@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import polars as pl
 
-from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.kinds import StepKind
 from matchlab.core.logging import logger
 from matchlab.core.schemas import SCHEMA_MODEL_EDGES
@@ -16,6 +15,7 @@ from matchlab.recordstep import RecordStep
 from matchlab.resources import Resource
 from matchlab.specs import ModelSpec, ModelType
 from matchlab.steps import Step
+from matchlab.stores import Fingerprint, Store
 
 if TYPE_CHECKING:
     # `matchlab.resolvers` imports this module
@@ -204,9 +204,9 @@ class Model(Step):
         """The deduper or linker whose code this model runs."""
         return self.model_class
 
-    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
-        left = self.left._read_cache(adapter)
-        right = self.right._read_cache(adapter) if self.right else None
+    def _execute(self, store: Store, fp: Fingerprint) -> None:
+        left = self.left._read_cache(store)
+        right = self.right._read_cache(store) if self.right else None
 
         if self.model_type == ModelType.LINKER:
             self.model_instance.prepare(left, right)
@@ -215,7 +215,7 @@ class Model(Step):
             self.model_instance.prepare(left)
             scores = self.model_instance.dedupe(data=left)
 
-        adapter.store_model(fp, normalise_model_scores(scores))
+        store.store_model(fp, normalise_model_scores(scores))
 
     # -- data -------------------------------------------------------------------------
 
@@ -223,8 +223,8 @@ class Model(Step):
         """Return this model's scored edges. Collects the plan first if needed."""
         if not self.is_collected:
             self.collect()
-        adapter, fp = self._collected()
-        return adapter.read_model(fp)
+        store, fp = self._collected()
+        return store.read_model(fp)
 
     # -- verbs ------------------------------------------------------------------------
 

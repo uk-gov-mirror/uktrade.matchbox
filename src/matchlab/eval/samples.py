@@ -20,17 +20,17 @@ from matchlab.eval.judgements import Judgement
 from matchlab.eval.metrics import PrecisionRecall, precision_recall
 
 if TYPE_CHECKING:
-    from matchlab.adapters import Adapter, Fingerprint
     from matchlab.resolvers import Resolver
+    from matchlab.stores import Fingerprint, Store
 else:
-    Adapter = Any
+    Store = Any
     Fingerprint = Any
     Resolver = Any
 
 ResolverRef: TypeAlias = "Resolver | str"
 """One resolver to read: a live `Resolver`, or the label one was published under."""
 
-Reading: TypeAlias = "tuple[Adapter, Fingerprint]"
+Reading: TypeAlias = "tuple[Store, Fingerprint]"
 """A located resolver: the store holding it, and its fingerprint."""
 
 
@@ -161,9 +161,7 @@ def _many(resolver: "ResolverRef | Sequence[ResolverRef]") -> bool:
     return not isinstance(resolver, str) and isinstance(resolver, Sequence)
 
 
-def _locate(
-    resolver: "ResolverRef", adapter: "Adapter | None"
-) -> tuple["Adapter", bytes]:
+def _locate(resolver: "ResolverRef", store: "Store | None") -> tuple["Store", bytes]:
     """Turn a resolver or a label into the store and fingerprint to read.
 
     The two forms differ only in how the fingerprint is found. A live resolver
@@ -174,34 +172,34 @@ def _locate(
     Raises:
         SourceTableError: If nothing is published under that label.
     """
-    from matchlab.steps import default_adapter  # noqa: PLC0415 - avoids a cycle
+    from matchlab.stores.default import default_store  # noqa: PLC0415 - avoids a cycle
 
     if isinstance(resolver, str):
-        adapter = adapter or default_adapter()
-        fingerprint = adapter.find(resolver)
+        store = store or default_store()
+        fingerprint = store.find(resolver)
         if fingerprint is None:
-            known = ", ".join(adapter.labels()) or "none"
+            known = ", ".join(store.labels()) or "none"
             raise SourceTableError(
                 f"No resolver is published under the label '{resolver}'. "
                 f"Known labels: {known}."
             )
-        return adapter, fingerprint
+        return store, fingerprint
 
     if not resolver.is_collected:
-        resolver.collect(adapter)
+        resolver.collect(store)
     collected_in, fingerprint = resolver._collected()
-    return adapter or collected_in, fingerprint
+    return store or collected_in, fingerprint
 
 
 def _readings(
-    resolver: "ResolverRef | Sequence[ResolverRef]", adapter: "Adapter | None"
+    resolver: "ResolverRef | Sequence[ResolverRef]", store: "Store | None"
 ) -> list[Reading]:
     """Locate every resolver asked for, in the order given."""
     if not _many(resolver):
-        return [_locate(resolver, adapter)]
+        return [_locate(resolver, store)]
     if not resolver:
         raise ValueError("At least one resolver must be given.")
-    return [_locate(one, adapter) for one in resolver]
+    return [_locate(one, store) for one in resolver]
 
 
 def _sources_of(readings: list[Reading]) -> dict[str, Reading]:
@@ -274,7 +272,7 @@ def _sample_clusters(
 ) -> pl.DataFrame:
     """Take up to `n` whole clusters from merge-forwarded Resolver output in memory.
 
-    The in-memory twin of `Adapter.sample`, used for merged Resolver output from
+    The in-memory twin of `Store.sample`, used for merged Resolver output from
     several readings. No store holds that merged output, since it exists only for
     this comparison.
     """
@@ -287,7 +285,7 @@ def _sample_clusters(
 def get_samples(
     n: int,
     resolver: "ResolverRef | Sequence[ResolverRef]",
-    adapter: "Adapter | None" = None,
+    store: "Store | None" = None,
     seed: int | None = None,
 ) -> dict[int, EvaluationItem]:
     """Retrieve sampled clusters enriched with source data, as EvaluationItems.
@@ -304,7 +302,7 @@ def get_samples(
             it covers. Pass several and the sample is drawn from their merged
             components, so one round of judging scores all of them against the same
             clusters.
-        adapter: Where to read from. Defaults to the resolver's, else the module
+        store: Where to read from. Defaults to the resolver's, else the module
             default.
         seed: Fixes which clusters come back. The same store, `n` and seed give the
             same sample, which is how two people review the same clusters.
@@ -318,7 +316,7 @@ def get_samples(
             disagree about a source.
         ValueError: If `resolver` is an empty sequence.
     """
-    readings = _readings(resolver, adapter)
+    readings = _readings(resolver, store)
 
     if len(readings) == 1:
         store, resolver_fp = readings[0]
@@ -372,17 +370,17 @@ def get_samples(
 class EvalData:
     """Caches a store's judgements, and scores resolvers against them."""
 
-    def __init__(self, adapter: Adapter, tag: str | None = None) -> None:
+    def __init__(self, store: Store, tag: str | None = None) -> None:
         """Load judgement and expansion data used to compute evaluation metrics.
 
         Args:
-            adapter: The storage adapter holding judgements, for example the one a
+            store: The store holding judgements, for example the one a
                 resolver was collected into.
             tag: Optional tag to filter judgements by.
         """
-        self.adapter = adapter
+        self.store = store
         self.tag = tag
-        self.judgements, self.expansion = adapter.read_eval_data(tag)
+        self.judgements, self.expansion = store.read_eval_data(tag)
 
     def precision_recall(
         self, resolver: "ResolverRef | Sequence[ResolverRef]"
@@ -403,7 +401,7 @@ class EvalData:
             One `(precision, recall)` pair, or a list of them in the order given if a
             sequence was passed.
         """
-        readings = _readings(resolver, self.adapter)
+        readings = _readings(resolver, self.store)
         scores = precision_recall(
             [
                 store.read_resolver(fp).select("root", "leaf").unique()

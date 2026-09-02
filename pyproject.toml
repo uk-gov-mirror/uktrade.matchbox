@@ -44,15 +44,14 @@ dev = [
     "ipykernel>=6.29.5",
     "ipywidgets>=8.1.5",
     "mkdocs-autorefs>=1.3.0",
-    "mkdocs-material>=9.5.50",
-    "mkdocs>=1.6.1",
-    "mkdocstrings[python]>=0.27.0",
+    "mkdocstrings-python>=2.0.3",
     "pre-commit>=3.8.0",
     "pytest-asyncio>=0.24",
     "pytest-xdist>=3.8.0",
     "pytest>=8.3.3",
     "setuptools-scm>=8.3.1",
     "snakeviz>=2.2.2",
+    "zensical>=0.0.57",
 ]
 typing = [
     "pyarrow-stubs>=17.16",
@@ -63,7 +62,7 @@ typing = [
 "Repository" = "https://github.com/uktrade/matchlab.git"
 
 [build-system]
-requires = ["setuptools>=64", "setuptools-scm>=8"]
+requires = ["setuptools-scm>=8", "setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 # Presence enables setuptools-scm
@@ -74,9 +73,9 @@ fallback_version = "0.1.0"
 default-groups = ["dev", "typing"]
 package = true
 constraint-dependencies = [
-    "urllib3>=2.6.3",
-    "setuptools-scm>=9.2.0",
     "filelock>=3.20.3",
+    "setuptools-scm>=9.2.0",
+    "urllib3>=2.6.3",
     "virtualenv>=20.36.1",
 ]
 
@@ -116,9 +115,9 @@ convention = "google"
 allow-star-arg-any = true
 
 [tool.ruff.lint.per-file-ignores]
-# Adapter methods inherit their docstrings from the Adapter ABC, which
+# Store methods inherit their docstrings from the Store ABC, which
 # griffe-inherited-docstrings renders into the docs.
-"src/matchlab/adapters/*" = ["D102"]
+"src/matchlab/stores/*" = ["D102"]
 # Benchmark code allows printing
 "benchmarks/**" = ["T201"]
 

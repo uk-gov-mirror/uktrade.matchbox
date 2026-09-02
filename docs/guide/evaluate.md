@@ -44,7 +44,7 @@ Sampling and judging by hand is fiddly. `review()` opens a terminal app that wal
 mb.eval.review(companies, tag="review-2026-07")
 ```
 
-Paint the records into groups and each decision is stored as a judgement, tagged so a later `EvalData(adapter, tag=...)` scores against just this session. The app collects the resolver first if it isn't already.
+Paint the records into groups and each decision is stored as a judgement, tagged so a later `EvalData(store, tag=...)` scores against just this session. The app collects the resolver first if it isn't already.
 
 To review the *same* clusters someone else was shown, agree on a seed:
 
@@ -75,9 +75,7 @@ With `--store`, the target is the label a resolver output was **published** unde
 This is also the more correct thing to review. It's the data the matching actually saw, not what the warehouse says today. It also means you can hand someone a `.duckdb` file, and they can judge it on a laptop with no database access.
 
 ```python
-mb.eval.review(
-    "companies", adapter=mb.DuckDBAdapter("run.duckdb"), tag="second-opinion"
-)
+mb.eval.review("companies", store=mb.DuckDBStore("run.duckdb"), tag="second-opinion")
 ```
 
 ## Record a judgement
@@ -91,7 +89,7 @@ judgement = mb.eval.create_judgement(
     tag="review-2026-07",
 )
 
-adapter.store_judgement(judgement, user_name="leo")
+store.store_judgement(judgement, user_name="leo")
 ```
 
 Records shown together but assigned to different groups are recorded as *negative* evidence, not just absence of positive evidence. This is what makes precision measurable rather than guessed.
@@ -99,7 +97,7 @@ Records shown together but assigned to different groups are recorded as *negativ
 ## Score a resolver output
 
 ```python
-evaluation = mb.eval.EvalData(adapter, tag="review-2026-07")
+evaluation = mb.eval.EvalData(store, tag="review-2026-07")
 precision, recall = evaluation.precision_recall(companies)
 ```
 
@@ -119,7 +117,7 @@ Then judge them **together**, in one pass:
 ```python
 mb.eval.review([deterministic, splink], tag="bakeoff")
 
-evaluation = mb.eval.EvalData(adapter, tag="bakeoff")
+evaluation = mb.eval.EvalData(store, tag="bakeoff")
 evaluation.precision_recall([deterministic, splink])
 # [(0.91, 0.84), (0.95, 0.79)]
 ```
@@ -129,7 +127,3 @@ Handing `review()` several resolvers samples from their *merged* components. Two
 Scoring them together matters for the same reason. `precision_recall` keeps only the pairs present in every resolver output *and* in the judgements, so each candidate is measured over the same records. Score them one at a time and each gets its own comparison set. Those numbers don't line up.
 
 Publishing each one, for example `splink.publish("splink")`, is what lets you come back to it later with `matchlab review splink`. A candidate you only wanted to score once needs no label.
-
-## Next
-
-[Serialise a plan :octicons-arrow-right-16:](./serialise.md){ .md-button .md-button--primary }

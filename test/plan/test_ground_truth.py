@@ -16,7 +16,7 @@ from sqlalchemy import Engine, create_engine
 
 from matchlab.testkit.linked import LinkedSources, linked_sources_factory
 
-# The `adapter` fixture comes from `test/conftest.py`.
+# The `store` fixture comes from `test/conftest.py`.
 
 
 @pytest.fixture

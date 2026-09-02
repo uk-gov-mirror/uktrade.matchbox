@@ -11,11 +11,11 @@ repos:
       pass_filenames: false
       stages: [pre-commit]
 
-    # Verify MkDocs build
-    - id: mkdocs
-      name: mkdocs
-      description: "Verify MkDocs documentation builds without errors"
-      entry: uv run mkdocs build --strict
+    # Verify documentation build
+    - id: docs
+      name: docs
+      description: "Verify documentation builds without errors"
+      entry: uv run zensical build --strict
       language: system
       pass_filenames: false
       stages: [pre-commit]

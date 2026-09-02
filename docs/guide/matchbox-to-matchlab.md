@@ -274,7 +274,7 @@ matchlab review pipeline:entities                                  # after
 
 `--warehouse` is gone with it: the plan is Python, so it already has its clients.
 
-**`low_memory`, `cache_leaf_ids`, `clear_data`.** All inter-step data now flows through the adapter, so there is nothing held in memory to drop.
+**`low_memory`, `cache_leaf_ids`, `clear_data`.** All inter-step data now flows through the store, so there is nothing held in memory to drop.
 
 **Authentication and client settings.** No `api_root`, no JWT, no `MB__CLIENT__*` environment variables. Delete them.
 

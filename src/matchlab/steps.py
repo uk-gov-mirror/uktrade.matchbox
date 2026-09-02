@@ -29,11 +29,9 @@ import inspect
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Self
 
-from platformdirs import user_cache_path
 from pydantic import BaseModel
 
 from matchlab import lineage
-from matchlab.adapters import Adapter, DuckDBAdapter, Fingerprint
 from matchlab.core import logging as mlog
 from matchlab.core.exceptions import ResourceError
 from matchlab.core.hash import HASH_FUNC
@@ -47,25 +45,8 @@ from matchlab.resources import (
     resource_fields,
     values_of,
 )
-
-CACHE_DIR = user_cache_path("matchlab")
-
-_DEFAULT_ADAPTER: Adapter | None = None
-
-
-def set_default_adapter(adapter: Adapter | None) -> None:
-    """Set the adapter used by `collect()` when none is passed. `None` resets it."""
-    global _DEFAULT_ADAPTER  # module-level default, by design
-    _DEFAULT_ADAPTER = adapter
-
-
-def default_adapter() -> Adapter:
-    """Return the default adapter, creating a DuckDB store in the cache dir if unset."""
-    global _DEFAULT_ADAPTER  # module-level default, by design
-    if _DEFAULT_ADAPTER is None:
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _DEFAULT_ADAPTER = DuckDBAdapter(CACHE_DIR / "store.duckdb")
-    return _DEFAULT_ADAPTER
+from matchlab.stores import Fingerprint, Store
+from matchlab.stores.default import default_store
 
 
 class Step(ABC):
@@ -194,7 +175,7 @@ class Step(ABC):
         part of its output, prefixing every column it contributes and tagging its rows.
         """
         self._fp: Fingerprint | None = None
-        self._adapter: Adapter | None = None
+        self._store: Store | None = None
 
     # -- immutability -----------------------------------------------------------------
     #
@@ -394,12 +375,12 @@ class Step(ABC):
         semantically unchanged invalidates the whole subtree beneath it.
 
         TODO(fingerprints): split this into an action key (plan-derived, as now)
-        mapping to an output digest (content-derived, recorded by the adapter on
+        mapping to an output digest (content-derived, recorded by the store on
         write), and build a child's key from its parents' output digests rather than
         their action keys. That buys early cutoff, storage dedup and rename tolerance.
         It does **not** fix stale hits. An output digest governs propagation, never
         admission, so a step whose action key is a hit still never runs and its digest
-        is never consulted. Costs an indirection table in the adapter contract, a hash
+        is never consulted. Costs an indirection table in the store contract, a hash
         of every artifact on write, and the loss of a work-set knowable before running.
         See PLAN.md, "Known limitations", for the full ledger.
         """
@@ -415,11 +396,11 @@ class Step(ABC):
     # -- execution --------------------------------------------------------------------
 
     @abstractmethod
-    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+    def _execute(self, store: Store, fp: Fingerprint) -> None:
         """Compute this step and persist its artifact under `fp`."""
         ...
 
-    def _ensure(self, adapter: Adapter) -> StepStatus:
+    def _ensure(self, store: Store) -> StepStatus:
         """Materialise this step unless its artifact is already stored.
 
         A step this object already collected short-circuits on its stored `_fp`, without
@@ -444,27 +425,27 @@ class Step(ABC):
             artifact was already stored, `REFRESHED` if the step cannot be cached and
             was computed again.
         """
-        self._adapter = adapter
+        self._store = store
 
-        if self._cacheable and self._fp is not None and adapter.has(self._fp):
+        if self._cacheable and self._fp is not None and store.has(self._fp):
             return StepStatus.CACHED
 
         # Once per collect, and it has to stay that way. An unversioned methodology
         # keys off a fresh nonce, so asking twice would address two artifacts.
         fp = self._fingerprint()
 
-        if adapter.has(fp):  # cache hit, skip the work entirely
+        if store.has(fp):  # cache hit, skip the work entirely
             self._fp = fp
             return StepStatus.CACHED
 
-        self._execute(adapter, fp)
+        self._execute(store, fp)
         self._fp = fp
         return StepStatus.DONE if self._cacheable else StepStatus.REFRESHED
 
     # -- public API -------------------------------------------------------------------
 
     def collect(
-        self, adapter: Adapter | None = None, interactive: bool | None = None
+        self, store: Store | None = None, interactive: bool | None = None
     ) -> Self:
         """Materialise this step and everything it depends on.
 
@@ -478,8 +459,8 @@ class Step(ABC):
         application that has entirely alone. See `matchlab.core.logging.audible`.
 
         Args:
-            adapter: Where to read and write artifacts. Defaults to the module-level
-                adapter (a DuckDB store in the user cache directory).
+            store: Where to read and write artifacts. Defaults to the module-level
+                store (a DuckDB store in the user cache directory).
             interactive: Whether someone is watching. `None`, the default, takes a
                 terminal or a notebook as a yes. When they are, the plan is drawn as a
                 live tree redrawn in place, and not logged. The tree on screen is the
@@ -489,18 +470,18 @@ class Step(ABC):
         Returns:
             This step, now collected.
         """
-        adapter = adapter or default_adapter()
+        store = store or default_store()
         # One walk, used for both. It fixes each step's position, so a `step 7` the
         # reporter logs is the node it drew as `[7]`.
         steps = lineage.walk(self)
         # Outside the report, so it is still standing when the report logs its closing
         # summary on the way out. Does nothing where the application configured logging
         # itself; see `matchlab.core.logging.audible`.
-        with mlog.audible(), report(self, steps, interactive, adapter) as reporter:
+        with mlog.audible(), report(self, steps, interactive, store) as reporter:
             for step in steps:
                 reporter.begin(step)
                 try:
-                    status = step._ensure(adapter)
+                    status = step._ensure(store)
                 except Exception:
                     reporter.end(step, StepStatus.FAILED)
                     raise
@@ -519,7 +500,7 @@ class Step(ABC):
         """Address every artifact this plan is made of, its own and its inputs'.
 
         Which artifacts belong to a plan is the plan's own business, so this is where
-        a store gets told: `adapter.prune(keep=plan.fingerprints())` hands storage a set
+        a store gets told: `store.prune(keep=plan.fingerprints())` hands storage a set
         of addresses it already understands, rather than a graph it would have to learn
         to walk.
 
@@ -537,19 +518,19 @@ class Step(ABC):
 
     # -- helpers for subclasses -------------------------------------------------------
 
-    def _collected(self) -> tuple[Adapter, Fingerprint]:
-        """Return the adapter this step was collected into, and its fingerprint.
+    def _collected(self) -> tuple[Store, Fingerprint]:
+        """Return the store this step was collected into, and its fingerprint.
 
         Both together, because everything that reads a stored artifact needs both and
         neither exists before collection. Returning the pair is what lets a caller
         use the fingerprint without re-checking that it is there.
         """
-        if self._adapter is None or self._fp is None:
+        if self._store is None or self._fp is None:
             raise RuntimeError(
                 f"This {self.kind} has not been collected. Call collect() first."
             )
-        return self._adapter, self._fp
+        return self._store, self._fp
 
-    def _require_adapter(self) -> Adapter:
-        """Return the adapter this step was collected into."""
+    def _require_store(self) -> Store:
+        """Return the store this step was collected into."""
         return self._collected()[0]

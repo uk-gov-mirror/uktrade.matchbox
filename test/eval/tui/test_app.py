@@ -12,12 +12,12 @@ import pytest
 from sqlalchemy import Engine
 
 from matchlab import Resolver, Source
-from matchlab.adapters import DuckDBAdapter
 from matchlab.eval import EvalData
 from matchlab.eval.tui.app import EntityResolutionApp
 from matchlab.models.dedupers import NaiveDeduper
+from matchlab.stores import DuckDBStore
 
-# `warehouse`, `adapter` and `source` come from `test/conftest.py`. Only `crn` is read.
+# `warehouse`, `store` and `source` come from `test/conftest.py`. Only `crn` is read.
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ async def test_app_loads_clusters(
         assert set(app.current_item.records.columns) >= {"leaf"}
 
 
-async def test_app_stores_judgement(resolver: Resolver, adapter: DuckDBAdapter) -> None:
+async def test_app_stores_judgement(resolver: Resolver, store: DuckDBStore) -> None:
     """Paint every group, submit, and the judgement is stored and scoreable."""
     resolver.collect()
 
@@ -74,12 +74,12 @@ async def test_app_stores_judgement(resolver: Resolver, adapter: DuckDBAdapter) 
         else:  # the fixture always has a multi-record cluster
             pytest.fail("no multi-record cluster was offered")
 
-    judgements, expansion = adapter.read_eval_data(tag="review-test")
+    judgements, expansion = store.read_eval_data(tag="review-test")
     assert judgements.height > 0
     assert expansion.height > 0
 
     # It also scores judged pairs against the resolver's output.
-    precision, recall = EvalData(adapter, tag="review-test").precision_recall(resolver)
+    precision, recall = EvalData(store, tag="review-test").precision_recall(resolver)
     assert 0.0 <= precision <= 1.0
     assert 0.0 <= recall <= 1.0
 
@@ -127,7 +127,7 @@ async def test_app_reviews_without_plan(
     values. They came from the extract cached at collect time, which is the data the
     matching actually saw.
     """
-    store = DuckDBAdapter(tmp_path / "run.duckdb")
+    store = DuckDBStore(tmp_path / "run.duckdb")
     crn = source("crn")
     plan = crn.dedupe(
         model_class=NaiveDeduper,
@@ -144,7 +144,7 @@ async def test_app_reviews_without_plan(
     assert store.labels() == ["entities"]
 
     app = EntityResolutionApp(
-        resolver="entities", adapter=store, scroll_debounce_delay=None
+        resolver="entities", store=store, scroll_debounce_delay=None
     )
     async with app.run_test():
         assert app.current_item is not None
@@ -154,7 +154,7 @@ async def test_app_reviews_without_plan(
     store.close()
 
 
-def test_app_resolver_or_label(resolver: Resolver, adapter: DuckDBAdapter) -> None:
+def test_app_resolver_or_label(resolver: Resolver, store: DuckDBStore) -> None:
     """One parameter, two ways of saying which resolver, and they agree.
 
     The object and the label differ only in how the fingerprint is found, so nothing
@@ -162,19 +162,19 @@ def test_app_resolver_or_label(resolver: Resolver, adapter: DuckDBAdapter) -> No
     """
     from matchlab.eval import get_samples  # noqa: PLC0415
 
-    resolver.collect(adapter).publish("entities")
+    resolver.collect(store).publish("entities")
 
     # Sampling is random per call, so compare the whole population rather than a draw.
-    by_object = get_samples(n=999, resolver=resolver, adapter=adapter)
-    by_label = get_samples(n=999, resolver="entities", adapter=adapter)
+    by_object = get_samples(n=999, resolver=resolver, store=store)
+    by_label = get_samples(n=999, resolver="entities", store=store)
     assert by_object and set(by_object) == set(by_label)
 
 
-async def test_app_unknown_label(resolver: Resolver, adapter: DuckDBAdapter) -> None:
+async def test_app_unknown_label(resolver: Resolver, store: DuckDBStore) -> None:
     """An unknown label names the labels that do exist."""
     from matchlab.core.exceptions import SourceTableError  # noqa: PLC0415
     from matchlab.eval import get_samples  # noqa: PLC0415
 
     resolver.collect()
     with pytest.raises(SourceTableError, match="under the label 'nope'"):
-        get_samples(n=1, resolver="nope", adapter=adapter)
+        get_samples(n=1, resolver="nope", store=store)

@@ -11,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from matchlab import Source
-from matchlab.adapters import DuckDBAdapter
+from matchlab.stores import DuckDBStore
 from matchlab.transformers import (
     Clean,
     Group,
@@ -156,7 +156,7 @@ def test_id_output_refused(transformer: type, settings: dict) -> None:
 
 
 def test_custom_transformer_id_replaced(
-    source: Callable[..., Source], adapter: DuckDBAdapter
+    source: Callable[..., Source], store: DuckDBStore
 ) -> None:
     """The backstop for a transformer matchlab did not write.
 
@@ -170,11 +170,11 @@ def test_custom_transformer_id_replaced(
 
     step = source("crn").transform(ClobbersId())
     with pytest.raises(ValueError, match="ClobbersId replaced the `id` column"):
-        step.collect(adapter)
+        step.collect(store)
 
 
 def test_custom_transformer_id_drop(
-    source: Callable[..., Source], adapter: DuckDBAdapter
+    source: Callable[..., Source], store: DuckDBStore
 ) -> None:
     """Losing `id` altogether is the same failure, one step earlier."""
 
@@ -184,4 +184,4 @@ def test_custom_transformer_id_drop(
 
     step = source("crn").transform(DropsId())
     with pytest.raises(ValueError, match="DropsId dropped the `id` column"):
-        step.collect(adapter)
+        step.collect(store)

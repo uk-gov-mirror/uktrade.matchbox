@@ -13,7 +13,7 @@ from rich.text import Text
 
 from benchmarks.measurements import Result, Run, SweepResult
 from benchmarks.topologies import Topology
-from matchlab.adapters.base import format_bytes
+from matchlab.stores.base import format_bytes
 
 # The narrowest a run may be rendered. The sweep tables carry eleven columns
 # because eleven things are worth comparing side by side, and wrapping them into
