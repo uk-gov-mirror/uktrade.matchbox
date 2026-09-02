@@ -1,4 +1,4 @@
-"""Tests for `format_bytes` and `StoreStats.describe` on the `Adapter` base.
+"""Tests for `format_bytes` and `StoreStats.describe` on the `Store` base.
 
 These are pure formatting over plain values, with no store and no backend, so they
 belong to `base.py`'s own unit tests, not to a round-trip through a DuckDB file.
@@ -6,8 +6,8 @@ belong to `base.py`'s own unit tests, not to a round-trip through a DuckDB file.
 
 import pytest
 
-from matchlab.adapters import StoreStats, format_bytes
 from matchlab.core.kinds import StepKind
+from matchlab.stores import StoreStats, format_bytes
 
 
 @pytest.mark.parametrize(

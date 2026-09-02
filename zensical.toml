@@ -58,18 +58,16 @@ nav = [
         ] },
       ] },
       { "Specs" = "api/plan/specs.md" },
+      { "Resources" = "api/plan/resources.md" },
       { "Documents" = "api/plan/document.md" },
       { "Lineage" = "api/plan/lineage.md" },
       { "Progress" = "api/plan/progress.md" },
       { "Record step" = "api/plan/steps/recordstep.md" },
     ] },
 
-    { "Storage" = [
-      { "Adapters" = [
-        { "Adapters" = "api/storage/adapters/index.md" },
-        { "DuckDB" = "api/storage/adapters/duckdb.md" },
-      ] },
-      { "Resources" = "api/storage/resources.md" },
+    { "Stores" = [
+      { "Stores" = "api/stores/index.md" },
+      { "DuckDB" = "api/stores/duckdb.md" },
     ] },
 
     { "Evaluation" = [

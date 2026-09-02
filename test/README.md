@@ -12,7 +12,7 @@ A test also earns its place when it guards a fixture or pins a past regression. 
 
 ## Test against real objects
 
-Use real collaborators: a real SQLite warehouse, a real `DuckDBAdapter`. Mock only a boundary that is external, expensive, or non-deterministic, and name the reason in the test. The standing exceptions are the warehouse read, Splink, the TUI render surface, and the logging handlers.
+Use real collaborators: a real SQLite warehouse, a real `DuckDBStore`. Mock only a boundary that is external, expensive, or non-deterministic, and name the reason in the test. The standing exceptions are the warehouse read, Splink, the TUI render surface, and the logging handlers.
 
 A test that breaks on a refactor that preserves behaviour is testing the wrong thing. Assert on what a caller can observe, not on internal structure.
 

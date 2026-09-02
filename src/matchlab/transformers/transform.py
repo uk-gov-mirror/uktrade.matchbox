@@ -10,11 +10,11 @@ from typing import Any, ClassVar
 
 import polars as pl
 
-from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.kinds import StepKind
 from matchlab.recordstep import IdentifierRead, RecordStep
 from matchlab.resources import Resource
 from matchlab.specs import TransformSpec
+from matchlab.stores import Fingerprint, Store
 from matchlab.transformers.base import Transformer
 from matchlab.transformers.clean import Clean
 from matchlab.transformers.explode import Explode
@@ -137,8 +137,8 @@ class Transform(RecordStep):
         """The transformer whose code this transform runs."""
         return self.transformer_class
 
-    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
-        records = self._input._read_cache(adapter)
+    def _execute(self, store: Store, fp: Fingerprint) -> None:
+        records = self._input._read_cache(store)
         reshaped = self.transformer.apply(records)
 
         # The built-ins refuse an `id` output when they are built. This catches a custom
@@ -156,16 +156,16 @@ class Transform(RecordStep):
                 "`id` is derived from record content and must pass through untouched."
             )
 
-        adapter.store_transform(fp, reshaped)
+        store.store_transform(fp, reshaped)
 
     # -- RecordStep contract ------------------------------------------------------
 
-    def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
+    def _read_cache(self, store: Store) -> pl.DataFrame:
         if self._fp is None:  # collect orders upstream first
             raise RuntimeError(
                 "This transform has not been collected. Call collect() first."
             )
-        return adapter.read_transform(self._fp)
+        return store.read_transform(self._fp)
 
     @property
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:

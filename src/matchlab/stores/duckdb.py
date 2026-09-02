@@ -1,4 +1,4 @@
-"""DuckDB storage adapter — the reference local backend for matchlab.
+"""The DuckDB store for matchlab.
 
 A single DuckDB database (a file, or `:memory:`) holds every collected artifact,
 keyed by step fingerprint. There is no engine here that resolves on demand. Resolvers
@@ -13,7 +13,6 @@ from pathlib import Path
 import duckdb
 import polars as pl
 
-from matchlab.adapters.base import Adapter, Fingerprint, PruneResult, StoreStats
 from matchlab.core.kinds import StepKind
 from matchlab.core.resolver_output import root_id_of
 from matchlab.core.schemas import (
@@ -24,6 +23,7 @@ from matchlab.core.schemas import (
     check_schema_subset,
 )
 from matchlab.eval.judgements import Judgement
+from matchlab.stores.base import Fingerprint, PruneResult, Store, StoreStats
 
 # Bumped whenever the stored shape changes, or stored IDs stop meaning what they did.
 # A store written by an older matchlab is recreated rather than half-read. That's the
@@ -147,7 +147,7 @@ def _mint_cluster_id(leaves: list[int]) -> int:
     return root_id_of(leaves)
 
 
-class DuckDBAdapter(Adapter):
+class DuckDBStore(Store):
     """Store collected artifacts in a DuckDB database, keyed by fingerprint."""
 
     def __init__(self, path: str | Path = ":memory:") -> None:
@@ -419,8 +419,8 @@ class DuckDBAdapter(Adapter):
 
         **This reopens the connection.** That is the one internal detail anything
         outside this class needs to know about. Session settings applied through
-        `adapter.conn` (`memory_limit` and `temp_directory`, as the guide suggests) do
-        not survive. The adapter itself stays valid, so anything holding *it*, rather
+        `store.conn` (`memory_limit` and `temp_directory`, as the guide suggests) do
+        not survive. The store itself stays valid, so anything holding *it*, rather
         than its connection, is unaffected.
 
         An in-memory store is purged but not rewritten. It has no file, and reopening

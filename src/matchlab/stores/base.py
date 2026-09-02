@@ -1,9 +1,9 @@
-"""The storage adapter contract for matchlab.
+"""The storage contract for matchlab.
 
-An adapter is **storage, not an engine**. It persists the artifacts each collected DAG
-step produces, keyed by that step's content fingerprint, and reads them back. It does
-*not* resolve anything on demand. Resolvers materialise their complete, merge-forward
-output at collect time and hand the adapter a finished table.
+Storage persists the artifacts each collected DAG step produces, keyed by that step's
+content fingerprint, and reads them back. It does *not* resolve anything on demand.
+Resolvers materialise their complete, merge-forward output at collect time and hand
+the store a finished table.
 
 Artifacts, by step kind (schemas in `matchlab.core.schemas`, which holds exactly the
 shapes that cross this boundary):
@@ -46,7 +46,7 @@ class StoreStats(BaseModel):
     """What a store holds, and what it costs.
 
     A store keeps everything collected into it, so it grows with every plan and every
-    edit to one. Adapters subclass this to report metrics that are relevant to them.
+    edit to one. Stores subclass this to report metrics that are relevant to them.
 
     Attributes:
         location: Where the store is, as a reader would name it, such as a path, a
@@ -98,7 +98,7 @@ class StoreStats(BaseModel):
 class PruneResult(BaseModel):
     """What a prune removed, and what that actually recovered.
 
-    Adapters subclass this where they have more to say.
+    Stores subclass this where they have more to say.
 
     Attributes:
         removed: How many artifacts were deleted.
@@ -143,10 +143,10 @@ def format_bytes(count: int, *, signed: bool = False) -> str:
     raise AssertionError("unreachable: the loop returns at TB")
 
 
-class Adapter(ABC):
+class Store(ABC):
     """Fingerprint-keyed storage for collected DAG-step artifacts.
 
-    Implementations are single-user and local. `DuckDBAdapter` is the reference.
+    Implementations are single-user and local. `DuckDBStore` is the reference.
     """
 
     # -- existence / caching ----------------------------------------------------------
@@ -263,8 +263,8 @@ class Adapter(ABC):
         Args:
             fp: The resolver step's fingerprint.
             resolver_output: `SCHEMA_RESOLVER_OUTPUT` columns `(root, leaf, key,
-                source)`, already merged forward over all upstream leaves. The adapter
-                does not verify the merge. That is the client's contract. The adapter
+                source)`, already merged forward over all upstream leaves. The store
+                does not verify the merge. That is the client's contract. The store
                 does validate the schema.
             sources: Source name to fingerprint, for every source this output covers. A
                 resolver's output names its sources but one store can hold several
@@ -286,7 +286,7 @@ class Adapter(ABC):
     def publish(self, label: str, fp: Fingerprint) -> None:
         """Point `label` at `fp`, replacing whatever it pointed at before.
 
-        The adapter moves the pointer without arguing. The caller decides whether
+        The store moves the pointer without arguing. The caller decides whether
         overwriting is allowed, since it knows what the user asked for.
         """
         ...
@@ -388,7 +388,7 @@ class Adapter(ABC):
         is taking is not one to hand a growing cache to.
 
         Called on every collect, so it must be cheap. It may also settle pending writes
-        to report a size that has stopped moving, since `DuckDBAdapter` checkpoints.
+        to report a size that has stopped moving, since `DuckDBStore` checkpoints.
         This is not guaranteed to be a pure read.
         """
         ...

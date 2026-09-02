@@ -24,7 +24,7 @@ from benchmarks.data import Warehouse
 from benchmarks.measurements import Environment, Run, SweepResult
 from benchmarks.runner import CaseFailed
 from benchmarks.topologies import Topology
-from matchlab.adapters.base import format_bytes
+from matchlab.stores.base import format_bytes
 
 RESULTS = "benchmarks/results"
 

@@ -30,7 +30,7 @@ from matchlab.core.exceptions import ResourceError, StepNotFound
 from matchlab.core.kinds import StepKind
 from matchlab.specs import ModelType, SourceSpec
 
-# `warehouse`, `adapter` and the `source` factory come from `test/conftest.py`. The
+# `warehouse`, `store` and the `source` factory come from `test/conftest.py`. The
 # module-level `_apex`/`_fan_out_plan` builders take that factory, so this file holds no
 # source-construction of its own beyond the few tests that need a bespoke shape.
 
@@ -181,7 +181,7 @@ def test_collect_only_new_steps(
     assert apex.get_lookup().height > 0
 
 
-def test_renaming_resource(warehouse: Engine, adapter: mb.DuckDBAdapter) -> None:
+def test_renaming_resource(warehouse: Engine, store: mb.DuckDBStore) -> None:
     """Renaming a resource keeps the fingerprint stable."""
 
     def apex(resource_name: str) -> mb.Resolver:
@@ -196,8 +196,8 @@ def test_renaming_resource(warehouse: Engine, adapter: mb.DuckDBAdapter) -> None
             model_settings={"unique_fields": ["crn_company"]},
         ).resolve()
 
-    original = apex("warehouse").collect(adapter, interactive=False)
-    renamed = apex("something_else_entirely").collect(adapter, interactive=False)
+    original = apex("warehouse").collect(store, interactive=False)
+    renamed = apex("something_else_entirely").collect(store, interactive=False)
 
     assert renamed.fingerprints() == original.fingerprints()
 
@@ -401,7 +401,7 @@ def test_source_no_rows_raises(source: Callable[..., mb.Source]) -> None:
         empty.collect()
 
 
-def test_key_field_vs_mb_id(adapter: mb.DuckDBAdapter) -> None:
+def test_key_field_vs_mb_id(store: mb.DuckDBStore) -> None:
     """`key_field` defaults to `id`, which is also what a record step calls its own.
 
     The two never meet: `build_record_step` prefixes every column an extract returns
@@ -413,7 +413,7 @@ def test_key_field_vs_mb_id(adapter: mb.DuckDBAdapter) -> None:
         "crn",
         df=pl.DataFrame({"id": ["a1", "a2"], "company": ["acme", "beta"]}),
     )
-    source.collect(adapter)
+    source.collect(store)
 
     records = source.data()
     assert set(records.columns) == {"crn_company", "id"}
@@ -466,7 +466,7 @@ def test_source_keys_are_strings(warehouse: Engine) -> None:
     assert sorted(source.leaves()["key"].to_list()) == ["1", "2"]
 
 
-def test_plan_over_dataframes(adapter: mb.DuckDBAdapter) -> None:
+def test_plan_over_dataframes(store: mb.DuckDBStore) -> None:
     """A whole plan can run with nothing but dataframes."""
     crn = mb.read_dataframe(
         "crn",
@@ -492,7 +492,7 @@ def test_plan_over_dataframes(adapter: mb.DuckDBAdapter) -> None:
         model_class=mb.DeterministicLinker,
         model_settings={"comparisons": ["l.crn_company = r.dh_company"]},
     ).resolve()
-    resolved.collect(adapter)
+    resolved.collect(store)
 
     lookup = resolved.get_lookup()
     # Every key on both sides is reachable, including the ones nothing matched.
@@ -586,7 +586,7 @@ def test_editable_step_attributes() -> None:
         def spec(self) -> SourceSpec:  # pragma: no cover - never collected
             raise NotImplementedError
 
-        def _execute(self, adapter: object, fp: bytes) -> None:  # pragma: no cover
+        def _execute(self, store: object, fp: bytes) -> None:  # pragma: no cover
             raise NotImplementedError
 
         def _methodology_class(self) -> type | None:  # pragma: no cover
@@ -708,9 +708,9 @@ def computes(monkeypatch: pytest.MonkeyPatch) -> dict[int, int]:
     counts: dict[int, int] = {}
     original = mb.Transform._execute
 
-    def counting(self: mb.Transform, adapter: mb.DuckDBAdapter, fp: bytes) -> None:
+    def counting(self: mb.Transform, store: mb.DuckDBStore, fp: bytes) -> None:
         counts[id(self)] = counts.get(id(self), 0) + 1
-        return original(self, adapter, fp)
+        return original(self, store, fp)
 
     monkeypatch.setattr(mb.Transform, "_execute", counting)
     return counts
@@ -722,9 +722,9 @@ def model_runs(monkeypatch: pytest.MonkeyPatch) -> list[mb.Model]:
     ran: list[mb.Model] = []
     original = mb.Model._execute
 
-    def counting(self: mb.Model, adapter: mb.DuckDBAdapter, fp: bytes) -> None:
+    def counting(self: mb.Model, store: mb.DuckDBStore, fp: bytes) -> None:
         ran.append(self)
-        return original(self, adapter, fp)
+        return original(self, store, fp)
 
     monkeypatch.setattr(mb.Model, "_execute", counting)
     return ran
@@ -753,7 +753,7 @@ def _shared_record_step_plan(
 
 
 def test_record_step_stored(
-    source: Callable[..., mb.Source], adapter: mb.DuckDBAdapter
+    source: Callable[..., mb.Source], store: mb.DuckDBStore
 ) -> None:
     """Collecting a transform's consumer stores the transform too."""
     crn = source("crn")
@@ -764,12 +764,12 @@ def test_record_step_stored(
     deduped.collect()
 
     assert record_step.is_collected
-    assert adapter.has(record_step._fp)
+    assert store.has(record_step._fp)
 
 
 def test_record_step_one_session(
     source: Callable[..., mb.Source],
-    adapter: mb.DuckDBAdapter,
+    store: mb.DuckDBStore,
     computes: dict[int, int],
 ) -> None:
     """The point of storing: fan-out costs one computation, not one per consumer."""
@@ -778,12 +778,12 @@ def test_record_step_one_session(
     apex.collect()
 
     assert computes[id(record_step)] == 1
-    assert adapter.has(record_step._fp)
+    assert store.has(record_step._fp)
 
 
 def test_record_step_across_sessions(
     source: Callable[..., mb.Source],
-    adapter: mb.DuckDBAdapter,
+    store: mb.DuckDBStore,
     computes: dict[int, int],
     model_runs: list[mb.Model],
 ) -> None:
@@ -806,21 +806,21 @@ def test_record_step_across_sessions(
     retuned.collect()
 
     assert computes == {}, "a stored record step was recomputed"
-    assert adapter.has(record_step._fp)
+    assert store.has(record_step._fp)
     # The linker really did re-run, so something genuinely asked for the record step.
     # Without this the assertion above would hold trivially.
     assert [model.model_class for model in model_runs] == [mb.DeterministicLinker]
 
 
 def test_record_step_collection(
-    source: Callable[..., mb.Source], adapter: mb.DuckDBAdapter
+    source: Callable[..., mb.Source], store: mb.DuckDBStore
 ) -> None:
     """A record step collected on its own materialises its table."""
     crn = source("crn")
     record_step = crn.clean({"name": "crn_company"})
 
     data = record_step.collect().data()
-    assert adapter.has(record_step._fp)
+    assert store.has(record_step._fp)
     assert "name" in data.columns
     assert data.height == 3
 
@@ -832,10 +832,10 @@ def test_record_step_collection(
 def identifier_reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, bytes | None]]:
     """Record the `(source_name, resolver_fp)` of every `read_identifiers` call."""
     calls: list[tuple[str, bytes | None]] = []
-    original = mb.DuckDBAdapter.read_identifiers
+    original = mb.DuckDBStore.read_identifiers
 
     def counting(
-        self: mb.DuckDBAdapter,
+        self: mb.DuckDBStore,
         source_fp: bytes,
         source_name: str,
         resolver_fp: bytes | None = None,
@@ -843,7 +843,7 @@ def identifier_reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, bytes |
         calls.append((source_name, resolver_fp))
         return original(self, source_fp, source_name, resolver_fp)
 
-    monkeypatch.setattr(mb.DuckDBAdapter, "read_identifiers", counting)
+    monkeypatch.setattr(mb.DuckDBStore, "read_identifiers", counting)
     return calls
 
 
@@ -878,7 +878,7 @@ def _fan_out_plan(
 
 def test_read_identifiers_per_source(
     source: Callable[..., mb.Source],
-    adapter: mb.DuckDBAdapter,
+    store: mb.DuckDBStore,
     identifier_reads: list[tuple[str, bytes | None]],
 ) -> None:
     """Once per source, not once per model: the quadratic the resolver collapses."""
@@ -954,7 +954,7 @@ def test_resolver_exposes_sources(source: Callable[..., mb.Source]) -> None:
 
 
 def test_gc_keeps_artifacts(
-    source: Callable[..., mb.Source], adapter: mb.DuckDBAdapter
+    source: Callable[..., mb.Source], store: mb.DuckDBStore
 ) -> None:
     """A store keeps what it was given. Dropping the Python objects reclaims nothing.
 
@@ -968,12 +968,12 @@ def test_gc_keeps_artifacts(
     deduped = _dedupe_crn(crn)
     deduped.collect()
     fp = deduped._fp
-    assert adapter.has(fp)
+    assert store.has(fp)
 
     del crn, deduped
     pygc.collect()
 
-    assert adapter.has(fp)
+    assert store.has(fp)
 
 
 def test_fingerprints_every_artifact(
@@ -1027,7 +1027,7 @@ def test_fingerprints_uncollected(source: Callable[..., mb.Source]) -> None:
 
 
 def test_prune_to_plan_cache(
-    source: Callable[..., mb.Source], adapter: mb.DuckDBAdapter
+    source: Callable[..., mb.Source], store: mb.DuckDBStore
 ) -> None:
     """The property a prune has to have: it removes only what was superseded.
 
@@ -1058,11 +1058,11 @@ def test_prune_to_plan_cache(
     stranded = superseded - live
     assert stranded, "the edit should have stranded something"
 
-    result = adapter.prune(keep=plan.fingerprints())
+    result = store.prune(keep=plan.fingerprints())
 
     assert result.removed == len(stranded)
-    assert all(adapter.has(fp) for fp in live)
-    assert not any(adapter.has(fp) for fp in stranded)
+    assert all(store.has(fp) for fp in live)
+    assert not any(store.has(fp) for fp in stranded)
 
     # The real assertion: rebuild the same plan over the pruned store and let it run.
     # Nothing may execute here. If the prune took one artifact too many, this raises.
@@ -1146,7 +1146,7 @@ def test_group_one_row_per_entity(source: Callable[..., mb.Source]) -> None:
 def test_group_merges_forward(source: Callable[..., mb.Source]) -> None:
     """Grouping changes the record step's grain, never the resolver output's.
 
-    Leaves travel via `identifiers()`, read from the adapter, so collapsing rows in
+    Leaves travel via `identifiers()`, read from the store, so collapsing rows in
     the record step cannot lose a record from the resolver output below it.
     """
     crn = source("crn")
@@ -1341,39 +1341,39 @@ def test_draw_keys_the_log(source: Callable[..., mb.Source]) -> None:
 
 
 def test_publish_points_label(
-    source: Callable[..., mb.Source], adapter: mb.DuckDBAdapter
+    source: Callable[..., mb.Source], store: mb.DuckDBStore
 ) -> None:
     """Publishing is an act on a result, not a property of the plan."""
     apex, _crn, _dh = _apex(source)
-    apex.collect(adapter)
+    apex.collect(store)
 
-    assert adapter.labels() == []  # collecting publishes nothing
+    assert store.labels() == []  # collecting publishes nothing
     apex.publish("entities")
 
-    assert adapter.labels() == ["entities"]
-    assert adapter.find("entities") == apex._fp
+    assert store.labels() == ["entities"]
+    assert store.find("entities") == apex._fp
 
 
 def test_publish_idempotent(
-    source: Callable[..., mb.Source], adapter: mb.DuckDBAdapter
+    source: Callable[..., mb.Source], store: mb.DuckDBStore
 ) -> None:
     """Re-running an unchanged pipeline must not fail. Repointing must be deliberate."""
     apex, crn, _dh = _apex(source)
-    apex.collect(adapter).publish("entities")
+    apex.collect(store).publish("entities")
     apex.publish("entities")  # same resolver output, same name, so this is a no-op
 
-    other = _dedupe_crn(crn).collect(adapter)
+    other = _dedupe_crn(crn).collect(store)
     with pytest.raises(
         ValueError, match="already points at a different resolver output"
     ):
         other.publish("entities")
 
     other.publish("entities", overwrite=True)
-    assert adapter.find("entities") == other._fp
+    assert store.find("entities") == other._fp
 
 
 def test_publish_pins_a_refreshed_run(
-    source: Callable[..., mb.Source], adapter: mb.DuckDBAdapter
+    source: Callable[..., mb.Source], store: mb.DuckDBStore
 ) -> None:
     """A label keeps resolving to the output it was published against.
 
@@ -1387,14 +1387,14 @@ def test_publish_pins_a_refreshed_run(
     crn = source("crn")
     tagged = crn.transform(_Unversioned(column=crn.f("company")))
     resolver = tagged.dedupe(mb.NaiveDeduper, {"unique_fields": ["tag"]}).resolve()
-    resolver.collect(adapter).publish("entities")
-    published = adapter.find("entities")
+    resolver.collect(store).publish("entities")
+    published = store.find("entities")
 
     _SUFFIX = "-second"
-    resolver.collect(adapter)
+    resolver.collect(store)
     _SUFFIX = "-first"
 
-    assert adapter.find("entities") == published
+    assert store.find("entities") == published
     assert resolver._fp != published, "a refreshed run must not overwrite the old one"
     with pytest.raises(
         ValueError, match="already points at a different resolver output"

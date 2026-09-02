@@ -17,7 +17,7 @@ Install all dependencies:
 uv sync
 ```
 
-There is no `.env` to configure. matchlab reads no environment variables. Warehouse connections are passed to `Location`. Storage is passed to `collect()`, or set with `set_default_adapter()`.
+There is no `.env` to configure. matchlab reads no environment variables. Warehouse connections are passed to `Location`. Storage is passed to `collect()`, or set with `set_default_store()`.
 
 Secret scanning is done with [TruffleHog](https://github.com/trufflesecurity/trufflehog).
 
@@ -88,7 +88,7 @@ New plan steps subclass [`Step`](api/plan/steps). A step must:
 
 * Hold references to its inputs, and to nothing downstream of it
 * Return a stable `_spec_key()` covering everything that changes its output, so caching is correct
-* Do all its work in `_execute()`, reading inputs from the adapter by fingerprint
+* Do all its work in `_execute()`, reading inputs from the store by fingerprint
 * Settle in `__init__`, listing everything its spec is built from in `_READ_ONLY` so a later assignment raises
 
 That last rule is what keeps a step's configuration, the thing it runs, and its cached artifact from disagreeing. A step builds its methodology from its settings at construction, so an assignment afterwards moves one attribute and nothing derived from it: set `model_class` and the instance still runs the old class, leaving `spec` naming one configuration while `_execute` runs another. The cache leans on the same guarantee from the other side — `_ensure` short-circuits on a stored `_fp` *because* a settled step cannot have changed, so it would hand back the old artifact without consulting the spec at all. Validate first, then write through `_set()`, which is the only thing that gets past the guard.
@@ -97,9 +97,9 @@ Derive anything you can rather than storing it. `Transform.transformer_class` an
 
 A methodology must not write into its own settings either, for the same reason: those settings are hashed into the owning step's fingerprint. Copy at the boundary if a library you wrap mutates what you hand it, as `SplinkLinker.prepare` does.
 
-### Adapters
+### Stores
 
-New storage backends subclass [`Adapter`](api/storage/adapters). Beyond reading and writing, `stats()` must report the store's size and contents. Every collect calls it, and a store nobody can measure is one that quietly fills a disk.
+New storage backends subclass [`Store`](api/stores). Beyond reading and writing, `stats()` must report the store's size and contents. Every collect calls it, and a store nobody can measure is one that quietly fills a disk.
 
 `prune()` is the other half. Be careful with it, since it deletes. It must hold to three rules:
 

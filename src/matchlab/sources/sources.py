@@ -14,7 +14,6 @@ from typing import Any, ClassVar
 import polars as pl
 import pyarrow.parquet as pq
 
-from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.dataframes import (
     DataFrameClass,
     DataFrameType,
@@ -33,6 +32,7 @@ from matchlab.sources.dataframe import DataFrame
 from matchlab.sources.relational import DBClient, RelationalDB
 from matchlab.specs import SourceSpec
 from matchlab.steps import Step
+from matchlab.stores import Fingerprint, Store
 
 _LOCATION_CLASSES: dict[str, "type[Location]"] = {}
 
@@ -349,9 +349,9 @@ class Source(RecordStep):
         _, hashes = self._read_origin()
         return super()._spec_key() + hash_dataframe(hashes)
 
-    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+    def _execute(self, store: Store, fp: Fingerprint) -> None:
         extract, _ = self._read_origin()
-        adapter.store_source(
+        store.store_source(
             fp=fp,
             key_field=self.key_field,
             extract=extract,
@@ -360,14 +360,14 @@ class Source(RecordStep):
 
     # -- RecordStep contract -------------------------------------------------------
 
-    def _read_cache(self, adapter: Adapter) -> pl.DataFrame:
+    def _read_cache(self, store: Store) -> pl.DataFrame:
         """Return this source's records with each row's leaf as `id`.
 
         Derived from the extract and leaves stored by `_execute`, a cheap join rather
         than a separately cached artifact. Reading a source on its own means `id` is
         the leaf, so there is no resolver in the read.
         """
-        return build_record_step(adapter, (self,), None)
+        return build_record_step(store, (self,), None)
 
     @property
     def _identifier_reads(self) -> tuple[IdentifierRead, ...]:

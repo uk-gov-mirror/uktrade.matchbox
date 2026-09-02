@@ -21,12 +21,12 @@ import pytest
 from sqlalchemy import Engine, create_engine, text
 
 from matchlab import Resolver, Source
-from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import StepNotFound
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
+from matchlab.stores import DuckDBStore
 
-# The `adapter` fixture comes from `test/conftest.py`.
+# The `store` fixture comes from `test/conftest.py`.
 
 
 @pytest.fixture
@@ -237,7 +237,7 @@ def test_view_entity_reads_store(
     Reading from the store instead of the warehouse is what keeps these values from
     silently disagreeing with what the matching actually saw.
     """
-    store = DuckDBAdapter(tmp_path / "run.duckdb")
+    store = DuckDBStore(tmp_path / "run.duckdb")
     crn, _dh = _sources(source)
     resolver = crn.dedupe(
         model_class=NaiveDeduper,

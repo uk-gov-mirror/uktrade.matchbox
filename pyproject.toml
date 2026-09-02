@@ -115,9 +115,9 @@ convention = "google"
 allow-star-arg-any = true
 
 [tool.ruff.lint.per-file-ignores]
-# Adapter methods inherit their docstrings from the Adapter ABC, which
+# Store methods inherit their docstrings from the Store ABC, which
 # griffe-inherited-docstrings renders into the docs.
-"src/matchlab/adapters/*" = ["D102"]
+"src/matchlab/stores/*" = ["D102"]
 # Benchmark code allows printing
 "benchmarks/**" = ["T201"]
 

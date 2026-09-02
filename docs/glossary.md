@@ -4,10 +4,6 @@ A list of repository-specific term definitions, used consistently across matchla
 
 ## Key terms
 
-### Adapter
-
-Where a plan's artifacts are stored and read back, keyed by [fingerprint](#fingerprint). An adapter is storage, not an engine. It does not resolve anything itself. `DuckDBAdapter` is the reference implementation, backing a single DuckDB database file (or `:memory:`).
-
 ### Artifact
 
 The stored output of one [step](#step), such as a source's [extract](#extract) and leaf assignment, a [transform](#transform)'s materialised record step, a model's edge list, or a [resolver](#resolver)'s complete, merge-forward output. A [store](#store) keeps every artifact it is given until something explicitly [prunes](#prune) it.
@@ -166,7 +162,7 @@ One node in a [plan](#plan). Steps are sources, transforms, models, or resolvers
 
 ### Store
 
-Where a plan's artifacts live once collected. The reference implementation is a DuckDB database. A store keeps everything given to it until something explicitly [prunes](#prune) it or the file is deleted.
+Where a plan's artifacts are stored and read back, keyed by [fingerprint](#fingerprint). Stores are not engines and do not resolve anything themselves. `DuckDBStore` is the reference implementation, backing a single DuckDB database file (or `:memory:`). A store keeps everything given to it until something explicitly [prunes](#prune) it or the storage itself is deleted.
 
 ### Transform
 

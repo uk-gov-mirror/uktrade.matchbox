@@ -1,4 +1,4 @@
-"""The storage contract every `Adapter` must honour, over each backend.
+"""The storage contract every `Store` must honour, over each backend.
 
 These assert behaviour, not DuckDB: round-trips, `has` before store, schema rejection,
 idempotence, `read_identifiers`, sampling, the evaluation round-trip, pruning, and
@@ -12,23 +12,23 @@ from collections.abc import Callable
 import polars as pl
 import pytest
 
-from matchlab.adapters import Adapter
 from matchlab.core.exceptions import SchemaMismatch
 from matchlab.eval.judgements import Judgement
 from matchlab.eval.metrics import precision_recall
+from matchlab.stores import Store
 
 from .conftest import Fingerprints
 
 # -- existence + round-trips ----------------------------------------------------------
 
 
-def test_has_before_store(store: Adapter, fp: Fingerprints) -> None:
+def test_has_before_store(store: Store, fp: Fingerprints) -> None:
     """`has` is false until the fingerprint is stored."""
     assert not store.has(fp.src)
 
 
 def test_round_trip_source(
-    store: Adapter, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
+    store: Store, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
 ) -> None:
     """A source's extract and leaves survive a store-and-read."""
     store.store_source(fp.src, "key", extract, leaves)
@@ -41,22 +41,20 @@ def test_round_trip_source(
     assert read.schema["leaf"] == pl.UInt64
 
 
-def test_round_trip_missing_raises(store: Adapter, fp: Fingerprints) -> None:
+def test_round_trip_missing_raises(store: Store, fp: Fingerprints) -> None:
     """Reading an unstored fingerprint raises, not returns empty."""
     with pytest.raises(KeyError):
         store.read_source_extract(fp.src)
 
 
-def test_round_trip_model(
-    store: Adapter, fp: Fingerprints, edges: pl.DataFrame
-) -> None:
+def test_round_trip_model(store: Store, fp: Fingerprints, edges: pl.DataFrame) -> None:
     """A model's edges survive a store-and-read."""
     store.store_model(fp.model, edges)
     assert store.read_model(fp.model).sort("left_id").equals(edges.sort("left_id"))
 
 
 def test_round_trip_resolver(
-    store: Adapter, fp: Fingerprints, resolver_output: pl.DataFrame
+    store: Store, fp: Fingerprints, resolver_output: pl.DataFrame
 ) -> None:
     """A resolver's output survives a store-and-read."""
     store.store_resolver(fp.resolver, resolver_output)
@@ -68,7 +66,7 @@ def test_round_trip_resolver(
 
 
 def test_store_idempotent(
-    store: Adapter, fp: Fingerprints, resolver_output: pl.DataFrame
+    store: Store, fp: Fingerprints, resolver_output: pl.DataFrame
 ) -> None:
     """Storing the same fingerprint twice leaves one copy, not two."""
     store.store_resolver(fp.resolver, resolver_output)
@@ -79,14 +77,14 @@ def test_store_idempotent(
 # -- schema rejection -----------------------------------------------------------------
 
 
-def test_store_rejects_resolver_schema(store: Adapter, fp: Fingerprints) -> None:
+def test_store_rejects_resolver_schema(store: Store, fp: Fingerprints) -> None:
     """A resolver table missing key/source columns is refused."""
     bad = pl.DataFrame({"root": [1], "leaf": [2]})  # missing key/source
     with pytest.raises(SchemaMismatch):
         store.store_resolver(fp.resolver, bad)
 
 
-def test_store_rejects_model_schema(store: Adapter, fp: Fingerprints) -> None:
+def test_store_rejects_model_schema(store: Store, fp: Fingerprints) -> None:
     """A model table missing its score column is refused."""
     bad = pl.DataFrame({"left_id": [1], "right_id": [2]})  # missing score
     with pytest.raises(SchemaMismatch):
@@ -97,7 +95,7 @@ def test_store_rejects_model_schema(store: Adapter, fp: Fingerprints) -> None:
 
 
 def test_stats_counts_artifacts(
-    store: Adapter,
+    store: Store,
     fp: Fingerprints,
     extract: pl.DataFrame,
     leaves: pl.DataFrame,
@@ -121,7 +119,7 @@ def test_stats_counts_artifacts(
 
 
 def test_read_identifiers_direct(
-    store: Adapter, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
+    store: Store, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
 ) -> None:
     """Without a resolver, a record's `id` is its own leaf."""
     store.store_source(fp.src, "key", extract, leaves)
@@ -137,7 +135,7 @@ def test_read_identifiers_direct(
 
 
 def test_read_identifiers_through_resolver(
-    store: Adapter,
+    store: Store,
     fp: Fingerprints,
     extract: pl.DataFrame,
     leaves: pl.DataFrame,
@@ -156,7 +154,7 @@ def test_read_identifiers_through_resolver(
 
 
 def test_read_identifiers_one_source(
-    store: Adapter,
+    store: Store,
     fp: Fingerprints,
     extract: pl.DataFrame,
     leaves: pl.DataFrame,
@@ -177,7 +175,7 @@ def test_read_identifiers_one_source(
 
 
 def test_read_identifiers_missing_raises(
-    store: Adapter, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
+    store: Store, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
 ) -> None:
     """A read naming an unstored source or resolver raises."""
     with pytest.raises(KeyError):
@@ -192,7 +190,7 @@ def test_read_identifiers_missing_raises(
 
 
 def test_sample_whole_clusters(
-    store: Adapter, fp: Fingerprints, resolver_output: pl.DataFrame
+    store: Store, fp: Fingerprints, resolver_output: pl.DataFrame
 ) -> None:
     """A sample returns each cluster whole, and is stable for a seed."""
     store.store_resolver(fp.resolver, resolver_output)
@@ -209,7 +207,7 @@ def test_sample_whole_clusters(
 
 
 def test_sample_caps_at_available(
-    store: Adapter, fp: Fingerprints, resolver_output: pl.DataFrame
+    store: Store, fp: Fingerprints, resolver_output: pl.DataFrame
 ) -> None:
     """Asking for more clusters than exist returns all of them."""
     store.store_resolver(fp.resolver, resolver_output)
@@ -219,7 +217,7 @@ def test_sample_caps_at_available(
 # -- evaluation round-trip ------------------------------------------------------------
 
 
-def test_eval_round_trip(store: Adapter) -> None:
+def test_eval_round_trip(store: Store) -> None:
     """Store a judgement, read it back, and score a model that matches it exactly."""
     # User shown leaves 1-4, endorses {1,2} and {3,4} as two separate entities.
     store.store_judgement(
@@ -240,7 +238,7 @@ def test_eval_round_trip(store: Adapter) -> None:
     assert recall == 1.0
 
 
-def test_eval_tag_filter(store: Adapter) -> None:
+def test_eval_tag_filter(store: Store) -> None:
     """Reading by tag returns only that tag's judgements."""
     store.store_judgement(Judgement(tag="v1", shown=[1, 2], endorsed=[[1, 2]]))
     store.store_judgement(Judgement(tag="v2", shown=[3, 4], endorsed=[[3, 4]]))
@@ -249,7 +247,7 @@ def test_eval_tag_filter(store: Adapter) -> None:
     assert store.read_eval_data()[0].height == 2
 
 
-def test_eval_empty_schema(store: Adapter) -> None:
+def test_eval_empty_schema(store: Store) -> None:
     """An empty store returns eval frames with the right columns."""
     judgements, expansion = store.read_eval_data()
     assert judgements.height == 0
@@ -261,11 +259,11 @@ def test_eval_empty_schema(store: Adapter) -> None:
 
 
 def test_label_is_movable(
-    store: Adapter, fp: Fingerprints, resolver_output: pl.DataFrame
+    store: Store, fp: Fingerprints, resolver_output: pl.DataFrame
 ) -> None:
     """A label points at a fingerprint, and moves when told to.
 
-    The adapter does not argue about overwriting. That is `Resolver.publish`'s call.
+    The store does not argue about overwriting. That is `Resolver.publish`'s call.
     What it guarantees is that a label resolves to exactly one fingerprint. The old
     (kind, name) column on `artifacts` did not. Several generations shared a name, and
     the lookup picked whichever row came back first.
@@ -286,7 +284,7 @@ def test_label_is_movable(
 
 
 def test_label_survives_restore(
-    store: Adapter, fp: Fingerprints, resolver_output: pl.DataFrame
+    store: Store, fp: Fingerprints, resolver_output: pl.DataFrame
 ) -> None:
     """Re-collecting a published plan must not quietly revoke the publication.
 
@@ -308,7 +306,7 @@ def test_label_survives_restore(
 
 
 def _publish_over_one_source(
-    store: Adapter,
+    store: Store,
     fp: Fingerprints,
     extract: pl.DataFrame,
     leaves: pl.DataFrame,
@@ -323,7 +321,7 @@ def _publish_over_one_source(
 
 
 def test_prune_keeps_named(
-    store: Adapter,
+    store: Store,
     fp: Fingerprints,
     extract: pl.DataFrame,
     leaves: pl.DataFrame,
@@ -344,7 +342,7 @@ def test_prune_keeps_named(
 
 
 def test_prune_rejects_non_fingerprint(
-    store: Adapter, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
+    store: Store, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
 ) -> None:
     """Prune rejects roots that are not artifact fingerprints."""
     store.store_source(fp.src, "key", extract, leaves)
@@ -356,7 +354,7 @@ def test_prune_rejects_non_fingerprint(
 
 
 def test_prune_keeps_label_and_sources(
-    store: Adapter,
+    store: Store,
     fp: Fingerprints,
     extract: pl.DataFrame,
     leaves: pl.DataFrame,
@@ -385,7 +383,7 @@ def test_prune_keeps_label_and_sources(
 
 
 def test_prune_keeps_judgements(
-    store: Adapter,
+    store: Store,
     fp: Fingerprints,
     extract: pl.DataFrame,
     leaves: pl.DataFrame,
@@ -404,7 +402,7 @@ def test_prune_keeps_judgements(
 
 
 def test_prune_refuses_to_empty(
-    store: Adapter, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
+    store: Store, fp: Fingerprints, extract: pl.DataFrame, leaves: pl.DataFrame
 ) -> None:
     """An accidentally-empty list should not be how a store gets emptied."""
     store.store_source(fp.src, "key", extract, leaves)
@@ -419,7 +417,7 @@ def test_prune_refuses_to_empty(
 
 
 def test_persists_across_reopen(
-    durable_store: Callable[[], Adapter],
+    durable_store: Callable[[], Store],
     fp: Fingerprints,
     resolver_output: pl.DataFrame,
 ) -> None:

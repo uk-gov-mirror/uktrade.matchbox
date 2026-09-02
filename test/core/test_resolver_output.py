@@ -175,13 +175,13 @@ def test_materialise_no_clusters() -> None:
     }
 
 
-def test_root_id_matches_adapter_mint() -> None:
+def test_root_id_matches_store_mint() -> None:
     """Scoring compares judged groups to resolved clusters *by ID*.
 
     If `_mint_cluster_id` and `root_id` ever diverge, every comparison misses and
     precision/recall is computed over an empty set.
     """
-    from matchlab.adapters.duckdb import _mint_cluster_id  # noqa: PLC0415
+    from matchlab.stores.duckdb import _mint_cluster_id  # noqa: PLC0415
 
     for leaves in ([5, 9], [1, 2, 3], [10**18, 7]):
         assert _mint_cluster_id(leaves) == root_id_of(leaves)

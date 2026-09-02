@@ -27,18 +27,18 @@ from rich.live import Live
 
 from matchlab import lineage
 from matchlab import progress as progress_module
-from matchlab.adapters import (
-    Adapter,
-    DuckDBAdapter,
-    DuckDBStoreStats,
-    Fingerprint,
-    StoreStats,
-)
 from matchlab.core import logging as mlog
 from matchlab.core.kinds import StepKind
 from matchlab.lineage import StepState, StepStatus, draw
 from matchlab.progress import Progress, report
 from matchlab.steps import Step
+from matchlab.stores import (
+    DuckDBStore,
+    DuckDBStoreStats,
+    Fingerprint,
+    Store,
+    StoreStats,
+)
 
 
 class _FakeSpec(BaseModel):
@@ -79,9 +79,9 @@ class StoringStep(Step):
         """Return a minimal spec carrying only the label."""
         return _FakeSpec(name=self.label)
 
-    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+    def _execute(self, store: Store, fp: Fingerprint) -> None:
         self.executions += 1
-        adapter.store_transform(fp, pl.DataFrame({"x": [1]}))
+        store.store_transform(fp, pl.DataFrame({"x": [1]}))
 
     def _methodology_class(self) -> type | None:
         """StoringStep runs no methodology of its own."""
@@ -105,7 +105,7 @@ class RefreshingStep(StoringStep):
 class FailingStep(StoringStep):
     """A step that always raises."""
 
-    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+    def _execute(self, store: Store, fp: Fingerprint) -> None:
         raise RuntimeError("boom")
 
 
@@ -116,9 +116,9 @@ def _no_report_leaks() -> None:
 
 
 @pytest.fixture
-def store() -> DuckDBAdapter:
+def store() -> DuckDBStore:
     """An in-memory store for the fake steps to collect into."""
-    return DuckDBAdapter(":memory:")
+    return DuckDBStore(":memory:")
 
 
 def _terminal(monkeypatch: pytest.MonkeyPatch, height: int) -> io.StringIO:
@@ -166,7 +166,7 @@ def _frame(reporter: Progress) -> str:
     return buffer.getvalue()
 
 
-def _run(apex: Step, store: DuckDBAdapter) -> Progress:
+def _run(apex: Step, store: DuckDBStore) -> Progress:
     """Drive a report by hand, the way `collect` does, and hand back its state."""
     steps = apex.lineage()
     with report(apex, steps, interactive=False) as reporter:
@@ -188,7 +188,7 @@ def _untimed(messages: list[str]) -> list[str]:
 # -- what collect reports ------------------------------------------------------------
 
 
-def test_report_first_collect_runs_all(store: DuckDBAdapter) -> None:
+def test_report_first_collect_runs_all(store: DuckDBStore) -> None:
     """A first collect runs every storing step."""
     apex, source, view = _plan()
 
@@ -199,10 +199,10 @@ def test_report_first_collect_runs_all(store: DuckDBAdapter) -> None:
     assert state[id(view)].status is StepStatus.DONE
 
 
-def test_report_recollect_cached(store: DuckDBAdapter) -> None:
+def test_report_recollect_cached(store: DuckDBStore) -> None:
     """The distinction the report exists to show: what your edit actually re-ran."""
     apex, source, _view = _plan()
-    apex.collect(adapter=store, interactive=False)
+    apex.collect(store=store, interactive=False)
     assert source.executions == 1
 
     state = _run(apex, store).state
@@ -212,9 +212,9 @@ def test_report_recollect_cached(store: DuckDBAdapter) -> None:
     assert source.executions == 1
 
 
-def test_report_warm_store_all_cached(store: DuckDBAdapter) -> None:
+def test_report_warm_store_all_cached(store: DuckDBStore) -> None:
     """Fingerprints are plan-derived, so a rebuilt plan hits the same artifacts."""
-    _plan()[0].collect(adapter=store, interactive=False)
+    _plan()[0].collect(store=store, interactive=False)
 
     apex, source, _view = _plan()
     state = _run(apex, store).state
@@ -223,9 +223,7 @@ def test_report_warm_store_all_cached(store: DuckDBAdapter) -> None:
     assert source.executions == 0
 
 
-def test_report_refreshed(
-    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_report_refreshed(store: DuckDBStore, caplog: pytest.LogCaptureFixture) -> None:
     """An uncacheable step reads as refreshed rather than as work an edit caused.
 
     It re-runs on every collect, so a reader who cannot tell the two apart sees a plan
@@ -235,7 +233,7 @@ def test_report_refreshed(
     """
     source = StoringStep("source")
     apex = RefreshingStep("apex", parents=(source,))
-    apex.collect(adapter=store, interactive=False)
+    apex.collect(store=store, interactive=False)
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
         reporter = _run(apex, store)
@@ -247,16 +245,16 @@ def test_report_refreshed(
     assert any("Refreshed in" in message for message in _messages(caplog))
 
 
-def test_report_failure_reraised(store: DuckDBAdapter) -> None:
+def test_report_failure_reraised(store: DuckDBStore) -> None:
     """A failing step is marked failed and the error re-raised."""
     source = StoringStep("source")
     apex = FailingStep("apex", parents=(source,))
 
     with pytest.raises(RuntimeError, match="boom"):
-        apex.collect(adapter=store, interactive=False)
+        apex.collect(store=store, interactive=False)
 
 
-def test_report_steps_timed(store: DuckDBAdapter) -> None:
+def test_report_steps_timed(store: DuckDBStore) -> None:
     """Every step's duration is recorded."""
     apex, source, _view = _plan()
 
@@ -269,10 +267,10 @@ def test_report_steps_timed(store: DuckDBAdapter) -> None:
 
 
 def test_summary_totals_debug_counts(
-    store: DuckDBAdapter,
+    store: DuckDBStore,
 ) -> None:
     """`Cached` sits at DEBUG, so the INFO summary has to total it."""
-    _plan()[0].collect(adapter=store, interactive=False)
+    _plan()[0].collect(store=store, interactive=False)
     apex, _source, _view = _plan()
 
     summary = _run(apex, store).summary()
@@ -298,11 +296,11 @@ def test_summary_store_size(tmp_path: Path, caplog: pytest.LogCaptureFixture) ->
 
     A file store, because that is the one that outlives the process and fills a disk.
     """
-    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    store = DuckDBStore(tmp_path / "store.duckdb")
     apex, _source, _view = _plan()
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        apex.collect(adapter=store, interactive=False)
+        apex.collect(store=store, interactive=False)
     summary = _summary_of(caplog)
     store.close()
 
@@ -317,12 +315,12 @@ def test_summary_no_growth(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> 
     A fully cached collect wrote nothing, and has to say so — otherwise the number is
     just the store's size again and names nothing.
     """
-    store = DuckDBAdapter(tmp_path / "store.duckdb")
-    _plan()[0].collect(adapter=store, interactive=False)
+    store = DuckDBStore(tmp_path / "store.duckdb")
+    _plan()[0].collect(store=store, interactive=False)
     apex, _source, _view = _plan()
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        apex.collect(adapter=store, interactive=False)
+        apex.collect(store=store, interactive=False)
     summary = _summary_of(caplog)
     store.close()
 
@@ -330,8 +328,8 @@ def test_summary_no_growth(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> 
     assert "(+0 B)" in summary
 
 
-def test_summary_omits_store_without_adapter(
-    store: DuckDBAdapter,
+def test_summary_omits_store_without_store(
+    store: DuckDBStore,
 ) -> None:
     """`Progress` is constructible without one, and then simply says less."""
     apex, _source, _view = _plan()
@@ -351,22 +349,22 @@ def test_summary_store_describes_itself(
 
     What is worth saying about a store depends on the backend, so the clause comes from
     the stats object and not from the reporter. Checked by having one say something no
-    real adapter would.
+    real store would.
     """
 
     class Chatty(DuckDBStoreStats):
         def describe(self, since: StoreStats | None = None) -> str:
             return "a store of unusual size"
 
-    def chatty_stats(self: DuckDBAdapter) -> Chatty:
+    def chatty_stats(self: DuckDBStore) -> Chatty:
         return Chatty(location=self.path, bytes=0)
 
-    monkeypatch.setattr(DuckDBAdapter, "stats", chatty_stats)
-    store = DuckDBAdapter(tmp_path / "store.duckdb")
+    monkeypatch.setattr(DuckDBStore, "stats", chatty_stats)
+    store = DuckDBStore(tmp_path / "store.duckdb")
     apex, _source, _view = _plan()
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        apex.collect(adapter=store, interactive=False)
+        apex.collect(store=store, interactive=False)
     store.close()
 
     assert _summary_of(caplog).endswith(". a store of unusual size")
@@ -376,13 +374,13 @@ def test_summary_store_describes_itself(
 
 
 def test_log_plan_once_up_front(
-    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+    store: DuckDBStore, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Without the tree, the numbered lines that follow refer to nothing."""
     apex, _source, _view = _plan()
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        apex.collect(adapter=store, interactive=False)
+        apex.collect(store=store, interactive=False)
 
     headers = [m for m in _messages(caplog) if m.startswith("Collecting")]
     assert len(headers) == 1
@@ -393,13 +391,13 @@ def test_log_plan_once_up_front(
 
 
 def test_log_quotes_position(
-    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+    store: DuckDBStore, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The cross-reference, end to end: every `[step N]` is an `[N]` in the drawing."""
     apex, _source, _view = _plan()
 
     with caplog.at_level(logging.DEBUG, logger="matchlab"):
-        apex.collect(adapter=store, interactive=False)
+        apex.collect(store=store, interactive=False)
 
     messages = _messages(caplog)
     tree = next(m for m in messages if m.startswith("Collecting"))
@@ -413,7 +411,7 @@ def test_log_quotes_position(
 
 
 def test_log_attributes_step_records(
-    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+    store: DuckDBStore, caplog: pytest.LogCaptureFixture
 ) -> None:
     """What a step logs while it runs is tied to the plan without it saying so.
 
@@ -423,21 +421,21 @@ def test_log_attributes_step_records(
     """
 
     class ChattyStep(StoringStep):
-        def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+        def _execute(self, store: Store, fp: Fingerprint) -> None:
             mlog.logger.info("Round 1: Found 13,336 matches")
-            super()._execute(adapter, fp)
+            super()._execute(store, fp)
 
     apex = ChattyStep("apex", parents=(StoringStep("source"),))
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        apex.collect(adapter=store, interactive=False)
+        apex.collect(store=store, interactive=False)
 
     position = lineage.number(apex)[id(apex)]
     assert f"[step {position}] Round 1: Found 13,336 matches" in _messages(caplog)
 
 
 def test_log_nested_restores_positions(
-    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+    store: DuckDBStore, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A step can collect — `Model.results()` does — and that walk numbers its own.
 
@@ -447,16 +445,16 @@ def test_log_nested_restores_positions(
     inner_apex, _source, _view = _plan()
 
     class NestingStep(StoringStep):
-        def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+        def _execute(self, store: Store, fp: Fingerprint) -> None:
             mlog.logger.info("before")
-            inner_apex.collect(adapter=adapter, interactive=False)
+            inner_apex.collect(store=store, interactive=False)
             mlog.logger.info("after")
-            super()._execute(adapter, fp)
+            super()._execute(store, fp)
 
     apex = NestingStep("apex", parents=(StoringStep("source"),))
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        apex.collect(adapter=store, interactive=False)
+        apex.collect(store=store, interactive=False)
 
     outer = lineage.number(apex)[id(apex)]
     messages = _messages(caplog)
@@ -470,7 +468,7 @@ def test_log_nested_restores_positions(
 
 
 def test_log_prefix_outside_collection(
-    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+    store: DuckDBStore, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A `Source` reads the warehouse from both, and each has its own best answer.
 
@@ -480,15 +478,15 @@ def test_log_prefix_outside_collection(
     """
 
     class NamedStep(StoringStep):
-        def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+        def _execute(self, store: Store, fp: Fingerprint) -> None:
             mlog.logger.info("Reading from the warehouse", prefix="hmrc")
-            super()._execute(adapter, fp)
+            super()._execute(store, fp)
 
     apex = NamedStep("apex", parents=(StoringStep("source"),))
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
         mlog.logger.info("Reading from the warehouse", prefix="hmrc")
-        apex.collect(adapter=store, interactive=False)
+        apex.collect(store=store, interactive=False)
 
     position = lineage.number(apex)[id(apex)]
     messages = _messages(caplog)
@@ -497,13 +495,13 @@ def test_log_prefix_outside_collection(
 
 
 def test_log_prefix_released(
-    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+    store: DuckDBStore, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A position outlives its walk as a lie: it numbers a tree nobody is inside."""
     apex, _source, _view = _plan()
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        apex.collect(adapter=store, interactive=False)
+        apex.collect(store=store, interactive=False)
         caplog.clear()
         mlog.logger.info("afterwards")
 
@@ -511,21 +509,21 @@ def test_log_prefix_released(
     assert _messages(caplog) == ["afterwards"]
 
 
-def test_log_prefix_released_on_failure(store: DuckDBAdapter) -> None:
+def test_log_prefix_released_on_failure(store: DuckDBStore) -> None:
     """The raise skips `end`, so releasing has to happen on the way out too."""
     apex = FailingStep("apex", parents=(StoringStep("source"),))
 
     with pytest.raises(RuntimeError, match="boom"):
-        apex.collect(adapter=store, interactive=False)
+        apex.collect(store=store, interactive=False)
 
     assert mlog.prefix.get() is None
 
 
 def test_log_level_per_outcome(
-    store: DuckDBAdapter, caplog: pytest.LogCaptureFixture
+    store: DuckDBStore, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Work done is INFO; structure — cached — is DEBUG."""
-    _plan()[0].collect(adapter=store, interactive=False)
+    _plan()[0].collect(store=store, interactive=False)
 
     # A fresh plan over the warm store with one new step on top, so a single collect
     # produces both outcomes: everything below is cached, only the new apex runs.
@@ -534,7 +532,7 @@ def test_log_level_per_outcome(
     positions = lineage.number(top)
 
     with caplog.at_level(logging.DEBUG, logger="matchlab"):
-        top.collect(adapter=store, interactive=False)
+        top.collect(store=store, interactive=False)
 
     levels = {
         record.getMessage().split("]")[0].lstrip("["): record.levelno
@@ -555,12 +553,12 @@ def test_log_records_match_drawn(
     """
     # A store each, so both runs do the same work and differ only in their display.
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        _plan()[0].collect(adapter=DuckDBAdapter(":memory:"), interactive=True)
+        _plan()[0].collect(store=DuckDBStore(":memory:"), interactive=True)
     drawn = _untimed(_messages(caplog))
 
     caplog.clear()
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        _plan()[0].collect(adapter=DuckDBAdapter(":memory:"), interactive=False)
+        _plan()[0].collect(store=DuckDBStore(":memory:"), interactive=False)
     logged = _untimed(_messages(caplog))
 
     assert [m for m in drawn if not m.startswith("Collecting")] == [
@@ -571,7 +569,7 @@ def test_log_records_match_drawn(
 
 
 def test_log_not_duplicated_when_drawn(
-    store: DuckDBAdapter, terminal: io.StringIO, caplog: pytest.LogCaptureFixture
+    store: DuckDBStore, terminal: io.StringIO, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The frame is already the key, and stays on screen — a second copy is noise.
 
@@ -580,14 +578,14 @@ def test_log_not_duplicated_when_drawn(
     apex, _source, _view = _plan()
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        apex.collect(adapter=store, interactive=True)
+        apex.collect(store=store, interactive=True)
 
     assert not any(m.startswith("Collecting") for m in _messages(caplog))
     assert any("Ran in" in m for m in _messages(caplog))  # the records still land
     assert "apex" in terminal.getvalue()  # and the plan is on screen instead
 
 
-def test_log_handler_no_smear(store: DuckDBAdapter, terminal: io.StringIO) -> None:
+def test_log_handler_no_smear(store: DuckDBStore, terminal: io.StringIO) -> None:
     """`logging.basicConfig(level=INFO)` is what people write, so it has to work.
 
     Its handler holds the stream it was built with, so it never sees the redirect Rich
@@ -600,7 +598,7 @@ def test_log_handler_no_smear(store: DuckDBAdapter, terminal: io.StringIO) -> No
     matchlab = logging.getLogger("matchlab")
     matchlab.addHandler(handler)
     try:
-        apex.collect(adapter=store, interactive=True)
+        apex.collect(store=store, interactive=True)
     finally:
         matchlab.removeHandler(handler)
 
@@ -671,7 +669,7 @@ def test_log_handler_borrowed_on_collision(
 
 
 def test_log_console_handler_shares_terminal(
-    store: DuckDBAdapter, terminal: io.StringIO
+    store: DuckDBStore, terminal: io.StringIO
 ) -> None:
     """The alternative to silencing records: put them where Rich can see them.
 
@@ -681,15 +679,15 @@ def test_log_console_handler_shares_terminal(
     long_record = "Round 1: " + "x" * 60  # 69 chars, in an 80-column terminal
 
     class ChattyStep(StoringStep):
-        def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+        def _execute(self, store: Store, fp: Fingerprint) -> None:
             mlog.logger.info(long_record)
-            super()._execute(adapter, fp)
+            super()._execute(store, fp)
 
     apex = ChattyStep("apex", parents=(StoringStep("source"),))
     handler = mlog.ConsoleHandler()
     logging.getLogger("matchlab").addHandler(handler)
     try:
-        apex.collect(adapter=store, interactive=True)
+        apex.collect(store=store, interactive=True)
     finally:
         logging.getLogger("matchlab").removeHandler(handler)
 
@@ -720,7 +718,7 @@ def unconfigured(monkeypatch: pytest.MonkeyPatch) -> logging.Logger:
 
 
 def test_log_unconfigured_still_reports(
-    store: DuckDBAdapter, terminal: io.StringIO, unconfigured: logging.Logger
+    store: DuckDBStore, terminal: io.StringIO, unconfigured: logging.Logger
 ) -> None:
     """A collection is worth watching, so it doesn't wait to be asked.
 
@@ -730,7 +728,7 @@ def test_log_unconfigured_still_reports(
     """
     apex, _source, _view = _plan()
 
-    apex.collect(adapter=store, interactive=True)
+    apex.collect(store=store, interactive=True)
 
     output = terminal.getvalue()
     assert "Ran in" in output
@@ -738,7 +736,7 @@ def test_log_unconfigured_still_reports(
 
 
 def test_log_lent_handler_taken_back(
-    store: DuckDBAdapter, terminal: io.StringIO, unconfigured: logging.Logger
+    store: DuckDBStore, terminal: io.StringIO, unconfigured: logging.Logger
 ) -> None:
     """The handler is lent for one collection, not installed.
 
@@ -747,14 +745,14 @@ def test_log_lent_handler_taken_back(
     """
     apex, _source, _view = _plan()
 
-    apex.collect(adapter=store, interactive=True)
+    apex.collect(store=store, interactive=True)
 
     assert unconfigured.handlers == []
     assert unconfigured.level == logging.NOTSET
 
 
 def test_log_configured_wins(
-    store: DuckDBAdapter, terminal: io.StringIO, unconfigured: logging.Logger
+    store: DuckDBStore, terminal: io.StringIO, unconfigured: logging.Logger
 ) -> None:
     """An application that configured logging gets what it configured, once."""
     apex, _source, _view = _plan()
@@ -764,7 +762,7 @@ def test_log_configured_wins(
     unconfigured.addHandler(handler)
     unconfigured.setLevel(logging.INFO)
 
-    apex.collect(adapter=store, interactive=False)
+    apex.collect(store=store, interactive=False)
 
     assert "APP Collected 3 steps" in buffer.getvalue()
     # And not through a console handler of ours as well, which would say it twice.
@@ -772,7 +770,7 @@ def test_log_configured_wins(
 
 
 def test_log_silenced_by_null_handler(
-    store: DuckDBAdapter, terminal: io.StringIO, unconfigured: logging.Logger
+    store: DuckDBStore, terminal: io.StringIO, unconfigured: logging.Logger
 ) -> None:
     """`NullHandler` is how a library is silenced, and it has to work here too.
 
@@ -782,13 +780,13 @@ def test_log_silenced_by_null_handler(
     apex, _source, _view = _plan()
     unconfigured.addHandler(logging.NullHandler())
 
-    apex.collect(adapter=store, interactive=False)
+    apex.collect(store=store, interactive=False)
 
     assert "Collected 3 steps" not in terminal.getvalue()
 
 
 def test_log_chosen_level_respected(
-    store: DuckDBAdapter, terminal: io.StringIO, unconfigured: logging.Logger
+    store: DuckDBStore, terminal: io.StringIO, unconfigured: logging.Logger
 ) -> None:
     """A level set without a handler is still a decision, and outranks the default.
 
@@ -798,7 +796,7 @@ def test_log_chosen_level_respected(
     apex, _source, _view = _plan()
     unconfigured.setLevel(logging.WARNING)
 
-    apex.collect(adapter=store, interactive=False)
+    apex.collect(store=store, interactive=False)
 
     assert "Collected 3 steps" not in terminal.getvalue()
     assert unconfigured.level == logging.WARNING
@@ -845,13 +843,11 @@ def test_tree_escapes_markup() -> None:
     Console(file=io.StringIO()).print(markup)  # would raise on a bad tag
 
 
-def test_tree_live_redraws_in_place(
-    store: DuckDBAdapter, terminal: io.StringIO
-) -> None:
+def test_tree_live_redraws_in_place(store: DuckDBStore, terminal: io.StringIO) -> None:
     """The live display redraws in place rather than scrolling."""
     apex, _source, _view = _plan()
 
-    apex.collect(adapter=store, interactive=True)
+    apex.collect(store=store, interactive=True)
 
     output = terminal.getvalue()
     # The cursor-up sequence is what makes it one updating frame rather than a
@@ -956,7 +952,7 @@ def test_channel_tall_plan_drawn(
 
 
 def test_channel_window_keeps_records(
-    store: DuckDBAdapter,
+    store: DuckDBStore,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -965,7 +961,7 @@ def test_channel_window_keeps_records(
     _terminal(monkeypatch, height=5)
 
     with caplog.at_level(logging.INFO, logger="matchlab"):
-        apex.collect(adapter=store, interactive=True)
+        apex.collect(store=store, interactive=True)
 
     ran = [m for m in _messages(caplog) if "Ran in" in m]
     assert len(ran) == 12

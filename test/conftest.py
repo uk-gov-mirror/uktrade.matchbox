@@ -7,7 +7,7 @@ Two fixture idioms cover most of the suite (see `test/README.md`):
 - The `linked_sources_factory` oracle in `matchlab.testkit`, for methodology
   correctness at scale.
 
-Every collecting test also gets the autouse in-memory `adapter`, so nothing ever
+Every collecting test also gets the autouse in-memory `store`, so nothing ever
 touches the real store in the user's cache directory.
 """
 
@@ -20,23 +20,24 @@ import pytest
 from rich.console import Console
 from sqlalchemy import Engine, create_engine, text
 
-from matchlab import Resource, Source, read_database, set_default_adapter
-from matchlab.adapters import DuckDBAdapter
+from matchlab import Resource, Source, read_database
+from matchlab.stores import DuckDBStore
+from matchlab.stores.default import set_default_store
 
 TEST_ROOT = Path(__file__).resolve().parent
 
 
 @pytest.fixture(autouse=True)
-def adapter() -> Iterator[DuckDBAdapter]:
+def store() -> Iterator[DuckDBStore]:
     """An in-memory store, set as the default `collect()` reaches for.
 
-    Autouse so no test can fall through to `default_adapter()`, which would create a
+    Autouse so no test can fall through to `default_store()`, which would create a
     real DuckDB file in the user's cache directory.
     """
-    store = DuckDBAdapter(":memory:")
-    set_default_adapter(store)
+    store = DuckDBStore(":memory:")
+    set_default_store(store)
     yield store
-    set_default_adapter(None)
+    set_default_store(None)
     store.close()
 
 

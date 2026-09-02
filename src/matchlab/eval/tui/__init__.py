@@ -13,14 +13,14 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from matchlab.adapters import Adapter
     from matchlab.eval.samples import ResolverRef
+    from matchlab.stores import Store
 
 
 def review(
     resolver: "ResolverRef | Sequence[ResolverRef]",
     n: int = 5,
-    adapter: "Adapter | None" = None,
+    store: "Store | None" = None,
     tag: str | None = None,
     seed: int | None = None,
     show_help: bool = True,
@@ -34,7 +34,7 @@ def review(
 
     ```python
     review(companies, tag="session-1")  # from a plan
-    review("companies", adapter=DuckDBAdapter("run.duckdb"))  # from a store alone
+    review("companies", store=DuckDBStore("run.duckdb"))  # from a store alone
     review([naive, splink], tag="bakeoff")  # judge both at once
     ```
 
@@ -43,10 +43,10 @@ def review(
             published under. Pass several and you review their merged components, so
             one session's judgements score every one of them.
         n: How many clusters to hold in the queue at once.
-        adapter: Where judgements are stored, and where samples are drawn from.
-            Defaults to the module-level adapter.
+        store: Where judgements are stored, and where samples are drawn from.
+            Defaults to the module-level store.
         tag: Tags every judgement made in this session, so a later
-            `EvalData(adapter, tag=...)` can score against just these.
+            `EvalData(store, tag=...)` can score against just these.
         seed: Fixes which clusters this session draws, so someone else with the same
             store can review the same ones.
         show_help: Show the key bindings on start.
@@ -56,7 +56,7 @@ def review(
     EntityResolutionApp(
         resolver=resolver,
         num_samples=n,
-        adapter=adapter,
+        store=store,
         session_tag=tag,
         seed=seed,
         show_help=show_help,

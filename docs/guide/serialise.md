@@ -104,7 +104,7 @@ Renaming a resource changes no fingerprint anywhere in the plan. Editing a setti
 
 ### Which fields are which
 
-Every field of a location, transformer, deduper, linker or resolver is a setting, unless its class marks it [`FromResources`](../api/storage/resources.md):
+Every field of a location, transformer, deduper, linker or resolver is a setting, unless its class marks it [`FromResources`](../api/plan/resources.md):
 
 ```python
 # matchlab's own RelationalDB, quoted from source

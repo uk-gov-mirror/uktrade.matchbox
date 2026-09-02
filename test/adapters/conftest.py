@@ -1,7 +1,7 @@
-"""Fixtures for the storage-adapter tests.
+"""Fixtures for the store tests.
 
 The contract tests (`test_contract.py`) run one test body over every backend. A test
-that takes the `store` fixture is parametrised across each storage backend. A test
+that takes the `store` fixture is parametrised across each store implementation. A test
 that takes `durable_store` runs only over backends that survive a reopen. Adding a
 backend means adding an entry to the lists below, not writing a new test. That is the
 same move `DEDUPERS` makes for models, and the `warehouse` dispatch makes for warehouse
@@ -19,9 +19,9 @@ import polars as pl
 import pytest
 from pydantic import BaseModel, ConfigDict
 
-from matchlab.adapters import Adapter, DuckDBAdapter
+from matchlab.stores import DuckDBStore, Store
 
-# Every storage backend, and the subset of them that persists across a reopen.
+# Every store, and the subset of them that persists across a reopen.
 STORE_BACKENDS = ["duckdb_memory"]
 DURABLE_BACKENDS = ["duckdb"]
 
@@ -34,32 +34,32 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         metafunc.parametrize("durable_store", DURABLE_BACKENDS, indirect=True)
 
 
-# -- storage backends -----------------------------------------------------------------
+# -- stores ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def duckdb_memory_store() -> Iterator[Adapter]:
+def duckdb_memory_store() -> Iterator[Store]:
     """An ephemeral in-memory DuckDB store."""
-    store = DuckDBAdapter(":memory:")
+    store = DuckDBStore(":memory:")
     yield store
     store.close()
 
 
 @pytest.fixture
-def store(request: pytest.FixtureRequest) -> Adapter:
-    """Dispatch to a storage backend by name, for indirect parametrisation."""
+def store(request: pytest.FixtureRequest) -> Store:
+    """Dispatch to a store by name, for indirect parametrisation."""
     return request.getfixturevalue(f"{request.param}_store")
 
 
 @pytest.fixture
-def duckdb_durable_store(tmp_path: Path) -> Callable[[], Adapter]:
+def duckdb_durable_store(tmp_path: Path) -> Callable[[], Store]:
     """A factory that reopens a file-backed DuckDB store at the same path each call."""
     db = tmp_path / "store.duckdb"
-    return lambda: DuckDBAdapter(db)
+    return lambda: DuckDBStore(db)
 
 
 @pytest.fixture
-def durable_store(request: pytest.FixtureRequest) -> Callable[[], Adapter]:
+def durable_store(request: pytest.FixtureRequest) -> Callable[[], Store]:
     """Dispatch to a durable backend, returning a factory that reopens its store."""
     return request.getfixturevalue(f"{request.param}_durable_store")
 

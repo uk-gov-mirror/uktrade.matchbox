@@ -253,7 +253,7 @@ A step feeding two parents is still one step. It's drawn in full where you first
 
 `cached` tells you your edit didn't invalidate that step, so nothing was recomputed.
 
-The summary at the end says what the store now costs, and what this run added to it. Here, the store is the DuckDB cache that holds artifacts, and the adapter is the Python object that talks to that store. A store keeps everything you collect into it, so editing a cleaning expression and re-collecting leaves the old artifacts behind. The `(+3.0 MB)` is what tells you which edit did that, while it's still a few megabytes rather than a full disk. A fully cached re-run reads `(+0 B)`. See [Reclaiming storage](#reclaiming-storage).
+The summary at the end says what the store now costs, and what this run added to it. Here, the store is the DuckDB cache that holds artifacts, as well as the Python object that talks to that store. A store keeps everything you collect into it, so editing a cleaning expression and re-collecting leaves the old artifacts behind. The `(+3.0 MB)` is what tells you which edit did that, while it's still a few megabytes rather than a full disk. A fully cached re-run reads `(+0 B)`. See [Reclaiming storage](#reclaiming-storage).
 
 !!! info "Interactive trees and logs"
     Your own logging handlers work alongside the interactive tree with nothing further to set up. `basicConfig` binds whatever `sys.stderr` was at the time. A running collection borrows handlers pointed at its terminal and routes them through its console until it's finished. Records appear above the tree as they arrive. matchlab's own fallback handler keeps the same split: logs use stderr when stdout is reserved for some other payload.
@@ -357,10 +357,10 @@ That goes for settings too. A resolver's per-model thresholds take the model obj
 ### Collecting again
 
 
-To collect somewhere other than the default store, pass an adapter pointing at the store you want to use:
+To collect somewhere other than the default store, pass a new store object to `collect()`:
 
 ```python
-entities.collect(adapter=mb.DuckDBAdapter("./run.duckdb"))
+entities.collect(store=mb.DuckDBStore("./run.duckdb"))
 ```
 
 ## Publishing
@@ -381,14 +381,14 @@ A label belongs to the store, and points at whichever resolver output you last a
 A step that refreshes stores a new artifact every run rather than replacing the last, so a plan holding one grows the store steadily. This has a cost, so every collect reports it. That's the `Store 3.0 MB (+3.0 MB), 7 artifacts` clause above. You can also ask directly:
 
 ```python
-stats = mb.default_adapter().stats()
+stats = mb.default_store().stats()
 print(stats.location)  # where the default store actually is
 print(stats.bytes)  # what it costs, in bytes
 print(stats.artifacts)  # {'source': 8, 'transform': 40, 'model': 32, 'resolver': 24}
 print(stats.describe())  # 'Store 1.2 GB, 104 artifacts'
 ```
 
-Watch the artifact count rather than the size to see this happen. Edit a cleaning expression, re-collect, and the count grows while the plan stays the same size. The old artifacts are still there. For this reason, you may want to prune the store as you go, using its adapter.
+Watch the artifact count rather than the size to see this happen. Edit a cleaning expression, re-collect, and the count grows while the plan stays the same size. The old artifacts are still there. For this reason, you may want to prune the store as you go.
 
 
 ### Pruning
@@ -398,7 +398,7 @@ Watch the artifact count rather than the size to see this happen. Edit a cleanin
 ```python
 entities = build_plan().collect()
 
-result = mb.default_adapter().prune(keep=entities.fingerprints())
+result = mb.default_store().prune(keep=entities.fingerprints())
 print(result.describe())
 # 'Removed 80 artifacts, kept 24, reclaimed 416.2 MB'
 ```
@@ -409,7 +409,7 @@ print(result.describe())
 
 Nothing is inferred about what you are still using. matchlab does not watch which objects your program is holding. A store outlives the process that wrote it. You say what to keep.
 
-Pruning rewrites the store, which reopens its connection. Any session setting applied through `adapter.conn` (see [Keeping memory bounded](#keeping-memory-bounded)) has to be applied again afterwards.
+Pruning rewrites the store, which reopens its connection. Any session setting applied through `store.conn` (see [Keeping memory bounded](#keeping-memory-bounded)) has to be applied again afterwards.
 
 ### Starting from cold
 
@@ -421,7 +421,7 @@ from pathlib import Path
 Path("./run.duckdb").unlink()  # start again from cold
 ```
 
-The default store lives in your user cache directory. `mb.default_adapter().stats().location` will tell you exactly where, and it's safe to delete at any time. You lose cache hits, not results you can't rebuild, provided the warehouse data hasn't moved.
+The default store lives in your user cache directory. `mb.default_store().stats().location` will tell you exactly where, and it's safe to delete at any time. You lose cache hits, not results you can't rebuild, provided the warehouse data hasn't moved.
 
 !!! warning "DuckDB files do not shrink"
     Deleting rows or dropping tables inside a DuckDB file does **not** return space to the operating system. DuckDB marks the blocks free and reuses them for later writes, but the file stays the size of its high-water mark. There is no `VACUUM FULL`, and `CHECKPOINT` will not do it either:
@@ -435,12 +435,12 @@ The default store lives in your user cache directory. `mb.default_adapter().stat
 
 ### Keeping memory bounded
 
-An in-memory store (`mb.DuckDBAdapter(":memory:")`) is not limited to RAM. DuckDB spills table data to a temporary directory once it exceeds `memory_limit`. That defaults to about 80% of your machine's memory:
+An in-memory store (`mb.DuckDBStore(":memory:")`) is not limited to RAM. DuckDB spills table data to a temporary directory once it exceeds `memory_limit`. That defaults to about 80% of your machine's memory:
 
 ```python
-adapter = mb.DuckDBAdapter(":memory:")
-adapter.conn.execute("SET memory_limit = '4GB'")
-adapter.conn.execute("SET temp_directory = '/fast/scratch'")
+store = mb.DuckDBStore(":memory:")
+store.conn.execute("SET memory_limit = '4GB'")
+store.conn.execute("SET temp_directory = '/fast/scratch'")
 ```
 
 That bounds the resident footprint without discarding anything. That's almost always what you want from a cache. Paged out is cheap to read back, deleted has to be recomputed.

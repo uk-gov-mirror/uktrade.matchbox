@@ -1,11 +1,11 @@
-"""Arrow schemas for the artifacts an adapter persists.
+"""Arrow schemas for the artifacts a store persists.
 
 These are the shapes that cross the boundary between a step and its storage: what a
-`Model` or `Resolver` hands the adapter, and what the adapter hands back. They live here
+`Model` or `Resolver` hands the store, and what the store hands back. They live here
 rather than with their producers because both sides need them, and `core` is the only
-layer both a producer and an adapter can depend on without inverting.
+layer both a producer and a store can depend on without inverting.
 
-The membership rule is exactly that boundary — **the adapter persists it or returns
+The membership rule is exactly that boundary — **the store persists it or returns
 it**. A shape that never leaves the process belongs with the code that produces it:
 `SCHEMA_CLUSTERS` is a resolver methodology's output, read by the `Resolver` that called
 it and by nothing else, so it lives in `matchlab.resolvers.base`. Keeping those out is
@@ -50,7 +50,7 @@ SCHEMA_JUDGEMENTS: Final[pa.Schema] = pa.schema(
         ("shown", pa.uint64()),
     ]
 )
-"""Stored user judgements, as returned by `Adapter.read_eval_data`."""
+"""Stored user judgements, as returned by `Store.read_eval_data`."""
 
 SCHEMA_CLUSTER_EXPANSION: Final[pa.Schema] = pa.schema(
     [

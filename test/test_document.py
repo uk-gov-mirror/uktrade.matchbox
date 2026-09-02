@@ -26,16 +26,16 @@ from matchlab import (
     read_database,
     read_dataframe,
 )
-from matchlab.adapters import DuckDBAdapter
 from matchlab.core.exceptions import ResourceError
 from matchlab.models import Model
 from matchlab.models.dedupers import NaiveDeduper
 from matchlab.models.linkers import DeterministicLinker
 from matchlab.resolvers import Resolver
 from matchlab.steps import Step
+from matchlab.stores import DuckDBStore
 from matchlab.transformers import Transform
 
-# `warehouse`, `adapter` and `source` come from `test/conftest.py`.
+# `warehouse`, `store` and `source` come from `test/conftest.py`.
 
 
 @pytest.fixture
@@ -108,10 +108,10 @@ def test_rebuild_fingerprints_match(plan: Resolver, warehouse: Engine) -> None:
 
 
 def test_rebuild_hits_cache(
-    plan: Resolver, warehouse: Engine, adapter: DuckDBAdapter
+    plan: Resolver, warehouse: Engine, store: DuckDBStore
 ) -> None:
     """A transferred plan must find the original's artifacts, not redo the work."""
-    plan.collect(adapter)
+    plan.collect(store)
 
     rebuilt = load(dump(plan), resources={"warehouse": warehouse})
     for step in lineage.walk(rebuilt):
@@ -121,7 +121,7 @@ def test_rebuild_hits_cache(
 
         step._execute = boom
 
-    rebuilt.collect(adapter)  # must not raise
+    rebuilt.collect(store)  # must not raise
 
 
 def test_rebuild_different_warehouse(plan: Resolver, tmp_path: Path) -> None:
@@ -475,5 +475,5 @@ def test_rebuild_transform_chain(
 
     assert [t.transformer_class.__name__ for t in transforms] == ["Select", "Clean"]
     plan.collect()
-    rebuilt.collect(adapter=DuckDBAdapter(":memory:"))
+    rebuilt.collect(store=DuckDBStore(":memory:"))
     assert plan.fingerprints() == rebuilt.fingerprints()

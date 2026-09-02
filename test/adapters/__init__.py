@@ -1,1 +1,1 @@
-"""Tests for storage adapters."""
+"""Tests for stores."""

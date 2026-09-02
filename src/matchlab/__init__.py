@@ -19,7 +19,6 @@ Evaluation stays behind `matchlab.eval`, since a plan runs without it.
 
 from importlib.metadata import version
 
-from matchlab.adapters import DuckDBAdapter
 from matchlab.document import PlanDocument, dump, load
 from matchlab.models import Model, add_model_class
 from matchlab.models.dedupers import NaiveDeduper
@@ -44,7 +43,9 @@ from matchlab.sources import (
     read_database,
     read_dataframe,
 )
-from matchlab.steps import Step, default_adapter, set_default_adapter
+from matchlab.steps import Step
+from matchlab.stores import DuckDBStore
+from matchlab.stores.default import default_store, set_default_store
 from matchlab.transformers import (
     Clean,
     Explode,
@@ -63,7 +64,7 @@ __all__ = (
     "DataFrame",
     "Deduper",
     "DeterministicLinker",
-    "DuckDBAdapter",
+    "DuckDBStore",
     "Explode",
     "FromResources",
     "Group",
@@ -89,10 +90,10 @@ __all__ = (
     "add_model_class",
     "add_resolver_class",
     "add_transformer_class",
-    "default_adapter",
+    "default_store",
     "dump",
     "load",
     "read_database",
     "read_dataframe",
-    "set_default_adapter",
+    "set_default_store",
 )

@@ -30,7 +30,7 @@ from benchmarks.measurements import (
 )
 from benchmarks.report import MIN_WIDTH, save, summarise
 from benchmarks.topologies import Topology, build, declare
-from matchlab.adapters import DuckDBAdapter
+from matchlab.stores import DuckDBStore
 
 SMALL = Warehouse(n_entities=300, records_per_entity=2, n_sources=4)
 
@@ -210,7 +210,7 @@ def test_collect_warm(
 ) -> None:
     """The warm column has to be measuring cache hits, not a second run of the work."""
     path, _ = warehouse
-    store = DuckDBAdapter(":memory:")
+    store = DuckDBStore(":memory:")
     try:
         build(Topology.MESH, declare(path, SMALL.sources)).collect(
             store, interactive=False

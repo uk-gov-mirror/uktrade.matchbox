@@ -1,7 +1,7 @@
 """Unit tests for the lineage algorithms.
 
 These exercise `matchlab.lineage` in isolation, with trivial fake steps, so the
-graph semantics are pinned independently of sources, adapters, or warehouses.
+graph semantics are pinned independently of sources, stores, or warehouses.
 """
 
 from typing import ClassVar
@@ -9,9 +9,9 @@ from typing import ClassVar
 from pydantic import BaseModel
 
 from matchlab import lineage
-from matchlab.adapters import Adapter, Fingerprint
 from matchlab.core.kinds import StepKind
 from matchlab.steps import Step
+from matchlab.stores import Fingerprint, Store
 
 
 class _FakeSpec(BaseModel):
@@ -51,7 +51,7 @@ class FakeStep(Step):
         """Return a minimal spec carrying only the label."""
         return _FakeSpec(name=self.label)
 
-    def _execute(self, adapter: Adapter, fp: Fingerprint) -> None:
+    def _execute(self, store: Store, fp: Fingerprint) -> None:
         raise AssertionError("FakeStep never executes")
 
     def _methodology_class(self) -> type | None:
