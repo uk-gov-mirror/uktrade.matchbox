@@ -6,6 +6,11 @@
     </picture>
 </p>
 
+> [!WARNING]
+> Matchbox has evolved into [matchlab](https://github.com/uktrade/matchlab), a local-only package that prioritises the developer experience. We're taking all we learned here, and using it to make the clean > match > evaluate loop as quick and powerful as we can. See you there!
+> 
+> This repo has been archived and will receive no further updates.
+
 Record matching is a chore. 🔥Matchbox is a match pipeline orchestration tool that aims to:
 
 * Make matching an iterative, collaborative, measurable problem
